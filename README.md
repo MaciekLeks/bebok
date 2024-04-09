@@ -5,7 +5,7 @@ A 64-bit kernel (and eventually an operating system) written in Zig, currently t
 In Silesian language, a creature from their demonology. 
 
 # About Bebok
-- Borok is a basic version of an x64 operating system, crafted in Zig using the capabilities of the Limine bootloader.
+- Bebok is a basic version of an x64 operating system, crafted in Zig using the capabilities of the Limine bootloader.
 
 # Current features include:
 - All Limine features
