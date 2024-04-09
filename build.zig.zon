@@ -1,0 +1,15 @@
+.{
+    .name = "bebok",
+    .version = "0.1.0-dev",
+    .dependencies = .{
+        .limine_zig = .{
+            .url = "git+https://github.com/limine-bootloader/limine-zig#trunk",
+            .hash = "1220889cec612d653c31a4063d20daa9ec382ac23f76e9cc60a778b0ad17377bafa1",
+        },
+        .limine = .{
+            .url = "git+https://github.com/limine-bootloader/limine#v7.x-binary",
+            .hash = "1220409caa0ebb57268a5c273c7bcc9f523d7e34f4fc4e5ab59a09c738c1bb59c8f2",
+        },
+    },
+    .paths = .{""},
+}
