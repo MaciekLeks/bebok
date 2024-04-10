@@ -78,10 +78,8 @@ pub fn GenericTerminal(comptime FontInfo: type) type {
             unreachable;
         }
 
-        fn putCharAt(self: *Self, sx: usize, sy: usize, cp: u21, cp_u32: u32) void {
-            _ = cp; //TODO
-            const codepoint: u21 = @truncate(cp_u32 & 0x1fffff);
-            var utf8_arr: [4]u8 = [_]u8{0} ** 4; //TODO: we need only 4 bytes and trailing 0 at the end of the array is important to make it a valid utf8 string
+        fn putCharAt(self: *Self, sx: usize, sy: usize, codepoint: u21) void {
+            var utf8_arr: [4]u8 = [_]u8{0} ** 4;
             const encoded_bytes = std.unicode.utf8Encode(codepoint, utf8_arr[0..]) catch unreachable;
             const glyph_no = self.font_info.glyphNumber(utf8_arr[0..encoded_bytes]) orelse 65; //TODO 65->0
             var iter = self.font_info.iterator(glyph_no);
@@ -120,8 +118,7 @@ pub fn GenericTerminal(comptime FontInfo: type) type {
                 return;
             }
 
-            const code_point_u32: u32 = codepoint;
-            self.putCharAt(self.column, self.row, codepoint, code_point_u32);
+            self.putCharAt(self.column, self.row, codepoint);
             self.column += 1;
             if (self.column == self.max_column) {
                 self.column = 0;
