@@ -26,6 +26,8 @@ pub const TerminalError = error {
     NoFramebuffer,
 };
 
+const log = std.log.scoped(.terminal);
+
 //pub fn init(fg: ConsoleColors, bg: ConsoleColors) void {
 pub fn GenericTerminal(comptime FontInfo: type) type {
     return struct {
@@ -57,6 +59,8 @@ pub fn GenericTerminal(comptime FontInfo: type) type {
                 const fb = framebuffer_response.framebuffers()[fbi];
                 const max_row = fb.height / font_info.glyph_height;
                 const max_column = fb.width / font_info.glyph_width;
+
+                log.info("Framebuffer:  addr:0x{x}   {}x{}x{} @ {}bpp", .{&fb.address[0], fb.width, fb.height, fb.pitch, fb.bpp});
 
                 var self = Self{
                     .row = 0,

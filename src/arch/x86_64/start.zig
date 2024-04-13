@@ -8,6 +8,7 @@ const limine = @import("limine");
 const std = @import("std");
 
 const term = @import("terminal");
+const paging = @import("paging.zig");
 //const heap = @import("memory/heap.zig");
 //export means that linker can see this function
 
@@ -15,12 +16,6 @@ const term = @import("terminal");
 // base revision described by the Limine boot protocol specification.
 // See specification for further info.
 pub export var base_revision: limine.BaseRevision = .{ .revision = 1 };
-
-inline fn done() noreturn {
-    while (true) {
-        asm volatile ("hlt");
-    }
-}
 
 //var str = "\n- long-mode, \n- paging for 2MB, \n- sys memory map.";
 // export fn _start() callconv(.C) noreturn {
@@ -53,7 +48,6 @@ pub export var terminal_request: limine.TerminalRequest = .{};
 
 pub export var memory_map_request: limine.MemoryMapRequest = .{};
 pub export var efi_memory_map_request: limine.EfiMemoryMapRequest = .{};
-pub export var hhdm_request: limine.HhdmRequest = .{};
 
 // src: https://ziglang.org/documentation/master/std/#std.log
 // pub const std_options = .{
@@ -80,12 +74,21 @@ pub export var hhdm_request: limine.HhdmRequest = .{};
 // }
 //
 
+const log = std.log.scoped(.start);
+
+pub inline fn done() noreturn {
+    while (true) {
+        asm volatile ("hlt");
+    }
+}
 
 // The following will be our kernel's entry point.
-export fn _start() callconv(.C) noreturn {
+//export fn start() callconv(.C) noreturn
+//
+pub fn init() void {
     // Ensure the bootloader actually understands our base revision (see spec).
     if (!base_revision.is_supported()) {
-        done();
+        done(); //TODO remove it from here
     }
 
     //var term = console.buildTerminal(psf.buildFont("lat2-08.psf")).init(console.ConsoleColors.Cyan, console.ConsoleColors.DarkGray);
@@ -109,20 +112,16 @@ export fn _start() callconv(.C) noreturn {
     if (efi_memory_map_request.response) |res| pty.printf("EfiMemoryMapResponse: {any}\n", .{res}) else pty.printf("No EfiMemoryMapResponse\n", .{});
     // We're done, just hang...
 
+    log.debug("Hello, world!", .{});
+
     // heap.init(1024, 0x100000);
     // const mem = heap.allocator().alloc(u8, 100) catch {
     //     pty.printf("Memory allocation error\n", .{});
     //     done();
     // };
     // defer heap.allocator().free(mem);
-    //pty.printf("Allocated memory: {d}\n", .{mem.len});
+    // pty.printf("Allocated memory: {d}\n", .{mem.len});
 
     //const log = std.log.scoped(.paging);
-    if (hhdm_request.response) |hhdm_response| {
-        const hhdm_offset = hhdm_response.offset;
-        //log.debug("HHDM offset=0x{x}", .{hhdm_offset});
-        pty.printf("HHDM offset=0x{x}\n", .{hhdm_offset});
-    } else @panic("No HHDM bootloader response available");
-
-    done();
+    paging.init();
 }
