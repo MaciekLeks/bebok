@@ -2,6 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assm = @import("asm.zig");
 const start = @import("start.zig");
+const heap = @import("memory/heap.zig");
+const paging = @import("paging.zig");
 
 const log = std.log.scoped(.kernel);
 
@@ -45,6 +47,17 @@ pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
 
 export fn _start() callconv(.C) noreturn {
     start.init();
+    defer start.done();
+
+    log.debug("Hello, world!", .{});
+
+    heap.init(1024, paging.vaddrFromPaddr(0x100000));
+    const mem = heap.allocator().alloc(u8, 100) catch {
+        log.debug("Memory allocation error\n", .{});
+        @panic("Memory allocation error");
+    };
+    defer heap.allocator().free(mem);
+    log.debug("Allocated memory: {d}\n", .{mem.len});
 
     start.done();
 }

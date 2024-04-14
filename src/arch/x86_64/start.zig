@@ -112,15 +112,7 @@ pub fn init() void {
     if (efi_memory_map_request.response) |res| pty.printf("EfiMemoryMapResponse: {any}\n", .{res}) else pty.printf("No EfiMemoryMapResponse\n", .{});
     // We're done, just hang...
 
-    log.debug("Hello, world!", .{});
 
-    // heap.init(1024, 0x100000);
-    // const mem = heap.allocator().alloc(u8, 100) catch {
-    //     pty.printf("Memory allocation error\n", .{});
-    //     done();
-    // };
-    // defer heap.allocator().free(mem);
-    // pty.printf("Allocated memory: {d}\n", .{mem.len});
 
     //const log = std.log.scoped(.paging);
     paging.init();
