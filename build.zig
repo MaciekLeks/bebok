@@ -1,9 +1,9 @@
 const std = @import("std");
-const Build = @import("std").Build;
-const Target = @import("std").Target;
-const Feature = @import("std").Target.Cpu.Feature;
+const Build = std.Build;
+const Target = std.Target;
+const Feature = std.Target.Cpu.Feature;
 
-const BEBOK_ISO_FILENAME = "bebok.iso";
+const bebok_iso_filename = "bebok.iso";
 
 // fn nasmRun(b: *Build, src: []const u8, dst: []const u8, options: []const []const u8, prev_step: ?*Build.Step) error{OutOfMemory}!*Build.Step {
 //     var args = std.ArrayList([]const u8).init(b.allocator);
@@ -73,6 +73,9 @@ fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.bu
     const terminal_module = b.addModule("terminal", .{  .root_source_file =  .{ .path = "libs/terminal/mod.zig" }});
     terminal_module.addImport("limine", limine_zig_mod); //we need limine there
     compile_kernel_action.root_module.addImport("terminal", terminal_module);
+
+    const utils_module = b.addModule("utils", .{  .root_source_file =  .{ .path = "libs/utils/mod.zig" }});
+    compile_kernel_action.root_module.addImport("utils", utils_module);
     //}Modules
 
     return compile_kernel_action;
@@ -151,8 +154,8 @@ fn injectLimineStages(limine_run_action: *Build.Step.Run, iso_file: Build.LazyPa
 fn installIsoFileAction(b: *Build, iso_build_task: *Build.Step, iso_file: Build.LazyPath) *Build.Step.InstallFile {
     const copy_iso_task = b.addWriteFiles();
     copy_iso_task.step.dependOn(iso_build_task);
-    const iso_artifact_path = copy_iso_task.addCopyFile(iso_file, BEBOK_ISO_FILENAME);
-    return b.addInstallFile(iso_artifact_path, BEBOK_ISO_FILENAME);
+    const iso_artifact_path = copy_iso_task.addCopyFile(iso_file, bebok_iso_filename);
+    return b.addInstallFile(iso_artifact_path, bebok_iso_filename);
 }
 
 fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, iso_file: Build.LazyPath) !*Build.Step.Run {
@@ -210,7 +213,7 @@ pub fn build(b: *Build) !void {
     const limine_action = buildLimineAction(b);
 
     const build_iso_file_action = buildIsoFileAction(b, compile_kernel_action);
-    const build_iso_file_action_output = build_iso_file_action.addOutputFileArg(BEBOK_ISO_FILENAME);
+    const build_iso_file_action_output = build_iso_file_action.addOutputFileArg(bebok_iso_filename);
     injectLimineStages(limine_action, build_iso_file_action_output);
     const build_iso_file_task = &build_iso_file_action.step;
 

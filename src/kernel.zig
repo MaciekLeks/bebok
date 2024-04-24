@@ -2,8 +2,10 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assm = @import("asm.zig");
 const start = @import("start.zig");
-const heap = @import("memory/heap.zig");
+//const heap = @import("memory/heap.zig");
 const paging = @import("paging.zig");
+const pmm = @import("memory/pmm.zig");
+
 
 const log = std.log.scoped(.kernel);
 
@@ -51,13 +53,16 @@ export fn _start() callconv(.C) noreturn {
 
     log.debug("Hello, world!", .{});
 
-    heap.init(1024, paging.vaddrFromPaddr(0x100000));
-    const mem = heap.allocator().alloc(u8, 100) catch {
-        log.debug("Memory allocation error\n", .{});
-        @panic("Memory allocation error");
+    pmm.init() catch |err| {
+        log.err("PMM initialization error: {}", .{err});
+        @panic("PMM initialization error");
     };
-    defer heap.allocator().free(mem);
-    log.debug("Allocated memory: {d}\n", .{mem.len});
 
-    start.done();
+    // heap.init(1024, paging.vaddrFromPaddr(0x100000));
+    // const mem = heap.allocator().alloc(u8, 100) catch {
+    //     log.debug("Memory allocation error", .{});
+    //     @panic("Memory allocation error");
+    // };
+    // defer heap.allocator().free(mem);
+    // log.debug("Allocated memory: {d}", .{mem.len});
 }

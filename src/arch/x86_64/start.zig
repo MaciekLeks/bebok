@@ -46,8 +46,8 @@ pub export var base_revision: limine.BaseRevision = .{ .revision = 1 };
 
 pub export var terminal_request: limine.TerminalRequest = .{};
 
-pub export var memory_map_request: limine.MemoryMapRequest = .{};
-pub export var efi_memory_map_request: limine.EfiMemoryMapRequest = .{};
+//pub export var memory_map_request: limine.MemoryMapRequest = .{};
+//pub export var efi_memory_map_request: limine.EfiMemoryMapRequest = .{};
 
 // src: https://ziglang.org/documentation/master/std/#std.log
 // pub const std_options = .{
@@ -101,15 +101,15 @@ pub fn init() void {
     //if (terminal_request.response) |terminal_response| pty.printf("Response: {d}\n", .{terminal_response.terminal_count})
     //else  pty.printf("No response\n", .{});
 
-    if (memory_map_request.response) |memory_map_response| {
-        for (memory_map_response.entries()) |memory_map| {
-            const size_mb = memory_map.length / 1024 / 1024;
-            const size_gb = if (size_mb > 1024) size_mb / 1024 else 0;
-            pty.printf("MemoryMapResponse: {x} {x} size:{d}MB size:{d}GB {any} \n", .{ memory_map.base, memory_map.length, size_mb, size_gb, memory_map.kind });
-        }
-    }
-
-    if (efi_memory_map_request.response) |res| pty.printf("EfiMemoryMapResponse: {any}\n", .{res}) else pty.printf("No EfiMemoryMapResponse\n", .{});
+    // if (memory_map_request.response) |memory_map_response| {
+    //     for (memory_map_response.entries()) |memory_map| {
+    //         const size_mb = memory_map.length / 1024 / 1024;
+    //         const size_gb = if (size_mb > 1024) size_mb / 1024 else 0;
+    //         pty.printf("MemoryMapResponse: {x} {x} size:{d}MB size:{d}GB {any} \n", .{ memory_map.base, memory_map.length, size_mb, size_gb, memory_map.kind });
+    //     }
+    // }
+    //
+    // if (efi_memory_map_request.response) |res| pty.printf("EfiMemoryMapResponse: {any}\n", .{res}) else pty.printf("No EfiMemoryMapResponse\n", .{});
     // We're done, just hang...
 
 
