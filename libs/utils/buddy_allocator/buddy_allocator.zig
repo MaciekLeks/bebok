@@ -15,9 +15,6 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
     const BBTree = bbtree.BuddyBitmapTree(max_levels, min_size);
 
     const AllocInfo = struct {
-        // allocated_mem_size: usize,
-        // free_mem_size: usize,
-
         size_pow2: usize, //allocated memory
         vaddr: usize, //virtual address
     };
@@ -38,6 +35,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
             const buffer: []u8 = @as([*]u8, @ptrFromInt(buffer_vaddr))[0..self.tree.meta.len];
             self.tree.setBuffer(buffer);
             self.tree.setChunk(buffer_index);
+            self.free_mem_size -= level_meta.size; //decrease the free memory size taken by the buffer
         }
 
         pub fn init(memory: []u8) !Self {
@@ -117,9 +115,9 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
             self.freeInner(vaddr);
         }
 
-        // TODO implement resize
+        // TODO: ?No resize possible to keep the memory addres the same whle resizing
         fn resize(_: *anyopaque, _: []u8, _: u8, _: usize, _: usize) bool {
-            return false;
+            @compileError("Not implemented");
         }
 
         pub fn allocator(self: *Self) Allocator {
@@ -179,7 +177,6 @@ test "BuddyAllocator" {
     const allocator = ba.allocator();
 
     const alloc_mem = try allocator.alloc(u8, tst_req_mem_size);
-    //try t.expect(alloc_mem > 0); // we  allocated 4 bytes, so now 8 bytes is taken
     try t.expect(ba.tree.buffer[0] == 0b0001_1011); // we  allocated 4 bytes, so now 8 bytes is taken
 
     allocator.free(alloc_mem);

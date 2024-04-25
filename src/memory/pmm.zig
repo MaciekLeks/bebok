@@ -9,6 +9,7 @@ pub export var mmap_req = limine.MemoryMapRequest{};
 
 const BuddyAllocator4kBFrameSize = utils.BuddyAllocator(32, 4096);
 var tmp_ba: BuddyAllocator4kBFrameSize = undefined;
+var tmp_ba2: BuddyAllocator4kBFrameSize = undefined;
 
 pub fn init() !void {
     log.debug("Initializing....", .{});
@@ -35,6 +36,10 @@ pub fn init() !void {
 
             tmp_ba = try BuddyAllocator4kBFrameSize.init(v_region);
             log.debug("Initialized buddy allocator: unallocated memory size:: 0x{x}, free to allocate memory size: 0x{x}", .{tmp_ba.unalloc_mem_size, tmp_ba.free_mem_size});
+            if (tmp_ba.unalloc_mem_size > 4096)  {
+                tmp_ba2 = try BuddyAllocator4kBFrameSize.init(v_region[tmp_ba.free_mem_size..]);
+                log.debug("Initialized buddy allocator2: unallocated memory size:: 0x{x}, free to allocate memory size: 0x{x}", .{tmp_ba2.unalloc_mem_size, tmp_ba2.free_mem_size});
+            }
         } else return error.NoUsableMemory;
     } else return error.NoMemoryMap;
 }
