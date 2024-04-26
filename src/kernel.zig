@@ -6,11 +6,13 @@ const start = @import("start.zig");
 const paging = @import("paging.zig");
 const pmm = @import("memory/pmm.zig");
 
-
 const log = std.log.scoped(.kernel);
 
 pub const std_options = .{
     .logFn = logFn,
+    .log_scope_levels = &[_]std.log.ScopeLevel{
+        .{ .scope = .bbtree, .level = .info },
+    },
 };
 
 pub fn logFn(comptime message_level: std.log.Level, comptime scope: @Type(.EnumLiteral), comptime format: []const u8, args: anytype) void {
@@ -57,6 +59,7 @@ export fn _start() callconv(.C) noreturn {
         log.err("PMM initialization error: {}", .{err});
         @panic("PMM initialization error");
     };
+    defer pmm.deinit();
 
     // heap.init(1024, paging.vaddrFromPaddr(0x100000));
     // const mem = heap.allocator().alloc(u8, 100) catch {

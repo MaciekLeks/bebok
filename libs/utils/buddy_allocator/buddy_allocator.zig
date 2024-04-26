@@ -76,7 +76,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
 
             self.tree.setChunk(idx);
 
-            self.tree.dump();
+            //self.tree.dump();
 
             self.free_mem_size -= size_pow2;
 
@@ -96,17 +96,19 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
             const len_pow2 = minAllocSize(len) catch return null;
             if (!self.isAllocationAllowed(len_pow2)) return null;
             const alloc_info = self.allocInner(len_pow2) catch return null;
+
+            log.debug("requested 0x{x} allocated: 0x{x}, free: 0x{x}", .{ len, alloc_info.size_pow2, self.free_mem_size });
             return @as([*]u8, @ptrFromInt(alloc_info.vaddr));
         }
 
         fn freeInner(self: *Self, vaddr: usize) void {
             const idx = self.indexFromVaddr(vaddr);
-            log.debug("free: {d} from vaddr: {d}", .{ idx, vaddr });
+            log.debug("free: idx: {d} from vaddr: {d}", .{ idx, vaddr });
 
             self.tree.unset(idx);
             self.tree.maybeUnsetParent(idx);
 
-            self.tree.dump();
+            //self.tree.dump();
         }
 
         fn free(ctx: *anyopaque, old_mem: []u8, _: u8, _: usize) void {

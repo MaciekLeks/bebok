@@ -54,7 +54,7 @@ fn resolveTarget(b: *Build, arch: Target.Cpu.Arch) !Build.ResolvedTarget {
 
 /// Main compilation units
 /// Add here all modules that should be compiled into the kernel
-fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, limine_zig_mod: anytype) *Build.Step.Compile {
+fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, limine_zig_mod: anytype, zigavl_mod: anytype) *Build.Step.Compile {
     const compile_kernel_action = b.addExecutable(.{
         .name = "kernel.elf",
         .root_source_file = .{ .path = "src/kernel.zig" },
@@ -65,6 +65,7 @@ fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.bu
         .pic = false, //TODO: check if this is needed
     });
     compile_kernel_action.root_module.addImport("limine", limine_zig_mod);
+    compile_kernel_action.root_module.addImport("zigavl", zigavl_mod);
     compile_kernel_action.setLinkerScript(.{ .path = b.fmt("linker-{s}.ld", .{@tagName(target.result.cpu.arch)}) });
     compile_kernel_action.out_filename = "kernel.elf";
     compile_kernel_action.pie = false; //TODO: ?
@@ -199,7 +200,10 @@ pub fn build(b: *Build) !void {
     const limine_zig_dep = b.dependency("limine_zig", .{});
     const limine_zig_mod = limine_zig_dep.module("limine");
 
-    const compile_kernel_action = compileKernelAction(b, target, optimize, limine_zig_mod);
+    const zigavl_dep =  b.dependency("zigavl", .{});
+    const zigavl_mod = zigavl_dep.module("zigavl");
+
+    const compile_kernel_action = compileKernelAction(b, target, optimize, limine_zig_mod, zigavl_mod);
     const install_kernel_action = installKernelAction(b, compile_kernel_action);
     const install_kernel_task = &install_kernel_action.step;
     // overwrite standard install

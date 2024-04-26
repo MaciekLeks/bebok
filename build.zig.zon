@@ -10,6 +10,10 @@
             .url = "git+https://github.com/limine-bootloader/limine#v7.x-binary",
             .hash = "1220409caa0ebb57268a5c273c7bcc9f523d7e34f4fc4e5ab59a09c738c1bb59c8f2",
         },
+        .zigavl = .{
+            .url = "git+https://github.com/MaciekLeks/zigavl.git#main",
+            .hash = "1220340243e8f3f93cccad5dbd0598483d38055827559d38ea4540cea9b8197452fc"
+        }
     },
     .paths = .{""},
 }
