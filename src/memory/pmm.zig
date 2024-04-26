@@ -49,7 +49,7 @@ pub fn init() !void {
             });
 
            var  ba = try BuddyAllocator4kBFrameSize.init(v_region);
-            log.debug("Initialized buddy allocator: unallocated memory size:: 0x{x}, free to allocate memory size: 0x{x}", .{tmp_ba.unalloc_mem_size, tmp_ba.free_mem_size});
+            log.debug("Initialized buddy allocator: unallocated memory size:: 0x{x}, free to allocate memory size: 0x{x}", .{ba.unalloc_mem_size, ba.free_mem_size});
             // if (tmp_ba.unalloc_mem_size >= min_region_size_pow2)  {
             //     tmp_ba2 = try BuddyAllocator4kBFrameSize.init(v_region[tmp_ba.free_mem_size..]);
             //     log.debug("Initialized buddy allocator2: unallocated memory size:: 0x{x}, free to allocate memory size: 0x{x}", .{tmp_ba2.unalloc_mem_size, tmp_ba2.free_mem_size});
@@ -63,14 +63,12 @@ pub fn init() !void {
 
             log.debug("Initialized avl tree", .{});
 
-            const heap_ba =  try allocator.create(BuddyAllocator4kBFrameSize);
-            heap_ba.* = ba;
-            const res1 = try avl_tree.insert(tmp_ba.free_mem_size, heap_ba);
+            const res1 = try avl_tree.insert(tmp_ba.free_mem_size, ba);
            // const res2 = try avl_tree.insert(2, tmp_ba);
            // const res3 = try avl_tree.insert( 3, tmp_ba);
 
             //log.debug("[2] free: {x} {x} {x} {x}", .{res1.v.free_mem_size, res2.v.free_mem_size, res3.v.free_mem_size, tmp_ba.free_mem_size});
-            log.debug("[2] free: {x}, tree: {any}", .{res1.v.*.free_mem_size, res1.v.*.tree});
+            log.debug("[2] free: 0x{x}", .{res1.v.*.free_mem_size});
 
         } else return error.NoUsableMemory;
     } else return error.NoMemoryMap;

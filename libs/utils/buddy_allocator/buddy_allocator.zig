@@ -1,10 +1,9 @@
-//! Buddy Allocator
-//! This is an implementation of a buddy allocator. It is based on the bitmap tree implementation.
-//! The allocator allocates memory for internal BuddyBitmapTree buffer and for the client allocations using the same mechanism.
-//! That's why no additional memory outside the given memory is needed.
+//! Self-allocating Buddy Allocator
+//! This is an implementation of a buddy allocator based on the bitmap tree architecture.
+//! The allocator uses the same mechanism for two purposes: Allocating memory for the internal BuddyBitmapTree buffer and for client allocations.
+//! This means it doesn't require any additional memory beyond the resources initially provided.
 const std = @import("std");
 const bbtree = @import("bbtree.zig");
-const mem = std.mem;
 const Allocator = std.mem.Allocator;
 
 const log = std.log.scoped(.buddy_allocator);
@@ -28,41 +27,58 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
         free_mem_size: usize = undefined,
         mem_vaddr: usize = undefined, //start of the memory to be managed the allocator
 
-        fn allocBuffer(self: *Self, size: usize) !void {
-            const level_meta = self.tree.levelMetaFromSize(size) catch return error.OutOfMemory;
-            const buffer_index = level_meta.offset;
-            const buffer_vaddr = self.vaddrFromIndex(level_meta.offset);
-            const buffer: []u8 = @as([*]u8, @ptrFromInt(buffer_vaddr))[0..self.tree.meta.len];
-            self.tree.setBuffer(buffer);
-            self.tree.setChunk(buffer_index);
-            self.free_mem_size -= level_meta.size; //decrease the free memory size taken by the buffer
-        }
+        /// Init Buddy Aloocator by initializing BuddyBitmapTree, setting the buffer and self-allocation in the mem
+        pub fn init(mem: []u8) !*Self {
+            assert(mem.len >= BBTree.frame_size);
+            const mem_max_size_pow2 = std.math.floorPowerOfTwo(usize, mem.len);
 
-        pub fn init(memory: []u8) !Self {
-            assert(memory.len >= BBTree.frame_size);
-            const max_pow2 = std.math.floorPowerOfTwo(usize, memory.len);
-            var self = Self{
-                .unalloc_mem_size = memory.len - max_pow2,
-                .max_mem_size_pow2 = max_pow2,
-                .free_mem_size = max_pow2,
-                .tree = try BBTree.init(max_pow2),
-                .mem_vaddr = @intFromPtr(memory.ptr),
+            var tree = try BBTree.init(mem_max_size_pow2);
+            log.debug("tree.meta.len: 0x{x}, bit_count: 0x{x}", .{ tree.meta.len, tree.meta.bit_count });
+
+            const min_self_size = @sizeOf(Self);
+            const min_buffer_size = tree.meta.len;
+            const min_size_needed= min_self_size + min_buffer_size;
+            const size_needed = @max(min_size_needed, BBTree.frame_size);
+            const size_needed_pow2 = try std.math.ceilPowerOfTwo(usize, size_needed);
+            //log everuthing from min_sel_size to size_needed_pow2
+            log.debug("init:   min_self_size: 0x{x}  min_buffer_size: 0x{x}  min_size_needed: 0x{x}  size_needed: 0x{x}  size_needed_pow2: 0x{x}", .{ min_self_size, min_buffer_size, min_size_needed, size_needed, size_needed_pow2 });
+
+            assert(mem.len >= size_needed_pow2);
+
+            const level_meta = tree.levelMetaFromSize(size_needed_pow2) catch return error.OutOfMemory;
+            const self_index = level_meta.offset;
+            const vaddr = @intFromPtr(mem.ptr);
+            const self_vaddr = absVaddrFromIndex(vaddr, level_meta.offset); //we do not have self yet
+            const self: *Self = @ptrFromInt(self_vaddr); //alignment is not needed, because we are sure that the memory is aligned to the frame size
+            const buffer: []u8 = @as([*]u8, @ptrFromInt(self_vaddr + min_self_size))[0..tree.meta.len]; //allignemnt not needed for the slice of u8
+            log.debug("init:   self_vaddr: 0x{x}  self_index: {d}  level_meta.size: 0x{x}  buffer.len: 0x{x}", .{ self_vaddr, self_index, level_meta.size, buffer.len });
+
+            self.* = .{
+                .unalloc_mem_size = mem.len - mem_max_size_pow2,
+                .max_mem_size_pow2 = mem_max_size_pow2,
+                .free_mem_size = mem_max_size_pow2,
+                .tree = tree, //copy
+                .mem_vaddr = vaddr,
             };
 
-            log.debug("bbt: {}", .{self.tree.meta});
+            log.debug("init:   taken by self+buffer: 0x{x}  buffer.len: 0x{x} ", .{ level_meta.size , buffer.len});
 
-            // meta.len holds the size (number of bytes) of bitmap we need
-            const min_buffer_size = @max(self.tree.meta.len, BBTree.frame_size); // if e.g. metal.len=1B -> 4kB (for frame_size = 4kB)
-            try allocBuffer(&self, min_buffer_size); //allocate place for the bitmap buffer using the same mechanism as for the future client allocations
+            self.tree.setBuffer(buffer);
+            self.tree.setChunk(self_index);
+            self.free_mem_size -= level_meta.size;
 
             return self;
         }
 
-        fn vaddrFromIndex(self: Self, idx: usize) usize {
-            return self.mem_vaddr + BBTree.frame_size * idx;
+        inline fn absVaddrFromIndex(vaddr: usize, idx: usize) usize {
+            return vaddr + BBTree.frame_size * idx;
         }
 
-        fn indexFromVaddr(self: Self, vaddr: usize) usize {
+        inline fn vaddrFromIndex(self: Self, idx: usize) usize {
+            return absVaddrFromIndex(self.mem_vaddr, idx);
+        }
+
+        inline fn indexFromVaddr(self: Self, vaddr: usize) usize {
             return (vaddr - self.mem_vaddr) / BBTree.frame_size;
         }
 
