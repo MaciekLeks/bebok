@@ -13,8 +13,6 @@ const frame_size_pow2 = 4096; //TODO: move to a build config
 const min_region_size_pow2 = frame_size_pow2 << 1; //one frame_size takes bbtree buffer, so to manage only one frame/page we need at least 2 frames
 
 const BuddyAllocator4kBFrameSize = utils.BuddyAllocator(32, 4096);
-var tmp_ba: BuddyAllocator4kBFrameSize = undefined;
-var tmp_ba2: BuddyAllocator4kBFrameSize = undefined;
 
 fn  usizeCmp(a_size: usize, b_size: usize) math.Order {
     return math.order(a_size, b_size);
@@ -63,7 +61,7 @@ pub fn init() !void {
 
             log.debug("Initialized avl tree", .{});
 
-            const res1 = try avl_tree.insert(tmp_ba.free_mem_size, ba);
+            const res1 = try avl_tree.insert(ba.free_mem_size, ba);
            // const res2 = try avl_tree.insert(2, tmp_ba);
            // const res3 = try avl_tree.insert( 3, tmp_ba);
 

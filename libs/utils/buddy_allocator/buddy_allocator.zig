@@ -27,7 +27,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
         free_mem_size: usize = undefined,
         mem_vaddr: usize = undefined, //start of the memory to be managed the allocator
 
-        /// Init Buddy Aloocator by initializing BuddyBitmapTree, setting the buffer and self-allocation in the mem
+        // Initialize the allocator with the given memory by allocating the buffer for the tree and self object in that memory.
         pub fn init(mem: []u8) !*Self {
             assert(mem.len >= BBTree.frame_size);
             const mem_max_size_pow2 = std.math.floorPowerOfTwo(usize, mem.len);
