@@ -66,6 +66,7 @@ pub fn BuddyBitmapTree(comptime max_levels: u8, comptime min_chunk_size: usize) 
 
         /// Initialize the metadata only, no buffer is allocated cause we do not know the right place to store it
         pub fn init(max_size_pow2: usize) !Self {
+            log.debug("Self size: metadata: {d}, buffer {d}:", .{ @sizeOf(Metadata), @sizeOf([]u8) });
             return .{ .meta = try Metadata.init(max_size_pow2, frame_size) };
         }
 

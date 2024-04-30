@@ -22,7 +22,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
         const Self = @This();
 
         tree: BBTree = undefined,
-        unalloc_mem_size: usize = undefined,
+        unmanaged_mem_size: usize = undefined,
         max_mem_size_pow2: usize = undefined,
         free_mem_size: usize = undefined,
         mem_vaddr: usize = undefined, //start of the memory to be managed the allocator
@@ -54,7 +54,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
             log.debug("init:   self_vaddr: 0x{x}  self_index: {d}  level_meta.size: 0x{x}  buffer.len: 0x{x}", .{ self_vaddr, self_index, level_meta.size, buffer.len });
 
             self.* = .{
-                .unalloc_mem_size = mem.len - mem_max_size_pow2,
+                .unmanaged_mem_size = mem.len - mem_max_size_pow2,
                 .max_mem_size_pow2 = mem_max_size_pow2,
                 .free_mem_size = mem_max_size_pow2,
                 .tree = tree, //copy
@@ -187,7 +187,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
 
             const alloc_info = try ba.allocInner(tst_req_mem_size_pow2);
 
-            try t.expect(ba.unalloc_mem_size == 1);
+            try t.expect(ba.unmanaged_mem_size == 1);
             try t.expect(alloc_info.size_pow2 == 4);
             try t.expect(ba.tree.buffer[0] == 0b0001_1011); // we  allocated 4 bytes, so now 8 bytes is taken
 
@@ -213,7 +213,7 @@ test "BuddyAllocator" {
     const BuddyAlocator4Bytes = BuddyAllocator(tst_max_levels, tst_frame_size);
     var ba = try BuddyAlocator4Bytes.init(&memory, tst_mem_size);
     try t.expect(ba.tree.buffer[0] == 0b0000_1011); // buffer takes 1 byte, so 4 bytes is taken, the lowest bit is foor of the tree, 2nd bit is its left child, and so forth
-    try t.expect(ba.unalloc_mem_size == 1);
+    try t.expect(ba.unmanaged_mem_size == 1);
 
     const allocator = ba.allocator();
 

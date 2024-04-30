@@ -14,14 +14,14 @@ const min_region_size_pow2 = frame_size_pow2 << 1; //one frame_size takes bbtree
 
 const BuddyAllocator4kBFrameSize = utils.BuddyAllocator(32, 4096);
 
-fn  usizeCmp(a_size: usize, b_size: usize) math.Order {
+fn usizeCmp(a_size: usize, b_size: usize) math.Order {
     return math.order(a_size, b_size);
 }
 
 /// Tree based on free region memory size
 const AvlTree = zigavl.Tree(usize, *BuddyAllocator4kBFrameSize, usizeCmp);
 var arena: std.heap.ArenaAllocator = undefined;
-var avl_tree : AvlTree = undefined;
+var avl_tree: AvlTree = undefined;
 
 pub fn init() !void {
     log.debug("Initializing....", .{});
@@ -29,12 +29,16 @@ pub fn init() !void {
 
     if (mmap_req.response) |mmap_res| {
         var best_region: ?[]u8 = null;
+        var best_region_entry_idx: usize = undefined;
 
         for (mmap_res.entries(), 0..) |entry, i| {
             const size_mb = entry.length / 1024 / 1024;
             const size_gb = if (size_mb > 1024) size_mb / 1024 else 0;
-            log.debug("Memory map entry {d: >3}: {s: <23} 0x{x} -- 0x{x} of size {d}MB ({d}GB)", .{ i, @tagName(entry.kind), entry.base, entry.base + entry.length, size_mb, size_gb});
-            if (entry.kind == .usable and (best_region == null or best_region.?.len < entry.length)) best_region = @as([*]u8, @ptrFromInt(entry.base))[0..entry.length];
+            log.debug("Memory map entry {d: >3}: {s: <23} 0x{x} -- 0x{x} of size {d}MB ({d}GB)", .{ i, @tagName(entry.kind), entry.base, entry.base + entry.length, size_mb, size_gb });
+            if (entry.kind == .usable and (best_region == null or best_region.?.len < entry.length)) {
+                best_region = @as([*]u8, @ptrFromInt(entry.base))[0..entry.length];
+                best_region_entry_idx = i;
+            }
         }
 
         if (best_region) |p_region| {
@@ -46,30 +50,34 @@ pub fn init() !void {
                 @intFromPtr(v_region.ptr) + v_region.len,
             });
 
-           var  ba = try BuddyAllocator4kBFrameSize.init(v_region);
-            log.debug("Initialized buddy allocator: unallocated memory size:: 0x{x}, free to allocate memory size: 0x{x}", .{ba.unalloc_mem_size, ba.free_mem_size});
-            // if (tmp_ba.unalloc_mem_size >= min_region_size_pow2)  {
-            //     tmp_ba2 = try BuddyAllocator4kBFrameSize.init(v_region[tmp_ba.free_mem_size..]);
-            //     log.debug("Initialized buddy allocator2: unallocated memory size:: 0x{x}, free to allocate memory size: 0x{x}", .{tmp_ba2.unalloc_mem_size, tmp_ba2.free_mem_size});
-            // }
-
-            log.debug("[1] free: 0x{x}", .{ba.free_mem_size});
-            arena = std.heap.ArenaAllocator.init(ba.allocator());
+            var main_buddy_allocator = try BuddyAllocator4kBFrameSize.init(v_region);
+            log.debug("Initialized buddy allocator: unallocated memory size:: 0x{x}, free to use memory size: 0x{x}", .{ main_buddy_allocator.unmanaged_mem_size, main_buddy_allocator.free_mem_size });
+            arena = std.heap.ArenaAllocator.init(main_buddy_allocator.allocator());
 
             const allocator = arena.allocator();
             avl_tree = AvlTree.init(allocator);
 
-            log.debug("Initialized avl tree", .{});
+            // we register the best region first and then we register it's unallocated memory
+            _ = try avl_tree.insert(main_buddy_allocator.free_mem_size, main_buddy_allocator);
+            try registerRegionZone(@intFromPtr(p_region.ptr) + main_buddy_allocator.free_mem_size, main_buddy_allocator.unmanaged_mem_size);
 
-            const res1 = try avl_tree.insert(ba.free_mem_size, ba);
-           // const res2 = try avl_tree.insert(2, tmp_ba);
-           // const res3 = try avl_tree.insert( 3, tmp_ba);
-
-            //log.debug("[2] free: {x} {x} {x} {x}", .{res1.v.free_mem_size, res2.v.free_mem_size, res3.v.free_mem_size, tmp_ba.free_mem_size});
-            log.debug("[2] free: 0x{x}", .{res1.v.*.free_mem_size});
-
+            // iterate over all regions other than the best one again
+            for (mmap_res.entries(), 0..) |entry, i| {
+                if (i == best_region_entry_idx) continue;
+                if (entry.kind == .usable) try registerRegionZone(entry.base, entry.length);
+            }
         } else return error.NoUsableMemory;
     } else return error.NoMemoryMap;
+}
+
+/// We register at leat one zone per region
+fn registerRegionZone(base: usize, len: usize) !void {
+    if (len < min_region_size_pow2) return;
+    const v_region = @as([*]u8, @ptrFromInt(paging.vaddrFromPaddr(base)))[0..len];
+    log.debug("Inserting region zone: 0x{x} -> 0x{x}", .{ @intFromPtr(v_region.ptr), @intFromPtr(v_region.ptr) + v_region.len });
+    const buddy_allocator_ptr = try BuddyAllocator4kBFrameSize.init(v_region);
+    _ = try avl_tree.insert(len, buddy_allocator_ptr);
+    try registerRegionZone(base + len, buddy_allocator_ptr.free_mem_size);
 }
 
 pub fn deinit() void {

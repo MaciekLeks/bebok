@@ -64,6 +64,7 @@ fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.bu
         .code_model = .kernel,
         .pic = false, //TODO: check if this is needed
     });
+
     compile_kernel_action.root_module.addImport("limine", limine_zig_mod);
     compile_kernel_action.root_module.addImport("zigavl", zigavl_mod);
     compile_kernel_action.setLinkerScript(.{ .path = b.fmt("linker-{s}.ld", .{@tagName(target.result.cpu.arch)}) });
@@ -71,11 +72,11 @@ fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.bu
     compile_kernel_action.pie = false; //TODO: ?
 
     //{Modules
-    const terminal_module = b.addModule("terminal", .{  .root_source_file =  .{ .path = "libs/terminal/mod.zig" }});
+    const terminal_module = b.addModule("terminal", .{ .root_source_file = .{ .path = "libs/terminal/mod.zig" } });
     terminal_module.addImport("limine", limine_zig_mod); //we need limine there
     compile_kernel_action.root_module.addImport("terminal", terminal_module);
 
-    const utils_module = b.addModule("utils", .{  .root_source_file =  .{ .path = "libs/utils/mod.zig" }});
+    const utils_module = b.addModule("utils", .{ .root_source_file = .{ .path = "libs/utils/mod.zig" } });
     compile_kernel_action.root_module.addImport("utils", utils_module);
     //}Modules
 
@@ -159,7 +160,7 @@ fn installIsoFileAction(b: *Build, iso_build_task: *Build.Step, iso_file: Build.
     return b.addInstallFile(iso_artifact_path, bebok_iso_filename);
 }
 
-fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, iso_file: Build.LazyPath) !*Build.Step.Run {
+fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, iso_file: Build.LazyPath, debug: bool) !*Build.Step.Run {
     const qemu_iso_action = b.addSystemCommand(&.{switch (target.result.cpu.arch) {
         .x86_64 => "qemu-system-x86_64",
         else => return error.UnsupportedArch,
@@ -177,6 +178,12 @@ fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, iso_file: Build.LazyPa
                 "d",
             }); //boot from cdrom
             qemu_iso_action.addArgs(&.{ "-debugcon", "stdio" });
+            if (debug) {
+                qemu_iso_action.addArgs(&.{
+                    "-s",
+                    "-S",
+                });
+            }
         },
         else => return error.UnsupportedArch,
     }
@@ -194,13 +201,13 @@ pub fn build(b: *Build) !void {
 
     const optimize = b.standardOptimizeOption(.{
         .preferred_optimize_mode = .ReleaseSafe, //tODO: uncomment
-       // .preferred_optimize_mode = .Debug,
+        // .preferred_optimize_mode = .Debug,
     });
 
     const limine_zig_dep = b.dependency("limine_zig", .{});
     const limine_zig_mod = limine_zig_dep.module("limine");
 
-    const zigavl_dep =  b.dependency("zigavl", .{});
+    const zigavl_dep = b.dependency("zigavl", .{});
     const zigavl_mod = zigavl_dep.module("zigavl");
 
     const compile_kernel_action = compileKernelAction(b, target, optimize, limine_zig_mod, zigavl_mod);
@@ -227,10 +234,16 @@ pub fn build(b: *Build) !void {
     iso_stage.dependOn(install_iso_file_task);
     iso_stage.dependOn(install_kernel_task); //to be able to debug in gdb
 
-    const qemu_iso_action = try qemuIsoAction(b, target, build_iso_file_action_output); //run with the cached iso file
+    const qemu_iso_action = try qemuIsoAction(b, target, build_iso_file_action_output, false); //run with the cached iso file
     const qemu_iso_stage = b.step("iso-qemu", "Run the ISO in QEMU");
     qemu_iso_stage.dependOn(iso_stage);
     qemu_iso_stage.dependOn(&qemu_iso_action.step);
+
+    // debug mode
+    const qemu_iso_debug_action = try qemuIsoAction(b, target, build_iso_file_action_output, true); //run with the cached iso file
+    const qemu_iso_debug_stage = b.step("iso-qemu-debug", "Run the ISO in QEMU in debug mode");
+    qemu_iso_debug_stage.dependOn(iso_stage);
+    qemu_iso_debug_stage.dependOn(&qemu_iso_debug_action.step);
 
     b.default_step = iso_stage;
 }
