@@ -21,7 +21,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
     return struct {
         const Self = @This();
 
-        tree: BBTree = undefined,
+        tree: *BBTree = undefined,
         unmanaged_mem_size: usize = undefined,
         max_mem_size_pow2: usize = undefined,
         free_mem_size: usize = undefined,
@@ -32,43 +32,93 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
             assert(mem.len >= BBTree.frame_size);
             const mem_max_size_pow2 = std.math.floorPowerOfTwo(usize, mem.len);
 
-            var tree = try BBTree.init(mem_max_size_pow2);
-            log.debug("tree.meta.len: 0x{x}, bit_count: 0x{x}", .{ tree.meta.len, tree.meta.bit_count });
+            //var tree = try BBTree.init(mem_max_size_pow2);
+            //log.debug("tree.meta.len: 0x{x}, bit_count: 0x{x}", .{ tree.meta.len, tree.meta.bit_count });
 
-            const min_self_size = @sizeOf(Self);
-            const min_buffer_size = tree.meta.len;
-            const min_size_needed= min_self_size + min_buffer_size;
+            // config on the stack
+            var config = try BBTree.Metadata.init(mem_max_size_pow2, BBTree.frame_size);
+
+            const self_size = @sizeOf(Self);
+            const tree_size = @sizeOf(BBTree);
+            const tree_buffer_size = config.len;
+            const tree_meta_level_size = tree_buffer_size * @sizeOf(BBTree.LevelMetadata);
+            // minimal size is the sum of the size of the self object, the size of the buffer, and the size of the tree
+            const min_size_needed = self_size + @alignOf(Self) + tree_buffer_size + @alignOf([]u8)  + tree_size + @alignOf(BBTree) + tree_meta_level_size + @alignOf(BBTree.LevelMetadata); // we added alignments just in caase
             const size_needed = @max(min_size_needed, BBTree.frame_size);
             const size_needed_pow2 = try std.math.ceilPowerOfTwo(usize, size_needed);
             //log everuthing from min_sel_size to size_needed_pow2
-            log.debug("init:   min_self_size: 0x{x}  min_buffer_size: 0x{x}  min_size_needed: 0x{x}  size_needed: 0x{x}  size_needed_pow2: 0x{x}", .{ min_self_size, min_buffer_size, min_size_needed, size_needed, size_needed_pow2 });
+            log.debug("init:   self_size: 0x{x}  buffer_size: 0x{x}  size_needed: 0x{x}  size_needed: 0x{x}  size_needed_pow2: 0x{x}", .{ self_size, tree_buffer_size, min_size_needed, size_needed, size_needed_pow2 });
 
             assert(mem.len >= size_needed_pow2);
 
-            const level_meta = tree.levelMetaFromSize(size_needed_pow2) catch return error.OutOfMemory;
+            // get vaddr
+            const level_meta = config.levelMetaFromSize(size_needed_pow2) catch return error.OutOfMemory;
             const self_index = level_meta.offset;
             const vaddr = @intFromPtr(mem.ptr);
-            const self_vaddr = absVaddrFromIndex(vaddr, level_meta.offset); //we do not have self yet
-            const self: *Self = @ptrFromInt(self_vaddr); //alignment is not needed, because we are sure that the memory is aligned to the frame size
-            const buffer: []u8 = @as([*]u8, @ptrFromInt(self_vaddr + min_self_size))[0..tree.meta.len]; //allignemnt not needed for the slice of u8
-            log.debug("init:   self_vaddr: 0x{x}  self_index: {d}  level_meta.size: 0x{x}  buffer.len: 0x{x}", .{ self_vaddr, self_index, level_meta.size, buffer.len });
+            const start_vaddr = absVaddrFromIndex(vaddr, level_meta.offset); //we do not have self yet
+            const self_mem: []u8 = @as([*]u8, @ptrFromInt(start_vaddr))[0..size_needed_pow2];
 
+            var fba = std.heap.FixedBufferAllocator.init(self_mem);
+            const fba_allocator = fba.allocator();
+
+            // move config on the heap, and create the tree
+            const tree = try BBTree.init(fba_allocator, try config.dupe(fba_allocator), try fba_allocator.alloc(u8, tree_buffer_size));
+
+            const self = try fba_allocator.create(Self);
             self.* = .{
                 .unmanaged_mem_size = mem.len - mem_max_size_pow2,
                 .max_mem_size_pow2 = mem_max_size_pow2,
                 .free_mem_size = mem_max_size_pow2,
-                .tree = tree, //copy
+                .tree = tree,
                 .mem_vaddr = vaddr,
             };
 
-            log.debug("init:   taken by self+buffer: 0x{x}  buffer.len: 0x{x} ", .{ level_meta.size , buffer.len});
 
-            self.tree.setBuffer(buffer);
+            //const tree_pos = try copyAligned(BBTree, start_vaddr, tree);
+
+
+           // const self: *Self = @ptrFromInt(self_vaddr); //alignment is not needed, because we are sure that the memory is aligned to the frame size
+            //const self_pos = ptrAligned(Self, tree_pos.vaddr + tree_pos.size);
+            //const buffer_pos = ptrAligned(u8, self_pos.vaddr + self_pos.size);
+            //const buffer: []u8 = buffer_pos.ptr.*[0..tree_buffer_size];
+            //const buffer: []u8 = @as([*]u8, @ptrFromInt(buffer_pos.vaddr))[0..tree_buffer_size];
+
+            // const self = self_pos.ptr;
+            //
+            // self.* = .{
+            //     .unmanaged_mem_size = mem.len - mem_max_size_pow2,
+            //     .max_mem_size_pow2 = mem_max_size_pow2,
+            //     .free_mem_size = mem_max_size_pow2,
+            //     .tree = tree_pos.ptr, //copy
+            //     .mem_vaddr = vaddr,
+            // };
+
+            //log.debug("init:   taken by self+buffer: 0x{x}  buffer.len: 0x{x} ", .{ level_meta.size, buffer.len });
+
+           // self.tree.setBuffer(buffer);
             self.tree.setChunk(self_index);
             self.free_mem_size -= level_meta.size;
 
             return self;
         }
+
+        // // Get the aligned pointer to the given virtual address. no matter if the address is aligned or not.
+        // fn ptrAligned(comptime T: type, vaddr: usize) struct { ptr: *T, vaddr: usize, size: usize } {
+        //     const alignment = @alignOf(T);
+        //     var aligned_ptr: *T = undefined;
+        //     if (alignment > 1 and vaddr % alignment != 0) aligned_ptr = @ptrFromInt(vaddr + (alignment - (vaddr % alignment))) else aligned_ptr = @ptrFromInt(vaddr);
+        //
+        //     return .{ .ptr = aligned_ptr, .vaddr = @intFromPtr(aligned_ptr), .size = @sizeOf(T) };
+        // }
+        //
+        // // Copy the given value to the given virtual address, aligning it to the size of the type.
+        // fn copyAligned(comptime T: type, dest_vaddr: usize, src: T) !struct { ptr: *T, vaddr: usize, size: usize } {
+        //     const aligned_dest = ptrAligned(T, dest_vaddr);
+        //
+        //     aligned_dest.ptr.* = src;
+        //
+        //     return .{ .ptr = aligned_dest.ptr, .vaddr = aligned_dest.vaddr, .size = aligned_dest.size };
+        // }
 
         inline fn absVaddrFromIndex(vaddr: usize, idx: usize) usize {
             return vaddr + BBTree.frame_size * idx;
@@ -112,7 +162,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
             const len_pow2 = minAllocSize(len) catch return null;
             if (!self.isAllocationAllowed(len_pow2)) return null;
 
-            log.debug("alloc start: requested 0x{x}, free: 0x{x}", .{ len,  self.free_mem_size });
+            log.debug("alloc start: requested 0x{x}, free: 0x{x}", .{ len, self.free_mem_size });
             const alloc_info = self.allocInner(len_pow2) catch return null;
             defer log.debug("alloc done: requested 0x{x} allocated: 0x{x}, free: 0x{x}", .{ len, alloc_info.size_pow2, self.free_mem_size });
 
@@ -130,16 +180,15 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
         }
 
         fn free(ctx: *anyopaque, old_mem: []u8, _: u8, _: usize) void {
-            log.debug("free start: 0x{x}", .{ &old_mem[0] });
-            defer log.debug("free done: 0x{x}", .{ &old_mem[0] });
+            log.debug("free start: 0x{x}", .{&old_mem[0]});
+            defer log.debug("free done: 0x{x}", .{&old_mem[0]});
             const self: *Self = @ptrCast(@alignCast(ctx));
             const vaddr = @intFromPtr(&old_mem[0]);
             self.freeInner(vaddr);
         }
 
-
         /// Resize the allocation at the given virtual address to the new length. Note that resizing is limited to the current chunk.
-       /// For example, if you allocated 3kB, it implies that we have occupied 4kB (page/frame size), so you can resize it to up to 4kB within this chunk.
+        /// For example, if you allocated 3kB, it implies that we have occupied 4kB (page/frame size), so you can resize it to up to 4kB within this chunk.
         fn resizeInner(self: *Self, vaddr: usize, new_len: usize) bool {
             const idx = self.indexFromVaddr(vaddr);
             const new_size_pow2 = minAllocSize(new_len) catch return false;
@@ -152,10 +201,9 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
             return false;
         }
 
-
         fn resize(ctx: *anyopaque, buf: []u8, _: u8, new_len: usize, _: usize) bool {
             log.debug("resize start: 0x{x}, new_len: 0x{x}", .{ &buf[0], new_len });
-            defer log.debug("resize done", .{ });
+            defer log.debug("resize done", .{});
             const self: *Self = @ptrCast(@alignCast(ctx));
             const vaddr = @intFromPtr(&buf[0]);
             return self.resizeInner(vaddr, new_len);
@@ -166,7 +214,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
                 .ptr = self,
                 .vtable = &.{
                     .alloc = alloc,
-                    .resize =  Allocator.noResize,
+                    .resize = Allocator.noResize,
                     .free = free,
                 },
             };

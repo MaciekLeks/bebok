@@ -18,7 +18,7 @@ pub fn BuddyBitmapTree(comptime max_levels: u8, comptime min_chunk_size: usize) 
         const Self = @This();
 
         /// Holds metadata for a level
-        const LevelMetadata = struct {
+        pub const LevelMetadata = struct {
             offset: usize, // offset of the level in the bitmap
             size: usize, // size of the chunk at the level
             bits: usize, // number of bits in the level
@@ -31,7 +31,14 @@ pub fn BuddyBitmapTree(comptime max_levels: u8, comptime min_chunk_size: usize) 
             bit_count: usize, //bits needed
             len: usize, //bytes len needed to store bits
 
-            pub fn init(max_size_pow2: usize, min_size_pow2: usize) !@This() {
+            fn buildLevelMeta(level_count: u8) ![]LevelMetadata {
+                for (0..level_count) |lvl| {
+                    level_meta[lvl] = .{ .offset = (math.powi(usize, 2, lvl) catch return error.InvalidLevel) - 1, .size = frame_size * (math.powi(usize, 2, level_count - lvl - 1) catch return error.InvalidSize), .bits = math.powi(usize, 2, lvl) catch return error.BitOverflow };
+                }
+                return level_meta[0..level_count];
+            }
+
+            pub fn init(max_size_pow2: usize, min_size_pow2: usize) !Metadata {
                 const level_count: u8 = @intCast(math.log2(max_size_pow2 / min_size_pow2) + 1); // number of levels: 0 < level <= max_level, 0,1,2 counts as 3 levels
                 const bit_count = try bitsFromLevels(level_count);
                 return .{
@@ -41,10 +48,39 @@ pub fn BuddyBitmapTree(comptime max_levels: u8, comptime min_chunk_size: usize) 
                     .len = bytesFromBits(bit_count),
                 };
             }
+
+            pub inline fn levelFromSize(self: *Metadata, size_pow2: usize) !u8 {
+                const norm_size_pow2 =size_pow2 / frame_size;
+                assert(norm_size_pow2 >= 1);
+                const computed_level = self.level_count - math.log2(norm_size_pow2) - 1;
+                log.debug("levelFromSize: size: {d}, level: {d}", .{ size_pow2, computed_level });
+                return if (computed_level > self.level_count) error.InvalidSize else @intCast(computed_level);
+            }
+
+            pub fn levelMetaFromSize(self: *Metadata, size_pow2: usize) !LevelMetadata {
+                const level = try self.levelFromSize(size_pow2);
+                return self.level_meta[level];
+            }
+
+            pub fn dupe(self: *Metadata, allocator: std.mem.Allocator) !*Metadata {
+                const meta = try allocator.create(Metadata);
+                meta.* = .{
+                    .level_count = self.level_count,
+                    .level_meta = try allocator.dupe(LevelMetadata, self.level_meta),
+                    .bit_count = self.bit_count,
+                    .len = self.len,
+                };
+                return meta;
+            }
+
+            pub fn deinit(self: *Metadata, allocator: std.mem.Allocator) void {
+                allocator.free(self.level_meta);
+                allocator.free(self);
+            }
         };
 
         buffer: []u8 = undefined, // buffer to store bits
-        meta: Metadata,
+        meta: *Metadata,
 
         pub const frame_size = math.floorPowerOfTwo(usize, min_chunk_size);
         pub var level_meta: [max_levels]LevelMetadata = undefined;
@@ -57,25 +93,21 @@ pub fn BuddyBitmapTree(comptime max_levels: u8, comptime min_chunk_size: usize) 
             return try math.powi(usize, 2, level_count) - 1;
         }
 
-        fn buildLevelMeta(level_count: u8) ![]LevelMetadata {
-            for (0..level_count) |lvl| {
-                level_meta[lvl] = .{ .offset = (math.powi(usize, 2, lvl) catch return error.InvalidLevel) - 1, .size = frame_size * (math.powi(usize, 2, level_count - lvl - 1) catch return error.InvalidSize), .bits = math.powi(usize, 2, lvl) catch return error.BitOverflow };
-            }
-            return level_meta[0..level_count];
-        }
+
 
         /// Initialize the metadata only, no buffer is allocated cause we do not know the right place to store it
-        pub fn init(max_size_pow2: usize) !Self {
-            log.debug("Self size: metadata: {d}, buffer {d}:", .{ @sizeOf(Metadata), @sizeOf([]u8) });
-            return .{ .meta = try Metadata.init(max_size_pow2, frame_size) };
+        pub fn init(allocator: std.mem.Allocator, meta: *Metadata, buf: []u8) !*Self {
+            const self = try allocator.create(Self);
+            self.* = .{ .meta = meta, .buffer = buf };
+            return self;
         }
 
         // Set the buffer to store the bits
-        pub fn setBuffer(self: *Self, buffer: []u8) void {
-            log.debug("metadata: init: {d} levels, {d} bits, {d} bytes", .{ self.meta.level_count, self.meta.bit_count, self.meta.len });
-
-            self.buffer = buffer;
-        }
+        // pub fn setBuffer(self: *Self, buffer: []u8) void {
+        //     log.debug("metadata: init: {d} levels, {d} bits, {d} bytes", .{ self.meta.level_count, self.meta.bit_count, self.meta.len });
+        //
+        //     self.buffer = buffer;
+        // }
 
         // indx: 0..bits
         pub fn isSet(self: *const Self, idx: usize) bool {
@@ -141,16 +173,18 @@ pub fn BuddyBitmapTree(comptime max_levels: u8, comptime min_chunk_size: usize) 
         }
 
         pub inline fn levelFromSize(self: *Self, size_pow2: usize) !u8 {
-            const norm_size_pow2 =size_pow2 / frame_size;
-            assert(norm_size_pow2 >= 1);
-            log.debug("log2(size_pow2 / frame_size) = {d}", .{ math.log2(norm_size_pow2) });
-            const computed_level = self.meta.level_count - math.log2(norm_size_pow2) - 1;
-            return if (computed_level > self.meta.level_count) error.InvalidSize else @intCast(computed_level);
+            // const norm_size_pow2 =size_pow2 / frame_size;
+            // assert(norm_size_pow2 >= 1);
+            // log.debug("log2(size_pow2 / frame_size) = {d}", .{ math.log2(norm_size_pow2) });
+            // const computed_level = self.meta.level_count - math.log2(norm_size_pow2) - 1;
+            // return if (computed_level > self.meta.level_count) error.InvalidSize else @intCast(computed_level);
+            return self.meta.levelFromSize(size_pow2);
         }
 
         pub fn levelMetaFromSize(self: *Self, size_pow2: usize) !LevelMetadata {
-            const level = try levelFromSize(self, size_pow2);
-            return self.meta.level_meta[level];
+            //const level = try levelFromSize(self, size_pow2);
+            //return self.meta.level_meta[level];
+            return self.meta.levelMetaFromSize(size_pow2);
         }
 
         pub fn freeIndexFromSize(self: *Self, size_pow2: usize) !usize {
