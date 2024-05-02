@@ -51,7 +51,6 @@ pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
 
 export fn _start() callconv(.C) noreturn {
     start.init();
-    defer start.done();
 
     log.debug("Hello, world!", .{});
 
@@ -59,13 +58,7 @@ export fn _start() callconv(.C) noreturn {
         log.err("PMM initialization error: {}", .{err});
         @panic("PMM initialization error");
     };
-    defer pmm.deinit();
+    defer pmm.deinit(); //TODO not here
 
-    // heap.init(1024, paging.vaddrFromPaddr(0x100000));
-    // const mem = heap.allocator().alloc(u8, 100) catch {
-    //     log.debug("Memory allocation error", .{});
-    //     @panic("Memory allocation error");
-    // };
-    // defer heap.allocator().free(mem);
-    // log.debug("Allocated memory: {d}", .{mem.len});
+    start.done(); //only now we can hlt - do not use defer after start.init();
 }
