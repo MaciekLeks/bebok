@@ -47,7 +47,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
             const size_needed = @max(min_size_needed, BBTree.frame_size);
             const size_needed_pow2 = try std.math.ceilPowerOfTwo(usize, size_needed);
             //log everuthing from min_sel_size to size_needed_pow2
-            log.debug("init:   self_size: 0x{x}  buffer_size: 0x{x}  size_needed: 0x{x}  size_needed: 0x{x}  size_needed_pow2: 0x{x}", .{ self_size, tree_buffer_size, min_size_needed, size_needed, size_needed_pow2 });
+            log.debug("init:   self_size: 0x{x}  buffer_size: 0x{x}  size_needed: 0x{x}  size_needed: 0x{x}  size_needed_pow2: 0x{x}, frame/page_size: 0x{x}", .{ self_size, tree_buffer_size, min_size_needed, size_needed, size_needed_pow2, BBTree.frame_size });
 
             assert(mem.len >= size_needed_pow2);
 

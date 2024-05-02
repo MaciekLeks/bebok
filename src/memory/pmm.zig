@@ -72,7 +72,7 @@ pub fn init() !void {
 
 /// We register at leat one zone per region
 fn registerRegionZone(base: usize, len: usize) !void {
-    if (len < min_region_size_pow2) return;
+    if (len <= min_region_size_pow2) return;
     const v_region = @as([*]u8, @ptrFromInt(paging.vaddrFromPaddr(base)))[0..len];
     log.debug("Inserting region zone: 0x{x} -> 0x{x}", .{ @intFromPtr(v_region.ptr), @intFromPtr(v_region.ptr) + v_region.len });
     const zone_buddy_allocator = try BuddyAllocator4kBFrameSize.init(v_region);

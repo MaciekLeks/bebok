@@ -166,10 +166,7 @@ pub fn BuddyBitmapTree(comptime max_levels: u8, comptime min_chunk_size: usize) 
         }
 
         inline fn levelFromIndex(idx: usize) u8 {
-            return if (idx == 0) return 0 else {
-                log.debug("level {d} from index: {d}", .{ math.log2_int_ceil(usize, idx), idx });
-                return math.log2_int_ceil(usize, idx);
-            };
+            return math.log2_int(usize, idx + 1); // we need to add 1 to the index to get the level, log2(0+1) ->level 0, log2(1+1) -> level 1, log2(14+1) -> level 3
         }
 
         pub inline fn levelFromSize(self: *Self, size_pow2: usize) !u8 {
