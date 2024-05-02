@@ -41,7 +41,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
             const self_size = @sizeOf(Self);
             const tree_size = @sizeOf(BBTree);
             const tree_buffer_size = config.len;
-            const tree_meta_level_size = tree_buffer_size * @sizeOf(BBTree.LevelMetadata);
+            const tree_meta_level_size = config.level_meta.len * @sizeOf(BBTree.LevelMetadata);
             // minimal size is the sum of the size of the self object, the size of the buffer, and the size of the tree
             const min_size_needed = self_size + @alignOf(Self) + tree_buffer_size + @alignOf([]u8)  + tree_size + @alignOf(BBTree) + tree_meta_level_size + @alignOf(BBTree.LevelMetadata); // we added alignments just in caase
             const size_needed = @max(min_size_needed, BBTree.frame_size);

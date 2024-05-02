@@ -75,9 +75,9 @@ fn registerRegionZone(base: usize, len: usize) !void {
     if (len < min_region_size_pow2) return;
     const v_region = @as([*]u8, @ptrFromInt(paging.vaddrFromPaddr(base)))[0..len];
     log.debug("Inserting region zone: 0x{x} -> 0x{x}", .{ @intFromPtr(v_region.ptr), @intFromPtr(v_region.ptr) + v_region.len });
-    const buddy_allocator_ptr = try BuddyAllocator4kBFrameSize.init(v_region);
-    _ = try avl_tree.insert(len, buddy_allocator_ptr);
-    try registerRegionZone(base + len, buddy_allocator_ptr.free_mem_size);
+    const zone_buddy_allocator = try BuddyAllocator4kBFrameSize.init(v_region);
+    _ = try avl_tree.insert(len, zone_buddy_allocator);
+    try registerRegionZone(base + zone_buddy_allocator.free_mem_size, zone_buddy_allocator.unmanaged_mem_size);
 }
 
 pub fn deinit() void {
