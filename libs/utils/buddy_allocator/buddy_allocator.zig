@@ -32,9 +32,6 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
             assert(mem.len >= BBTree.frame_size);
             const mem_max_size_pow2 = std.math.floorPowerOfTwo(usize, mem.len);
 
-            //var tree = try BBTree.init(mem_max_size_pow2);
-            //log.debug("tree.meta.len: 0x{x}, bit_count: 0x{x}", .{ tree.meta.len, tree.meta.bit_count });
-
             // config on the stack
             var config = try BBTree.Metadata.init(mem_max_size_pow2, BBTree.frame_size);
 
@@ -74,51 +71,11 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
             };
 
 
-            //const tree_pos = try copyAligned(BBTree, start_vaddr, tree);
-
-
-           // const self: *Self = @ptrFromInt(self_vaddr); //alignment is not needed, because we are sure that the memory is aligned to the frame size
-            //const self_pos = ptrAligned(Self, tree_pos.vaddr + tree_pos.size);
-            //const buffer_pos = ptrAligned(u8, self_pos.vaddr + self_pos.size);
-            //const buffer: []u8 = buffer_pos.ptr.*[0..tree_buffer_size];
-            //const buffer: []u8 = @as([*]u8, @ptrFromInt(buffer_pos.vaddr))[0..tree_buffer_size];
-
-            // const self = self_pos.ptr;
-            //
-            // self.* = .{
-            //     .unmanaged_mem_size = mem.len - mem_max_size_pow2,
-            //     .max_mem_size_pow2 = mem_max_size_pow2,
-            //     .free_mem_size = mem_max_size_pow2,
-            //     .tree = tree_pos.ptr, //copy
-            //     .mem_vaddr = vaddr,
-            // };
-
-            //log.debug("init:   taken by self+buffer: 0x{x}  buffer.len: 0x{x} ", .{ level_meta.size, buffer.len });
-
-           // self.tree.setBuffer(buffer);
             self.tree.setChunk(self_index);
             self.free_mem_size -= level_meta.size;
 
             return self;
         }
-
-        // // Get the aligned pointer to the given virtual address. no matter if the address is aligned or not.
-        // fn ptrAligned(comptime T: type, vaddr: usize) struct { ptr: *T, vaddr: usize, size: usize } {
-        //     const alignment = @alignOf(T);
-        //     var aligned_ptr: *T = undefined;
-        //     if (alignment > 1 and vaddr % alignment != 0) aligned_ptr = @ptrFromInt(vaddr + (alignment - (vaddr % alignment))) else aligned_ptr = @ptrFromInt(vaddr);
-        //
-        //     return .{ .ptr = aligned_ptr, .vaddr = @intFromPtr(aligned_ptr), .size = @sizeOf(T) };
-        // }
-        //
-        // // Copy the given value to the given virtual address, aligning it to the size of the type.
-        // fn copyAligned(comptime T: type, dest_vaddr: usize, src: T) !struct { ptr: *T, vaddr: usize, size: usize } {
-        //     const aligned_dest = ptrAligned(T, dest_vaddr);
-        //
-        //     aligned_dest.ptr.* = src;
-        //
-        //     return .{ .ptr = aligned_dest.ptr, .vaddr = aligned_dest.vaddr, .size = aligned_dest.size };
-        // }
 
         inline fn absVaddrFromIndex(vaddr: usize, idx: usize) usize {
             return vaddr + BBTree.frame_size * idx;

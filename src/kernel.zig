@@ -11,7 +11,7 @@ const log = std.log.scoped(.kernel);
 pub const std_options = .{
     .logFn = logFn,
     .log_scope_levels = &[_]std.log.ScopeLevel{
-        .{ .scope = .bbtree, .level = .debug },
+        .{ .scope = .bbtree, .level = .info },
     },
 };
 

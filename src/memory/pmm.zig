@@ -66,6 +66,16 @@ pub fn init() !void {
                 if (i == best_region_entry_idx) continue;
                 if (entry.kind == .usable) try registerRegionZone(entry.base, entry.length);
             }
+
+            var it = avl_tree.descendFromEnd();
+            while (it.value()) |e| {
+                // log free_mem_size in GB, MB, kB and bytes
+                const size_gb = e.v.*.free_mem_size / 1024 / 1024 / 1024;
+                const size_mb = e.v.*.free_mem_size / 1024 / 1024;
+                const size_kb = e.v.*.free_mem_size / 1024;
+                log.debug("Free memory size: {d}GB ({d}MB, {d}kB, 0x{x} bytes)", .{ size_gb, size_mb, size_kb, e.v.*.free_mem_size });
+                it.prev();
+            }
         } else return error.NoUsableMemory;
     } else return error.NoMemoryMap;
 }
