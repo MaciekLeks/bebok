@@ -9,10 +9,12 @@ In Silesian language, a creature from our (Upper Silesians) demonology.
 
 # Current features include:
 - All Limine features
+- PMM (Physical Memory Manager) using Buddy Allocator for memory slices and AVL tree for the whole regions
 - Basic terminal support in graphical mode with the PC Screen Fonts (version 1 and 2)
 
+
 # Next steps
-- [ ] Implementing the heap
+- [ ] Implementing GDT 
 - ...
 
 # How to run
