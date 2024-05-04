@@ -66,7 +66,7 @@ export fn _start() callconv(.C) noreturn {
         log.err("OOM: {}", .{err});
         @panic("OOM");
     };
-    defer allocator.free(memory);
+    allocator.free(memory);
 
 
     start.done(); //only now we can hlt - do not use defer after start.init();

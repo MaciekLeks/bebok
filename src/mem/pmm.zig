@@ -117,8 +117,9 @@ fn alloc(_: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
     defer log.debug("Allocated {d} bytes", .{ len });
     var it = avl_tree_by_size.descendFromEnd();
     while (it.value()) |e| {
+        log.debug("Checking free memory at 0x{x} of total size: 0x{x} bytes, free size: 0x{x} ", .{ e.v.*.mem_vaddr,  e.v.*.max_mem_size_pow2,   e.v.*.free_mem_size });
         if (e.v.*.free_mem_size >= len) {
-            log.debug("Found free memory size: {d} bytes", .{ e.v.*.free_mem_size });
+            log.debug("Found free memory size: 0x{x} bytes", .{ e.v.*.free_mem_size });
             const ptr = e.v.*.allocator().rawAlloc(len, ptr_align, ret_addr);
             if (ptr) |p| return p;
         }
