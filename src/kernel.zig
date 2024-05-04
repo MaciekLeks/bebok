@@ -4,7 +4,8 @@ const assm = @import("asm.zig");
 const start = @import("start.zig");
 //const heap = @import("memory/heap.zig");
 const paging = @import("paging.zig");
-const pmm = @import("memory/pmm.zig");
+const pmm = @import("mem/pmm.zig");
+const heap = @import("mem/heap.zig").heap;
 
 const log = std.log.scoped(.kernel);
 
@@ -59,6 +60,14 @@ export fn _start() callconv(.C) noreturn {
         @panic("PMM initialization error");
     };
     defer pmm.deinit(); //TODO not here
+
+    const allocator = heap.page_allocator;
+    const memory = allocator.alloc(u8, 100) catch |err| {
+        log.err("OOM: {}", .{err});
+        @panic("OOM");
+    };
+    defer allocator.free(memory);
+
 
     start.done(); //only now we can hlt - do not use defer after start.init();
 }
