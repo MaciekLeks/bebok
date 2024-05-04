@@ -113,15 +113,16 @@ pub fn deinit() void {
 }
 
 fn alloc(_: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
-    log.debug("Allocating {d} bytes", .{ len });
-    defer log.debug("Allocated {d} bytes", .{ len });
     var it = avl_tree_by_size.descendFromEnd();
     while (it.value()) |e| {
-        log.debug("Checking free memory at 0x{x} of total size: 0x{x} bytes, free size: 0x{x} ", .{ e.v.*.mem_vaddr,  e.v.*.max_mem_size_pow2,   e.v.*.free_mem_size });
+        log.debug("alloc(): checking free memory at 0x{x} of total size: 0x{x} bytes, free size: 0x{x} ", .{ e.v.*.mem_vaddr, e.v.*.max_mem_size_pow2, e.v.*.free_mem_size });
         if (e.v.*.free_mem_size >= len) {
-            log.debug("Found free memory size: 0x{x} bytes", .{ e.v.*.free_mem_size });
+            log.debug("alloc(): found free memory size: 0x{x} bytes", .{e.v.*.free_mem_size});
             const ptr = e.v.*.allocator().rawAlloc(len, ptr_align, ret_addr);
-            if (ptr) |p| return p;
+            if (ptr) |p| {
+                defer log.debug("alloc(): allocated {d} bytes", .{len});
+                return p;
+            }
         }
         it.prev();
     }
@@ -129,8 +130,7 @@ fn alloc(_: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
 }
 
 fn free(_: *anyopaque, buf: []u8, _: u8, _: usize) void {
-    log.debug("Freeing memory at 0x{x}", .{ @intFromPtr(buf.ptr) });
-    defer log.debug("Freed memory at 0x{x}", .{ @intFromPtr(buf.ptr) });
+    defer log.debug("Freed memory at 0x{x}", .{@intFromPtr(buf.ptr)});
     const key = .{ .vaddr = @intFromPtr(buf.ptr), .size = buf.len };
     const it = avl_tree_by_vaddr.get(key);
     if (it) |v| {
@@ -139,7 +139,6 @@ fn free(_: *anyopaque, buf: []u8, _: u8, _: usize) void {
 }
 
 fn resize(_: *anyopaque, buf: []u8, buf_align: u8, new_len: usize, ret_addr: usize) bool {
-    log.debug("Resizing memory at 0x{x} from {d} to {d} bytes", .{ @intFromPtr(buf.ptr), buf.len, new_len });
     defer log.debug("Resized memory at 0x{x} from {d} to {d} bytes", .{ @intFromPtr(buf.ptr), buf.len, new_len });
     const key = .{ .vaddr = @intFromPtr(buf.ptr), .size = buf.len };
     const it = avl_tree_by_vaddr.get(key);
@@ -158,4 +157,3 @@ pub const allocator = std.mem.Allocator{
         .free = free,
     },
 };
-

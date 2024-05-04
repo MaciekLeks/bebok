@@ -95,7 +95,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
 
         pub fn allocInner(self: *Self, size_pow2: usize) !AllocInfo {
             const idx = (self.tree.freeIndexFromSize(size_pow2)) catch return error.OutOfMemory;
-            log.debug("idx: {d}", .{idx});
+            log.debug("allocInner(): idx: {d}", .{idx});
 
             self.tree.setChunk(idx);
 
@@ -119,9 +119,8 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
             const len_pow2 = minAllocSize(len) catch return null;
             if (!self.isAllocationAllowed(len_pow2)) return null;
 
-            log.debug("alloc start: requested 0x{x}, free: 0x{x}", .{ len, self.free_mem_size });
             const alloc_info = self.allocInner(len_pow2) catch return null;
-            defer log.debug("alloc done: requested 0x{x} allocated: 0x{x}, free: 0x{x}", .{ len, alloc_info.size_pow2, self.free_mem_size });
+            defer log.debug("alloc(): requested 0x{x} allocated: 0x{x}, free: 0x{x}", .{ len,  alloc_info.size_pow2, self.free_mem_size });
 
             return @as([*]u8, @ptrFromInt(alloc_info.vaddr));
         }
@@ -137,8 +136,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
         }
 
         fn free(ctx: *anyopaque, old_mem: []u8, _: u8, _: usize) void {
-            log.debug("free start: 0x{x}", .{&old_mem[0]});
-            defer log.debug("free done: 0x{x}", .{&old_mem[0]});
+            defer log.debug("free(): freed at 0x{x}", .{&old_mem[0]});
             const self: *Self = @ptrCast(@alignCast(ctx));
             const vaddr = @intFromPtr(&old_mem[0]);
             self.freeInner(vaddr);
@@ -152,18 +150,18 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
             const old_size_pow2 = (self.tree.levelMetaFromIndex(idx) catch return false).size;
             if (new_size_pow2 <= old_size_pow2) return true; //no need to leave the chunk
 
-            log.debug("resizeInner: idx: {d}, old_size_pow2: {d}, new_size_pow2: {d}", .{ idx, old_size_pow2, new_size_pow2 });
+            log.debug("resizeInner(): idx: {d}, old_size_pow2: {d}, new_size_pow2: {d}", .{ idx, old_size_pow2, new_size_pow2 });
 
             //can't resize without moving up in the tree (even if right buddy is free, we can't use it cause we should change idx to the parnet, wchich cause chaning the vaddr)
             return false;
         }
 
         fn resize(ctx: *anyopaque, buf: []u8, _: u8, new_len: usize, _: usize) bool {
-            log.debug("resize start: 0x{x}, new_len: 0x{x}", .{ &buf[0], new_len });
-            defer log.debug("resize done", .{});
             const self: *Self = @ptrCast(@alignCast(ctx));
             const vaddr = @intFromPtr(&buf[0]);
-            return self.resizeInner(vaddr, new_len);
+            const res = self.resizeInner(vaddr, new_len);
+            defer log.debug("resize(): resized: {} at 0x{x}, new_len: 0x{x}", .{ res, &buf[0], new_len });
+            return res;
         }
 
         pub fn allocator(self: *Self) Allocator {
