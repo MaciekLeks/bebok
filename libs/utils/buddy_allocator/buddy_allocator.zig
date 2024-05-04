@@ -132,7 +132,11 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
             self.tree.unset(idx);
             self.tree.maybeUnsetParent(idx);
 
-            //self.tree.dump();
+            const level_meta = self.tree.levelMetaFromIndex(idx) catch |err| {
+                log.err("freeInner(): levelMetaFromIndex failed: {s}", .{err});
+                @panic("freeInner(): levelMetaFromIndex failed");
+            };
+            self.free_mem_size += level_meta.size;
         }
 
         fn free(ctx: *anyopaque, old_mem: []u8, _: u8, _: usize) void {

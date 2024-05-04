@@ -113,7 +113,8 @@ pub fn deinit() void {
 }
 
 fn alloc(_: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
-    var it = avl_tree_by_size.descendFromEnd();
+    //var it = avl_tree_by_size.descendFromEnd();
+    var it = avl_tree_by_size.ascendFromStart();
     while (it.value()) |e| {
         log.debug("alloc(): checking free memory at 0x{x} of total size: 0x{x} bytes, free size: 0x{x} ", .{ e.v.*.mem_vaddr, e.v.*.max_mem_size_pow2, e.v.*.free_mem_size });
         if (e.v.*.free_mem_size >= len) {
@@ -124,7 +125,8 @@ fn alloc(_: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
                 return p;
             }
         }
-        it.prev();
+        //it.prev();
+        it.next();
     }
     return null;
 }

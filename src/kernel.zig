@@ -62,7 +62,7 @@ export fn _start() callconv(.C) noreturn {
     defer pmm.deinit(); //TODO not here
 
     const allocator = heap.page_allocator;
-    const memory = allocator.alloc(u8, 100) catch |err| {
+    const memory = allocator.alloc(u8, 0x3000) catch |err| {
         log.err("OOM: {}", .{err});
         @panic("OOM");
     };
