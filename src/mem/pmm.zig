@@ -23,11 +23,8 @@ const KeyVaddrSize = struct {
 };
 
 fn vaddrSizeCmp(a_key: KeyVaddrSize, b_key: KeyVaddrSize) math.Order {
-    if (a_key.vaddr < b_key.vaddr) return math.Order.lt;
-    if (a_key.vaddr > b_key.vaddr) return math.Order.gt;
-    if (a_key.size < b_key.size) return math.Order.lt;
-    if (a_key.size > b_key.size) return math.Order.gt;
-    return math.Order.eq;
+    // check if b_key is in the range of a_key
+    if (a_key.vaddr <= b_key.vaddr and b_key.vaddr + b_key.size <= a_key.vaddr + a_key.size)  return math.Order.eq else  return math.order(a_key.vaddr, b_key.vaddr);
 }
 
 /// Tree based on free region memory size
@@ -121,7 +118,7 @@ fn alloc(_: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
             log.debug("alloc(): found free memory size: 0x{x} bytes", .{e.v.*.free_mem_size});
             const ptr = e.v.*.allocator().rawAlloc(len, ptr_align, ret_addr);
             if (ptr) |p| {
-                defer log.debug("alloc(): allocated {d} bytes", .{len});
+                defer log.debug("alloc(): allocated 0x{x} bytes at 0x{x}", .{len, @intFromPtr(p)});
                 return p;
             }
         }
@@ -132,11 +129,16 @@ fn alloc(_: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
 }
 
 fn free(_: *anyopaque, buf: []u8, _: u8, _: usize) void {
-    defer log.debug("Freed memory at 0x{x}", .{@intFromPtr(buf.ptr)});
+    defer log.debug("free(): freed memory at 0x{x}", .{@intFromPtr(buf.ptr)});
     const key = .{ .vaddr = @intFromPtr(buf.ptr), .size = buf.len };
     const it = avl_tree_by_vaddr.get(key);
     if (it) |v| {
+        const ba = v.*;
+        log.debug("free(): memory free size before freeing: 0x{x} bytes", .{ba.free_mem_size});
         v.*.allocator().free(buf);
+        log.debug("free(): memory free size now: 0x{x} bytes", .{ba.free_mem_size});
+    } else {
+        log.err("free(): memory at 0x{x} not found", .{@intFromPtr(buf.ptr)});
     }
 }
 
