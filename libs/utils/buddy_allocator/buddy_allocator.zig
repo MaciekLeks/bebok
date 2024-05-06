@@ -85,11 +85,12 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
             return absVaddrFromIndex(self.mem_vaddr, idx);
         }
 
-        inline fn indexFromVaddr(self: Self, vaddr: usize) usize {
+        inline fn indexFromVaddr(self: *Self, vaddr: usize) usize {
+            assert(vaddr >= self.mem_vaddr);
             return (vaddr - self.mem_vaddr) / BBTree.frame_size;
         }
 
-        inline fn minAllocSize(size: usize) !usize {
+        pub inline fn minAllocSize(size: usize) !usize {
             return try std.math.ceilPowerOfTwo(usize, @max(BBTree.frame_size, size)); //e.g. 1->4, 16 -> 16, but 17,18,... -> 32
         }
 
@@ -142,7 +143,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
         fn free(ctx: *anyopaque, old_mem: []u8, _: u8, _: usize) void {
             defer log.debug("free(): freed at 0x{x}", .{&old_mem[0]});
             const self: *Self = @ptrCast(@alignCast(ctx));
-            const vaddr = @intFromPtr(&old_mem[0]);
+            const vaddr = @intFromPtr(old_mem.ptr);
             self.freeInner(vaddr);
         }
 
