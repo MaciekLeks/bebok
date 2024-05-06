@@ -1,77 +1,73 @@
-//const builtin = @import("builtin");
-//const console = @import("terminal/console.zig");
-//const mm = @import("memory/mmap.zig");
-//const Heap = @import("memory/heap/heap.zig").Heap;
-//const com = @import("common/common.zig");
-const limine = @import("limine");
-const com = @import("common/common.zig");
 const std = @import("std");
+const builtin = @import("builtin");
+const assm = @import("asm.zig");
+const start = @import("start.zig");
+//const heap = @import("memory/heap.zig");
+const paging = @import("paging.zig");
+const pmm = @import("mem/pmm.zig");
+const heap = @import("mem/heap.zig").heap;
 
-const term = @import("terminal");
-//export means that linker can see this function
+const log = std.log.scoped(.kernel);
 
-// Set the base revision to 1, this is recommended as this is the latest
-// base revision described by the Limine boot protocol specification.
-// See specification for further info.
-pub export var base_revision: limine.BaseRevision = .{ .revision = 1 };
+pub const std_options = .{
+    .logFn = logFn,
+    .log_scope_levels = &[_]std.log.ScopeLevel{
+        .{ .scope = .bbtree, .level = .info },
+    },
+};
 
-inline fn done() noreturn {
-    while (true) {
-        asm volatile ("hlt");
+pub fn logFn(comptime message_level: std.log.Level, comptime scope: @Type(.EnumLiteral), comptime format: []const u8, args: anytype) void {
+    var log_allocator_buf: [4096 * 8]u8 = undefined;
+    var log_fba = std.heap.FixedBufferAllocator.init(&log_allocator_buf);
+    const log_allocator = log_fba.allocator();
+
+    const prefix = switch (message_level) {
+        .info => "\x1b[34m",
+        .warn => "\x1b[33m",
+        .err => "\x1b[31m",
+        .debug => "\x1b[90m",
+    } ++ "[" ++ @tagName(message_level) ++ "]\x1b[0m (" ++ @tagName(scope) ++ ")";
+
+    const msg = std.fmt.allocPrint(log_allocator, prefix ++ " " ++ format, args) catch "\x1b[31m\x1b[1m!!!LOG_FN_OOM!!!\x1b[0m";
+
+    for (msg) |char| {
+        assm.putb(char);
+        if (char == '\n') {
+            for (0..prefix.len - 10) |_| assm.putb(' ');
+            assm.putb('|');
+            assm.putb(' ');
+        }
     }
+
+    assm.putb('\n');
 }
 
-//var str = "\n- long-mode, \n- paging for 2MB, \n- sys memory map.";
-// export fn _start() callconv(.C) noreturn {
-//     // const color_ptr = &term.color;
-//     // color_ptr.* = 0x0f;
-//     pty.initialize(pty.ConsoleColors.Cyan, pty.ConsoleColors.DarkGray);
-//     pty.puts("I'm real Borok OS\n");
-//     // pty.printf("My message to you: {s}", .{str});
-//
-//     // Get system momory map and check if some address is availiable to use
-//     // const smap =  mm.SysMemMap.init();
-//     // const v_addr = 0x100_0000;
-//     // const v_len = 0x1000;
-//     // const is_free = smap.isFree(v_addr, v_len);
-//     // if (is_free) {
-//     //     pty.puts("\n0x100_0000 mem is free!\n");
-//     // } else {
-//     //     pty.puts("\n0x100_0000 mem is not free!\n");
-//     // }
-//
-//     //only 4KB - not finished
-//     // const heap = Heap.init(com.OS_HEAP_ADDRESS ,com.OS_HEAP_TABLE_ADDRESS, 0x100) catch  {
-//     //     pty.puts("Heap init error\n");
-//     // };
-//     // _ = heap;
-//     while (true) {}
-// }
+pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
+    @setCold(true);
 
+    log.err("{s}", .{msg});
 
-pub export var terminal_request: limine.TerminalRequest = .{};
+    assm.halt();
+}
 
-// The following will be our kernel's entry point.
 export fn _start() callconv(.C) noreturn {
-    // Ensure the bootloader actually understands our base revision (see spec).
-    if (!base_revision.is_supported()) {
-        done();
-    }
+    start.init();
+
+    log.debug("Hello, world!", .{});
+
+    pmm.init() catch |err| {
+        log.err("PMM initialization error: {}", .{err});
+        @panic("PMM initialization error");
+    };
+    defer pmm.deinit(); //TODO not here
+
+    const allocator = heap.page_allocator;
+    const memory = allocator.alloc(u8, 0x3000) catch |err| {
+        log.err("OOM: {}", .{err});
+        @panic("OOM");
+    };
+    allocator.free(memory);
 
 
-    //var term = console.buildTerminal(psf.buildFont("lat2-08.psf")).init(console.ConsoleColors.Cyan, console.ConsoleColors.DarkGray);
-    //var term = console.GenericTerminal(console.FontPsf1Koi8x14).init(255, 255, 0, 255);
-   var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch com.panic();
-   //var term = console.GenericTerminal(console.FontPsf2Tamsyn8x16r).init(255, 0, 0, 255);
-
-    pty.printf("kotą i ścierę {s}\n", .{"pies"} );
-
-    if (terminal_request.response) |terminal_response| {
-            pty.printf("Response: {d}\n", .{terminal_response.terminal_count});
-        } else {
-            pty.printf("No response\n", .{});
-        }
-
-    // We're done, just hang...
-    done();
+    start.done(); //only now we can hlt - do not use defer after start.init();
 }

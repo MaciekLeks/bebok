@@ -1,9 +1,9 @@
 const std = @import("std");
-const Build = @import("std").Build;
-const Target = @import("std").Target;
-const Feature = @import("std").Target.Cpu.Feature;
+const Build = std.Build;
+const Target = std.Target;
+const Feature = std.Target.Cpu.Feature;
 
-const BEBOK_ISO_FILENAME = "bebok.iso";
+const bebok_iso_filename = "bebok.iso";
 
 // fn nasmRun(b: *Build, src: []const u8, dst: []const u8, options: []const []const u8, prev_step: ?*Build.Step) error{OutOfMemory}!*Build.Step {
 //     var args = std.ArrayList([]const u8).init(b.allocator);
@@ -54,7 +54,7 @@ fn resolveTarget(b: *Build, arch: Target.Cpu.Arch) !Build.ResolvedTarget {
 
 /// Main compilation units
 /// Add here all modules that should be compiled into the kernel
-fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, limine_zig_mod: anytype) *Build.Step.Compile {
+fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, limine_zig_mod: anytype, zigavl_mod: anytype) *Build.Step.Compile {
     const compile_kernel_action = b.addExecutable(.{
         .name = "kernel.elf",
         .root_source_file = .{ .path = "src/kernel.zig" },
@@ -64,15 +64,20 @@ fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.bu
         .code_model = .kernel,
         .pic = false, //TODO: check if this is needed
     });
+
     compile_kernel_action.root_module.addImport("limine", limine_zig_mod);
+    compile_kernel_action.root_module.addImport("zigavl", zigavl_mod);
     compile_kernel_action.setLinkerScript(.{ .path = b.fmt("linker-{s}.ld", .{@tagName(target.result.cpu.arch)}) });
     compile_kernel_action.out_filename = "kernel.elf";
     compile_kernel_action.pie = false; //TODO: ?
 
     //{Modules
-    const terminal_module = b.addModule("terminal", .{  .root_source_file =  .{ .path = "libs/terminal/mod.zig" }});
+    const terminal_module = b.addModule("terminal", .{ .root_source_file = .{ .path = "libs/terminal/mod.zig" } });
     terminal_module.addImport("limine", limine_zig_mod); //we need limine there
     compile_kernel_action.root_module.addImport("terminal", terminal_module);
+
+    const utils_module = b.addModule("utils", .{ .root_source_file = .{ .path = "libs/utils/mod.zig" } });
+    compile_kernel_action.root_module.addImport("utils", utils_module);
     //}Modules
 
     return compile_kernel_action;
@@ -151,11 +156,11 @@ fn injectLimineStages(limine_run_action: *Build.Step.Run, iso_file: Build.LazyPa
 fn installIsoFileAction(b: *Build, iso_build_task: *Build.Step, iso_file: Build.LazyPath) *Build.Step.InstallFile {
     const copy_iso_task = b.addWriteFiles();
     copy_iso_task.step.dependOn(iso_build_task);
-    const iso_artifact_path = copy_iso_task.addCopyFile(iso_file, BEBOK_ISO_FILENAME);
-    return b.addInstallFile(iso_artifact_path, BEBOK_ISO_FILENAME);
+    const iso_artifact_path = copy_iso_task.addCopyFile(iso_file, bebok_iso_filename);
+    return b.addInstallFile(iso_artifact_path, bebok_iso_filename);
 }
 
-fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, iso_file: Build.LazyPath) !*Build.Step.Run {
+fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, iso_file: Build.LazyPath, debug: bool) !*Build.Step.Run {
     const qemu_iso_action = b.addSystemCommand(&.{switch (target.result.cpu.arch) {
         .x86_64 => "qemu-system-x86_64",
         else => return error.UnsupportedArch,
@@ -173,6 +178,12 @@ fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, iso_file: Build.LazyPa
                 "d",
             }); //boot from cdrom
             qemu_iso_action.addArgs(&.{ "-debugcon", "stdio" });
+            if (debug) {
+                qemu_iso_action.addArgs(&.{
+                    "-s",
+                    "-S",
+                });
+            }
         },
         else => return error.UnsupportedArch,
     }
@@ -190,13 +201,16 @@ pub fn build(b: *Build) !void {
 
     const optimize = b.standardOptimizeOption(.{
         .preferred_optimize_mode = .ReleaseSafe, //tODO: uncomment
-       // .preferred_optimize_mode = .Debug,
+        // .preferred_optimize_mode = .Debug,
     });
 
     const limine_zig_dep = b.dependency("limine_zig", .{});
     const limine_zig_mod = limine_zig_dep.module("limine");
 
-    const compile_kernel_action = compileKernelAction(b, target, optimize, limine_zig_mod);
+    const zigavl_dep = b.dependency("zigavl", .{});
+    const zigavl_mod = zigavl_dep.module("zigavl");
+
+    const compile_kernel_action = compileKernelAction(b, target, optimize, limine_zig_mod, zigavl_mod);
     const install_kernel_action = installKernelAction(b, compile_kernel_action);
     const install_kernel_task = &install_kernel_action.step;
     // overwrite standard install
@@ -210,7 +224,7 @@ pub fn build(b: *Build) !void {
     const limine_action = buildLimineAction(b);
 
     const build_iso_file_action = buildIsoFileAction(b, compile_kernel_action);
-    const build_iso_file_action_output = build_iso_file_action.addOutputFileArg(BEBOK_ISO_FILENAME);
+    const build_iso_file_action_output = build_iso_file_action.addOutputFileArg(bebok_iso_filename);
     injectLimineStages(limine_action, build_iso_file_action_output);
     const build_iso_file_task = &build_iso_file_action.step;
 
@@ -220,10 +234,16 @@ pub fn build(b: *Build) !void {
     iso_stage.dependOn(install_iso_file_task);
     iso_stage.dependOn(install_kernel_task); //to be able to debug in gdb
 
-    const qemu_iso_action = try qemuIsoAction(b, target, build_iso_file_action_output); //run with the cached iso file
+    const qemu_iso_action = try qemuIsoAction(b, target, build_iso_file_action_output, false); //run with the cached iso file
     const qemu_iso_stage = b.step("iso-qemu", "Run the ISO in QEMU");
     qemu_iso_stage.dependOn(iso_stage);
     qemu_iso_stage.dependOn(&qemu_iso_action.step);
+
+    // debug mode
+    const qemu_iso_debug_action = try qemuIsoAction(b, target, build_iso_file_action_output, true); //run with the cached iso file
+    const qemu_iso_debug_stage = b.step("iso-qemu-debug", "Run the ISO in QEMU in debug mode");
+    qemu_iso_debug_stage.dependOn(iso_stage);
+    qemu_iso_debug_stage.dependOn(&qemu_iso_debug_action.step);
 
     b.default_step = iso_stage;
 }
