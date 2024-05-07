@@ -76,11 +76,11 @@ fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.bu
     compile_kernel_action.pie = false; //TODO: ?
 
     //{Modules
-    const terminal_module = b.addModule("terminal", .{ .root_source_file = .{ .path = "libs/terminal/mod.zig" } });
+    const terminal_module = b.addModule("terminal", .{ .root_source_file = .{ .path = "lib/terminal/mod.zig" } });
     terminal_module.addImport("limine", limine_zig_mod); //we need limine there
     compile_kernel_action.root_module.addImport("terminal", terminal_module);
 
-    const utils_module = b.addModule("utils", .{ .root_source_file = .{ .path = "libs/utils/mod.zig" } });
+    const utils_module = b.addModule("utils", .{ .root_source_file = .{ .path = "lib/utils/mod.zig" } });
     compile_kernel_action.root_module.addImport("utils", utils_module);
     //}Modules
 
