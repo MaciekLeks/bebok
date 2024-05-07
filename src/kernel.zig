@@ -1,10 +1,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const config = @import("config");
 const assm = @import("asm.zig");
 const start = @import("start.zig");
 const paging = @import("paging.zig");
 const pmm = @import("mem/pmm.zig");
 const heap = @import("mem/heap.zig").heap;
+const term = @import("terminal");
 
 const log = std.log.scoped(.kernel);
 
@@ -66,6 +68,9 @@ export fn _start() callconv(.C) noreturn {
         @panic("OOM");
     };
     allocator.free(memory);
+
+    var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");
+    pty.printf("Bebok version: {any}\n", .{config.kernel_version});
 
 
     start.done(); //only now we can hlt - do not use defer after start.init();

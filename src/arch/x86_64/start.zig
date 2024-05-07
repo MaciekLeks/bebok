@@ -7,7 +7,7 @@ const limine = @import("limine");
 //const com = @import("common/common.zig");
 const std = @import("std");
 
-const term = @import("terminal");
+
 const paging = @import("paging.zig");
 //const heap = @import("memory/heap.zig");
 //export means that linker can see this function
@@ -95,8 +95,8 @@ pub fn init() void {
     //var term = console.GenericTerminal(console.FontPsf1Koi8x14).init(255, 255, 0, 255);
     //var term = console.GenericTerminal(console.FontPsf2Tamsyn8x16r).init(255, 0, 0, 255);
 
-    var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");
-    pty.printf("kotą i ścierę {s}\n", .{"pies"});
+    // var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");
+    // pty.printf("kotą i ścierę {s}\n", .{"pies"});
 
     //if (terminal_request.response) |terminal_response| pty.printf("Response: {d}\n", .{terminal_response.terminal_count})
     //else  pty.printf("No response\n", .{});

@@ -4,6 +4,7 @@ const Target = std.Target;
 const Feature = std.Target.Cpu.Feature;
 
 const bebok_iso_filename = "bebok.iso";
+const kernel_version = std.SemanticVersion{.major = 0, .minor = 1, .patch = 0};
 
 // fn nasmRun(b: *Build, src: []const u8, dst: []const u8, options: []const []const u8, prev_step: ?*Build.Step) error{OutOfMemory}!*Build.Step {
 //     var args = std.ArrayList([]const u8).init(b.allocator);
@@ -219,6 +220,7 @@ pub fn build(b: *Build) !void {
     const options = b.addOptions();
     options.addOption(u32, "mem_page_size", @intFromEnum(build_options.mem_page_size));
     options.addOption(u8, "mem_bit_tree_max_levels", build_options.mem_bit_tree_max_levels);
+    options.addOption(std.SemanticVersion, "kernel_version",  kernel_version);
 
     const compile_kernel_action = compileKernelAction(b, target, optimize, options, limine_zig_mod, zigavl_mod);
     const install_kernel_action = installKernelAction(b, compile_kernel_action);
