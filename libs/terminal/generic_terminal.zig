@@ -5,9 +5,9 @@ const limine = @import("limine");
 const psf = @import("psf/font.zig");
 const std = @import("std");
 
-const VGA_WIDTH = 80;
-const VGA_HEIGHT = 25;
-const VGA_SIZE = VGA_WIDTH * VGA_HEIGHT;
+const vga_width = 80;
+const vga_height = 25;
+const vga_size = vga_width * vga_height;
 
 // The Limine requests can be placed anywhere, but it is important that
 // the compiler does not optimise them away, so, usually, they should
@@ -22,7 +22,7 @@ pub const FontPsf1Koi8x14 = psf.FontInfo("assets/koi8-14.psf"); //Todo remove un
 pub const FontPsf2Tamsyn8x16r = psf.FontInfo("assets/Tamsyn8x16r.psf"); //Todo remove underscore
 pub const FontPsf1Lat2Vga16 = psf.FontInfo("assets/Lat2vga16.psf");
 
-pub const TerminalError = error {
+pub const TerminalError = error{
     NoFramebuffer,
 };
 
@@ -60,7 +60,7 @@ pub fn GenericTerminal(comptime FontInfo: type) type {
                 const max_row = fb.height / font_info.glyph_height;
                 const max_column = fb.width / font_info.glyph_width;
 
-                log.info("Framebuffer:  addr:0x{x}   {}x{}x{} @ {}bpp", .{&fb.address[0], fb.width, fb.height, fb.pitch, fb.bpp});
+                log.info("Framebuffer:  addr:0x{x}   {}x{}x{} @ {}bpp", .{ &fb.address[0], fb.width, fb.height, fb.pitch, fb.bpp });
 
                 var self = Self{
                     .row = 0,
@@ -99,7 +99,7 @@ pub fn GenericTerminal(comptime FontInfo: type) type {
                     if (is_glyph_bit_on) {
                         const pixel_offset = start_offset + scanline + x * self.bytes_per_pixel;
                         if (pixel_offset > end_offset) {
-                           unreachable("pixel_offset > fb_offset_end");
+                            unreachable("pixel_offset > fb_offset_end");
                         }
                         @as(*u32, @ptrCast(@alignCast(self.fb.address + pixel_offset))).* = self.color;
                     }

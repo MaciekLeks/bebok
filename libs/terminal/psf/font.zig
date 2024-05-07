@@ -2,17 +2,17 @@ const std = @import("std");
 
 // src: https://www.win.tue.nl/~aeb/linux/kbd/font-formats-1.html
 //src: https://accidental.cc/notes/2022/psf-zig/
-const PSF1_MAGIC: [2]u8 = .{ 0x36, 0x04 };
-const PSF2_MAGIC: [4]u8 = .{ 0x72, 0xb5, 0x4a, 0x86 };
+const psf1_magic: [2]u8 = .{ 0x36, 0x04 };
+const psf2_magic: [4]u8 = .{ 0x72, 0xb5, 0x4a, 0x86 };
 
-const PSF1_MODE_HAS256 = 0x00; //256 glyphs
-const PSF1_MODE_HAS512 = 0x01;
-const PSF1_MODE_HASTAB = 0x02;
-const PSF1_MODE_HASSEQ = 0x04;
-const PSF2_HAS_UNICODE_TABLE = 0x01;
+const psf1_mode_has256 = 0x00; //256 glyphs
+const psf1_mode_has512 = 0x01;
+const psf1_mode_hastab = 0x02;
+const psf1_mode_hasseq = 0x04;
+const psf2_has_unicode_table = 0x01;
 
-const CT_MAX_BRANCHES = 100000;
-const CT_MAX_CODEPOINTS = 1000;
+const ct_max_branches = 100000;
+const ct_max_codepoints = 1000;
 
 const GlyphNumber = u32;
 
@@ -142,7 +142,7 @@ fn GenericInfo(comptime Settings: type) type {
 
             // then read every glyph out of the file into the struct
             // without the eval branch quota, compiler freaks out in read for backtracking
-            @setEvalBranchQuota(CT_MAX_BRANCHES);
+            @setEvalBranchQuota(ct_max_branches);
             inline while (index < Settings.header_info.glyph_count) : (index += 1) {
                 _ = glyph_stream.read(data[index][0..Settings.header_info.glyph_size]) catch unreachable;
             }
@@ -190,7 +190,7 @@ fn Version2Info(comptime file: []const u8) type {
     const glyph_height = try reader.readInt(u32, .little);
     const glyph_width = try reader.readInt(u32, .little);
 
-    const uc_table_offset: ?u32 = if (flags & PSF2_HAS_UNICODE_TABLE != 0) header_size + glyph_count * glyph_height else null;
+    const uc_table_offset: ?u32 = if (flags & psf2_has_unicode_table != 0) header_size + glyph_count * glyph_height else null;
 
     // comptime var utf8_slice: []u8 = undefined;
     // jump to the unicode table and determine the number of unicode codes
@@ -216,8 +216,8 @@ fn Version2Info(comptime file: []const u8) type {
             var utf8_bytes: [4]u8 align(@alignOf(u32)) = [_]u8{0} ** 4;
             var glyph_no: u32 = 0;
             // temporary array to store utf8 bytes and glyph number before putting them into the hashmap
-            var utf8_glyph_arr: [CT_MAX_CODEPOINTS]struct { []const u8, GlyphNumber } = undefined;
-            @setEvalBranchQuota(CT_MAX_BRANCHES);
+            var utf8_glyph_arr: [ct_max_codepoints]struct { []const u8, GlyphNumber } = undefined;
+            @setEvalBranchQuota(ct_max_branches);
             while (reader.readByte()) |byte| {
                 switch (byte) {
                     0xFF => glyph_no += 1,
@@ -279,8 +279,8 @@ fn Version1Info(comptime file: []const u8) type {
     _ = try reader.readInt(u16, .little); // magic (already validated)
     const font_mode = try reader.readInt(u8, .little); //256 or 512 glyphs, has unicode table, has unicode sequence
     const glyph_height = try reader.readInt(u8, .little); //character height from charsize since with is always 8
-    const glyph_count: u32 = if (font_mode & PSF1_MODE_HAS256 == 0) 256 else 512;
-    const uc_table_offset: ?u32 = if (font_mode & PSF1_MODE_HASTAB != 0 or font_mode & PSF1_MODE_HASSEQ != 0) header_size + glyph_count * glyph_height else null;
+    const glyph_count: u32 = if (font_mode & psf1_mode_has256 == 0) 256 else 512;
+    const uc_table_offset: ?u32 = if (font_mode & psf1_mode_hastab != 0 or font_mode & psf1_mode_hasseq != 0) header_size + glyph_count * glyph_height else null;
 
     // jump to the unicode table and determine the number of unicode codes
     comptime var uc_codes: u32 = 0;
@@ -301,9 +301,9 @@ fn Version1Info(comptime file: []const u8) type {
                 @compileError("failed to skip glyph data to read unicode table");
             };
 
-            var codepoint_glyph_arr: [CT_MAX_CODEPOINTS]struct { []const u8, GlyphNumber } = undefined;
+            var codepoint_glyph_arr: [ct_max_codepoints]struct { []const u8, GlyphNumber } = undefined;
             var glyph_no: GlyphNumber = 0;
-            @setEvalBranchQuota(CT_MAX_BRANCHES);
+            @setEvalBranchQuota(ct_max_branches);
             while (reader.readInt(u16, .little)) |codepoint| {
                 const bytes_count: u3 = std.unicode.utf8CodepointSequenceLength(codepoint) catch @compileError("invalid codepoint");
                 switch (codepoint) {
@@ -357,11 +357,11 @@ fn Version1Info(comptime file: []const u8) type {
 pub fn FontInfo(comptime path: []const u8) type {
     const file = @embedFile(path);
 
-    if (std.mem.eql(u8, file[0..2], PSF1_MAGIC[0..2])) {
+    if (std.mem.eql(u8, file[0..2], psf1_magic[0..2])) {
         return Version1Info(file);
     }
 
-    if (std.mem.eql(u8, file[0..4], PSF2_MAGIC[0..4])) {
+    if (std.mem.eql(u8, file[0..4], psf2_magic[0..4])) {
         return Version2Info(file);
     }
 
