@@ -55,7 +55,7 @@ fn resolveTarget(b: *Build, arch: Target.Cpu.Arch) !Build.ResolvedTarget {
 
 /// Main compilation units
 /// Add here all modules that should be compiled into the kernel
-fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, options: *Build.Step.Options, limine_zig_mod: anytype, zigavl_mod: anytype) *Build.Step.Compile {
+fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, options: *Build.Step.Options, limine_zig_mod: *Build.Module, zigavl_mod: *Build.Module) *Build.Step.Compile {
     const compile_kernel_action = b.addExecutable(.{
         .name = "kernel.elf",
         .root_source_file = .{ .path = "src/kernel.zig" },
