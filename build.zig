@@ -54,7 +54,7 @@ fn resolveTarget(b: *Build, arch: Target.Cpu.Arch) !Build.ResolvedTarget {
 
 /// Main compilation units
 /// Add here all modules that should be compiled into the kernel
-fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, limine_zig_mod: anytype, zigavl_mod: anytype) *Build.Step.Compile {
+fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, options: *Build.Step.Options, limine_zig_mod: anytype, zigavl_mod: anytype) *Build.Step.Compile {
     const compile_kernel_action = b.addExecutable(.{
         .name = "kernel.elf",
         .root_source_file = .{ .path = "src/kernel.zig" },
@@ -64,6 +64,9 @@ fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.bu
         .code_model = .kernel,
         .pic = false, //TODO: check if this is needed
     });
+
+    // Pass options to the code
+    compile_kernel_action.root_module.addOptions("config", options);
 
     compile_kernel_action.root_module.addImport("limine", limine_zig_mod);
     compile_kernel_action.root_module.addImport("zigavl", zigavl_mod);
@@ -195,6 +198,8 @@ pub fn build(b: *Build) !void {
 
     const build_options = .{
         .arch = b.option(std.Target.Cpu.Arch, "arch", "The architecture to build for") orelse b.host.result.cpu.arch,
+        .mem_page_size = b.option(enum(u32) { normal = 4096 }, "page-size", "The page size to be used; 'normal' represents 4096 bytes ") orelse .normal,
+        .mem_bit_tree_max_levels = b.option(u8, "mem-bit-tree-max-levels", "Maximum number of the bit tree levels to manage memory, calculated as log2(total_memory_in_bytes/page_size_in_bytes)+ 1; defaults to 32") orelse 32,
     };
 
     const target = try resolveTarget(b, build_options.arch);
@@ -210,7 +215,12 @@ pub fn build(b: *Build) !void {
     const zigavl_dep = b.dependency("zigavl", .{});
     const zigavl_mod = zigavl_dep.module("zigavl");
 
-    const compile_kernel_action = compileKernelAction(b, target, optimize, limine_zig_mod, zigavl_mod);
+    // Comptime options
+    const options = b.addOptions();
+    options.addOption(u32, "mem_page_size", @intFromEnum(build_options.mem_page_size));
+    options.addOption(u8, "mem_bit_tree_max_levels", build_options.mem_bit_tree_max_levels);
+
+    const compile_kernel_action = compileKernelAction(b, target, optimize, options, limine_zig_mod, zigavl_mod);
     const install_kernel_action = installKernelAction(b, compile_kernel_action);
     const install_kernel_task = &install_kernel_action.step;
     // overwrite standard install

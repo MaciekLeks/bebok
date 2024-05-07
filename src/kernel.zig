@@ -2,7 +2,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assm = @import("asm.zig");
 const start = @import("start.zig");
-//const heap = @import("memory/heap.zig");
 const paging = @import("paging.zig");
 const pmm = @import("mem/pmm.zig");
 const heap = @import("mem/heap.zig").heap;

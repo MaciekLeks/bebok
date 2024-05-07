@@ -33,7 +33,7 @@ pub fn BuddyBitmapTree(comptime max_levels: u8, comptime min_chunk_size: usize) 
 
             fn buildLevelMeta(level_count: u8) ![]LevelMetadata {
                 for (0..level_count) |lvl| {
-                    level_meta[lvl] = .{ .offset = (math.powi(usize, 2, lvl) catch return error.InvalidLevel) - 1, .size = frame_size * (math.powi(usize, 2, level_count - lvl - 1) catch return error.InvalidSize), .bits = math.powi(usize, 2, lvl) catch return error.BitOverflow };
+                    level_meta[lvl] = .{ .offset = (math.powi(usize, 2, lvl) catch return error.InvalidLevel) - 1, .size = page_size * (math.powi(usize, 2, level_count - lvl - 1) catch return error.InvalidSize), .bits = math.powi(usize, 2, lvl) catch return error.BitOverflow };
                 }
                 return level_meta[0..level_count];
             }
@@ -50,7 +50,7 @@ pub fn BuddyBitmapTree(comptime max_levels: u8, comptime min_chunk_size: usize) 
             }
 
             pub inline fn levelFromSize(self: *Metadata, size_pow2: usize) !u8 {
-                const norm_size_pow2 =size_pow2 / frame_size;
+                const norm_size_pow2 =size_pow2 / page_size;
                 assert(norm_size_pow2 >= 1);
                 const computed_level = self.level_count - math.log2(norm_size_pow2) - 1;
                 log.debug("levelFromSize: size: {d}, level: {d}", .{ size_pow2, computed_level });
@@ -84,7 +84,7 @@ pub fn BuddyBitmapTree(comptime max_levels: u8, comptime min_chunk_size: usize) 
         buffer: []u8 = undefined, // buffer to store bits
         meta: *Metadata,
 
-        pub const frame_size = math.floorPowerOfTwo(usize, min_chunk_size);
+        pub const page_size = math.floorPowerOfTwo(usize, min_chunk_size);
         pub var level_meta: [max_levels]LevelMetadata = undefined;
 
         inline fn bytesFromBits(bits: usize) usize {

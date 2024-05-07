@@ -17,9 +17,9 @@ pub export var framebuffer_request: limine.FramebufferRequest = .{};
 pub const Color = u8;
 pub const Alpha = u8;
 
-pub const FontPsf1Lat208 = psf.FontInfo("assets/lat2-08.psf"); //Todo remove underscore
-pub const FontPsf1Koi8x14 = psf.FontInfo("assets/koi8-14.psf"); //Todo remove underscore
-pub const FontPsf2Tamsyn8x16r = psf.FontInfo("assets/Tamsyn8x16r.psf"); //Todo remove underscore
+pub const FontPsf1Lat208 = psf.FontInfo("assets/lat2-08.psf");
+pub const FontPsf1Koi8x14 = psf.FontInfo("assets/koi8-14.psf");
+pub const FontPsf2Tamsyn8x16r = psf.FontInfo("assets/Tamsyn8x16r.psf");
 pub const FontPsf1Lat2Vga16 = psf.FontInfo("assets/Lat2vga16.psf");
 
 pub const TerminalError = error{

@@ -29,11 +29,11 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
 
         // Initialize the allocator with the given memory by allocating the buffer for the tree and self object in that memory.
         pub fn init(mem: []u8) !*Self {
-            assert(mem.len >= BBTree.frame_size);
+            assert(mem.len >= BBTree.page_size);
             const mem_max_size_pow2 = std.math.floorPowerOfTwo(usize, mem.len);
 
             // config on the stack
-            var config = try BBTree.Metadata.init(mem_max_size_pow2, BBTree.frame_size);
+            var config = try BBTree.Metadata.init(mem_max_size_pow2, BBTree.page_size);
 
             const self_size = @sizeOf(Self);
             const tree_size = @sizeOf(BBTree);
@@ -41,10 +41,10 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
             const tree_meta_level_size = config.level_meta.len * @sizeOf(BBTree.LevelMetadata);
             // minimal size is the sum of the size of the self object, the size of the buffer, and the size of the tree
             const min_size_needed = self_size + @alignOf(Self) + tree_buffer_size + @alignOf([]u8)  + tree_size + @alignOf(BBTree) + tree_meta_level_size + @alignOf(BBTree.LevelMetadata); // we added alignments just in caase
-            const size_needed = @max(min_size_needed, BBTree.frame_size);
+            const size_needed = @max(min_size_needed, BBTree.page_size);
             const size_needed_pow2 = try std.math.ceilPowerOfTwo(usize, size_needed);
             //log everuthing from min_sel_size to size_needed_pow2
-            log.debug("init:   self_size: 0x{x}  buffer_size: 0x{x}  size_needed: 0x{x}  size_needed: 0x{x}  size_needed_pow2: 0x{x}, frame/page_size: 0x{x}", .{ self_size, tree_buffer_size, min_size_needed, size_needed, size_needed_pow2, BBTree.frame_size });
+            log.debug("init:   self_size: 0x{x}  buffer_size: 0x{x}  size_needed: 0x{x}  size_needed: 0x{x}  size_needed_pow2: 0x{x}, frame/page_size: 0x{x}", .{ self_size, tree_buffer_size, min_size_needed, size_needed, size_needed_pow2, BBTree.page_size });
 
             assert(mem.len >= size_needed_pow2);
 
@@ -78,7 +78,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
         }
 
         inline fn absVaddrFromIndex(vaddr: usize, idx: usize) usize {
-            return vaddr + BBTree.frame_size * idx;
+            return vaddr + BBTree.page_size * idx;
         }
 
         inline fn vaddrFromIndex(self: Self, idx: usize) usize {
@@ -87,11 +87,11 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
 
         inline fn indexFromVaddr(self: *Self, vaddr: usize) usize {
             assert(vaddr >= self.mem_vaddr);
-            return (vaddr - self.mem_vaddr) / BBTree.frame_size;
+            return (vaddr - self.mem_vaddr) / BBTree.page_size;
         }
 
         pub inline fn minAllocSize(size: usize) !usize {
-            return try std.math.ceilPowerOfTwo(usize, @max(BBTree.frame_size, size)); //e.g. 1->4, 16 -> 16, but 17,18,... -> 32
+            return try std.math.ceilPowerOfTwo(usize, @max(BBTree.page_size, size)); //e.g. 1->4, 16 -> 16, but 17,18,... -> 32
         }
 
         pub fn allocInner(self: *Self, size_pow2: usize) !AllocInfo {

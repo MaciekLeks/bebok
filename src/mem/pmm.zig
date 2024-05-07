@@ -4,15 +4,14 @@ const limine = @import("limine");
 const utils = @import("utils");
 const zigavl = @import("zigavl");
 const paging = @import("../paging.zig");
-
+const config = @import("config");
 const log = std.log.scoped(.pmm);
 
 pub export var mmap_req = limine.MemoryMapRequest{};
 
-const frame_size_pow2 = 4096; //TODO: move to a build config
-const min_region_size_pow2 = frame_size_pow2 << 1; //one frame_size takes bbtree buffer, so to manage only one frame/page we need at least 2 frames
+const min_region_size_pow2 = config.mem_page_size << 1; //one frame_size takes bbtree buffer, so to manage only one frame/page we need at least 2 frames
 
-const BuddyAllocator4kBFrameSize = utils.BuddyAllocator(32, frame_size_pow2);
+const BuddyAllocatorPreconfigured = utils.BuddyAllocator(config.mem_bit_tree_max_levels, config.mem_page_size);
 
 fn usizeCmp(a_size: usize, b_size: usize) math.Order {
     return math.order(a_size, b_size);
@@ -31,8 +30,8 @@ fn vaddrSizeCmp(a_key: KeyVaddrSize, b_key: KeyVaddrSize) math.Order {
 }
 
 /// Tree based on free region memory size
-const AvlTreeBySize = zigavl.Tree(usize, *BuddyAllocator4kBFrameSize, usizeCmp);
-const AvlTreeByVaddr = zigavl.Tree(KeyVaddrSize, *BuddyAllocator4kBFrameSize, vaddrSizeCmp);
+const AvlTreeBySize = zigavl.Tree(usize, *BuddyAllocatorPreconfigured, usizeCmp);
+const AvlTreeByVaddr = zigavl.Tree(KeyVaddrSize, *BuddyAllocatorPreconfigured, vaddrSizeCmp);
 var arena: std.heap.ArenaAllocator = undefined;
 var avl_tree_by_size: AvlTreeBySize = undefined;
 var avl_tree_by_vaddr: AvlTreeByVaddr = undefined;
@@ -61,7 +60,7 @@ pub fn init() !void {
                 @intFromPtr(v_region.ptr) + v_region.len,
             });
 
-            var main_buddy_allocator = try BuddyAllocator4kBFrameSize.init(v_region);
+            var main_buddy_allocator = try BuddyAllocatorPreconfigured.init(v_region);
             log.debug("init(): Initialized buddy allocator: unallocated memory size:: 0x{x}, free to use memory size: 0x{x}", .{ main_buddy_allocator.unmanaged_mem_size, main_buddy_allocator.free_mem_size });
             arena = std.heap.ArenaAllocator.init(main_buddy_allocator.allocator());
 
@@ -112,7 +111,7 @@ fn registerRegionZone(base: usize, len: usize) !void {
     if (len <= min_region_size_pow2) return;
     const v_region = @as([*]u8, @ptrFromInt(paging.vaddrFromPaddr(base)))[0..len];
     log.debug("registerRegionZone(): Inserting region zone: 0x{x} -> 0x{x}", .{ @intFromPtr(v_region.ptr), @intFromPtr(v_region.ptr) + v_region.len });
-    const zone_buddy_allocator = try BuddyAllocator4kBFrameSize.init(v_region);
+    const zone_buddy_allocator = try BuddyAllocatorPreconfigured.init(v_region);
     _ = try avl_tree_by_size.insert(len, zone_buddy_allocator);
     _ = try avl_tree_by_vaddr.insert(.{ .vaddr = zone_buddy_allocator.mem_vaddr, .size = zone_buddy_allocator.max_mem_size_pow2 }, zone_buddy_allocator);
     try registerRegionZone(base + zone_buddy_allocator.free_mem_size, zone_buddy_allocator.unmanaged_mem_size);
@@ -127,7 +126,7 @@ pub fn deinit() void {
 fn alloc(_: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
     //var it = avl_tree_by_size.ascendFromStart();
     var it = avl_tree_by_size.descendFromEnd(); //large size to small size
-    const size_pow2 = BuddyAllocator4kBFrameSize.minAllocSize(len) catch {
+    const size_pow2 = BuddyAllocatorPreconfigured.minAllocSize(len) catch {
         return null;
     };
     while (it.value()) |e| {
