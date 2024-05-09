@@ -1,8 +1,9 @@
 const std = @import("std");
+const assm = @import("asm.zig");
 
 const log = std.log.scoped(.gdt);
 
-const TableEntry = packed struct(u64) {
+const GdtEntry = packed struct(u64) {
     limit_a: u16, //0-15
     base_a: u24, //16-39
     access: AccessType, //40-47
@@ -72,8 +73,13 @@ const TableEntry = packed struct(u64) {
     };
 };
 
+pub const Gdtd = packed struct(u80) {
+    size: u16, //0-15
+    offset: u64, //16-79
+};
+
 // src: https://wiki.osdev.org/GDT_Tutorial
-const gdt = [_]TableEntry{
+const gdt = [_]GdtEntry{
     @bitCast(@as(u64, 0)),
     .{ //Kernel Mode Code Segment
         .limit_a = 0xffff,
@@ -165,10 +171,27 @@ const gdt = [_]TableEntry{
     //TODO add TSS
 };
 
-pub fn init() void {
+var gdtd: Gdtd = undefined;
+
+fn dump() void {
+    log.debug("GDTD: {any}",  .{gdtd});
+
     for (gdt,0..) |entry, i| {
         const a = @as(u8, @bitCast(entry.access));
         const f = @as(u4, @bitCast(entry.flags));
         log.debug("idx: {d} entry: access: 0x{x}=0b{b:0>8} flags: 0x{x}=0b{b:0>8}", .{i, a, a, f, f});
     }
+    defer log.debug("GDT loaded", .{});
+}
+
+
+pub fn init() void {
+    gdtd = .{
+        .size = @sizeOf(@TypeOf(gdt)) - 1,
+        .offset = @intFromPtr(&gdt),
+    };
+
+    assm.lgdt(&gdtd);
+
+    dump();
 }
