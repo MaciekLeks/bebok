@@ -9,6 +9,7 @@ const std = @import("std");
 
 
 const paging = @import("paging.zig");
+const gdt = @import("gdt.zig");
 //const heap = @import("memory/heap.zig");
 //export means that linker can see this function
 
@@ -112,6 +113,7 @@ pub fn init() void {
     // if (efi_memory_map_request.response) |res| pty.printf("EfiMemoryMapResponse: {any}\n", .{res}) else pty.printf("No EfiMemoryMapResponse\n", .{});
     // We're done, just hang...
 
+    gdt.init();
 
 
     //const log = std.log.scoped(.paging);

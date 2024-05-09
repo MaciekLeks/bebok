@@ -44,3 +44,11 @@ pub inline fn cr3() usize {
         : [result] "={eax}" (-> usize)
     );
 }
+
+pub inline fn cli() void {
+    asm volatile ("cli");
+}
+
+pub inline fn sti() void {
+    asm volatile ("sti");
+}
