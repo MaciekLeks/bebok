@@ -279,10 +279,11 @@ fn selfLogDebug() void {
         const entry_as_u64: u64 = @bitCast(entry);
         log.debug("idx: {d} entry=0x{x:0>16} , while access=0x{x}=0b{b:0>8} flags=0x{x}=0b{b:0>8}", .{ i, entry_as_u64, a, a, f, f });
     }
-    defer log.debug("GDT loaded", .{});
 }
 
 pub fn init() void {
+    log.debug("Initializing GDT", .{});
+    defer log.debug("GDT initialized", .{});
     gdtd = .{
         .size = @sizeOf(@TypeOf(gdt)) - 1,
         .offset = @intFromPtr(&gdt),
