@@ -81,8 +81,94 @@ pub const Gdtd = packed struct(u80) {
 // src: https://wiki.osdev.org/GDT_Tutorial
 const gdt = [_]GdtEntry{
     @bitCast(@as(u64, 0)),
-    .{ //Kernel Mode Code Segment
+    .{ //Kernel Mode Code Segment - x16
         .limit_a = 0xffff,
+        .base_a = 0,
+        .access = .{
+            // equals to 0x9a
+            .accessed = false,
+            .readable_writable = .{ .code = .readable },
+            .direction_conforming = .{ .code = .restricted },
+            .executable = true,
+            .type = .code_data,
+            .privilege = .ring0,
+        },
+        .limit_b = 0,
+        .flags = .{
+            // equals to 0xa
+            .long_mode = false,
+            .db = .default,
+            .granularity = .byte,
+        },
+        .base_b = 0,
+    },
+    .{
+        //Kernel Mode Data Segment - x16
+        .limit_a = 0xffff,
+        .base_a = 0,
+        .access = .{
+            // equals to 0x92
+            .accessed = false,
+            .readable_writable = .{ .data = .writable },
+            .direction_conforming = .{ .data = .grows_up },
+            .executable = false,
+            .type = .code_data,
+            .privilege = .ring0,
+        },
+        .limit_b = 0,
+        .flags = .{
+            // equals to 0xc
+            .long_mode = false,
+            .db = .x32,
+            .granularity = .byte,
+        },
+        .base_b = 0,
+    },
+    .{ //Kernel Mode Code Segment - x32
+        .limit_a = 0xffff,
+        .base_a = 0,
+        .access = .{
+            // equals to 0x9a
+            .accessed = false,
+            .readable_writable = .{ .code = .readable },
+            .direction_conforming = .{ .code = .restricted },
+            .executable = true,
+            .type = .code_data,
+            .privilege = .ring0,
+        },
+        .limit_b = 0xf,
+        .flags = .{
+            // equals to 0xa
+            .long_mode = false,
+            .db = .x32,
+            .granularity = .page,
+        },
+        .base_b = 0,
+    },
+    .{
+        //Kernel Mode Data Segment - x32
+        .limit_a = 0xffff,
+        .base_a = 0,
+        .access = .{
+            // equals to 0x92
+            .accessed = false,
+            .readable_writable = .{ .data = .writable },
+            .direction_conforming = .{ .data = .grows_up },
+            .executable = false,
+            .type = .code_data,
+            .privilege = .ring0,
+        },
+        .limit_b = 0xf,
+        .flags = .{
+            // equals to 0xc
+            .long_mode = false,
+            .db = .x32,
+            .granularity = .page,
+        },
+        .base_b = 0,
+    },
+    .{ //Kernel Mode Code Segment - x64
+        .limit_a = 0, //irrelevant
         .base_a = 0,
         .access = .{
             // equals to 0x9a
@@ -103,19 +189,19 @@ const gdt = [_]GdtEntry{
         .base_b = 0,
     },
     .{
-        //Kernel Mode Data Segment
-        .limit_a = 0xffff,
+        //Kernel Mode Data Segment - x64
+        .limit_a = 0, //irrelevant
         .base_a = 0,
         .access = .{
             // equals to 0x92
-            .accessed = false,
+            .accessed = true, //to avoid page fault
             .readable_writable = .{ .data = .writable },
             .direction_conforming = .{ .data = .grows_up },
             .executable = false,
             .type = .code_data,
             .privilege = .ring0,
         },
-        .limit_b = 0,
+        .limit_b = 0, //irrelevant
         .flags = .{
             // equals to 0xc
             .long_mode = false,
@@ -173,17 +259,28 @@ const gdt = [_]GdtEntry{
 
 var gdtd: Gdtd = undefined;
 
-fn dump() void {
-    log.debug("GDTD: {any}",  .{gdtd});
+pub const segment_selectors = .{
+    .kernel_code_x16 = 0x08,
+    .kernel_data_x16 = 0x10,
+    .kernel_code_x32 = 0x18,
+    .kernel_data_x32 = 0x20,
+    .kernel_code_x64 = 0x28,
+    .kernel_data_x64 = 0x30,
+    .user_code = 0x38,
+    .user_data = 0x40,
+};
 
-    for (gdt,0..) |entry, i| {
+fn selfLogDebug() void {
+    log.debug("GDTD:  size=0x{x}, offset=0x{x}", .{ gdtd.size, gdtd.offset });
+
+    for (gdt, 0..) |entry, i| {
         const a = @as(u8, @bitCast(entry.access));
         const f = @as(u4, @bitCast(entry.flags));
-        log.debug("idx: {d} entry: access: 0x{x}=0b{b:0>8} flags: 0x{x}=0b{b:0>8}", .{i, a, a, f, f});
+        const entry_as_u64: u64 = @bitCast(entry);
+        log.debug("idx: {d} entry=0x{x:0>16} , while access=0x{x}=0b{b:0>8} flags=0x{x}=0b{b:0>8}", .{ i, entry_as_u64, a, a, f, f });
     }
     defer log.debug("GDT loaded", .{});
 }
-
 
 pub fn init() void {
     gdtd = .{
@@ -191,7 +288,7 @@ pub fn init() void {
         .offset = @intFromPtr(&gdt),
     };
 
-    assm.lgdt(&gdtd);
+    selfLogDebug();
 
-    dump();
+    assm.lgdt(&gdtd);
 }

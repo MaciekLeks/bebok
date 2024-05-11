@@ -175,6 +175,7 @@ fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, iso_file: Build.LazyPa
             qemu_iso_action.addArgs(&.{
                 "-m", "2G",
             });
+            qemu_iso_action.addArg("-no-reboot");
             qemu_iso_action.addArg("-cdrom");
             qemu_iso_action.addFileArg(iso_file);
             qemu_iso_action.addArgs(&.{
@@ -187,6 +188,7 @@ fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, iso_file: Build.LazyPa
                     "-s",
                     "-S",
                 });
+                qemu_iso_action.addArgs(&.{"-d", "int"});
             }
         },
         else => return error.UnsupportedArch,

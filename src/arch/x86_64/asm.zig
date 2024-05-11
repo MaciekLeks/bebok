@@ -43,7 +43,7 @@ pub fn putb(byte: u8) void {
 
 pub inline fn cr3() usize {
     return asm volatile ("mov %cr3, %[result]"
-        : [result] "={eax}" (-> usize)
+        : [result] "={eax}" (-> usize),
     );
 }
 
@@ -55,9 +55,31 @@ pub inline fn sti() void {
     asm volatile ("sti");
 }
 
+// pub inline fn lgdt(gdtd: *const gdt.Gdtd) void {
+//     asm volatile (
+//         \\gdt (%%rax)
+//         :
+//         : [gdtd] "{rax}" (gdtd),
+//     );
+// }
+
+
 pub inline fn lgdt(gdtd: *const gdt.Gdtd) void {
-    asm volatile ("lgdt (%rax)"
+    asm volatile (
+        \\lgdt (%%rax)
+        \\pushq $0x28
+        \\leaq 1f(%%rip), %%rax
+        \\pushq %%rax
+        \\lretq
+        \\1:
+        \\movq $0x30, %%rax
+        \\mov %%ax, %%ds
+        \\mov %%ax, %%es
+        \\mov %%ax, %%fs
+        \\mov %%ax, %%gs
+        \\mov %%ax, %%ss
         :
         : [gdtd] "{rax}" (gdtd),
+        : "rax"
     );
 }

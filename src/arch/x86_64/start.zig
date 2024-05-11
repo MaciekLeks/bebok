@@ -10,6 +10,7 @@ const std = @import("std");
 
 const paging = @import("paging.zig");
 const gdt = @import("gdt.zig");
+const assm = @import("asm.zig");
 //const heap = @import("memory/heap.zig");
 //export means that linker can see this function
 
@@ -92,27 +93,7 @@ pub fn init() void {
         done(); //TODO remove it from here
     }
 
-    //var term = console.buildTerminal(psf.buildFont("lat2-08.psf")).init(console.ConsoleColors.Cyan, console.ConsoleColors.DarkGray);
-    //var term = console.GenericTerminal(console.FontPsf1Koi8x14).init(255, 255, 0, 255);
-    //var term = console.GenericTerminal(console.FontPsf2Tamsyn8x16r).init(255, 0, 0, 255);
-
-    // var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");
-    // pty.printf("kotą i ścierę {s}\n", .{"pies"});
-
-    //if (terminal_request.response) |terminal_response| pty.printf("Response: {d}\n", .{terminal_response.terminal_count})
-    //else  pty.printf("No response\n", .{});
-
-    // if (memory_map_request.response) |memory_map_response| {
-    //     for (memory_map_response.entries()) |memory_map| {
-    //         const size_mb = memory_map.length / 1024 / 1024;
-    //         const size_gb = if (size_mb > 1024) size_mb / 1024 else 0;
-    //         pty.printf("MemoryMapResponse: {x} {x} size:{d}MB size:{d}GB {any} \n", .{ memory_map.base, memory_map.length, size_mb, size_gb, memory_map.kind });
-    //     }
-    // }
-    //
-    // if (efi_memory_map_request.response) |res| pty.printf("EfiMemoryMapResponse: {any}\n", .{res}) else pty.printf("No EfiMemoryMapResponse\n", .{});
-    // We're done, just hang...
-
+    assm.cli();
     gdt.init();
 
 
