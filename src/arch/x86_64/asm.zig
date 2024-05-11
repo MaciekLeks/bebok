@@ -1,3 +1,5 @@
+const gdt = @import("gdt.zig");
+
 pub fn halt() noreturn {
     while (true) {
         asm volatile ("hlt");
@@ -41,6 +43,46 @@ pub fn putb(byte: u8) void {
 
 pub inline fn cr3() usize {
     return asm volatile ("mov %cr3, %[result]"
-        : [result] "={eax}" (-> usize)
+        : [result] "={eax}" (-> usize),
+    );
+}
+
+pub inline fn cli() void {
+    asm volatile ("cli");
+}
+
+pub inline fn sti() void {
+    asm volatile ("sti");
+}
+
+// pub inline fn lgdt(gdtd: *const gdt.Gdtd) void {
+//     asm volatile (
+//         \\gdt (%%rax)
+//         :
+//         : [gdtd] "{rax}" (gdtd),
+//     );
+// }
+
+
+
+pub inline fn lgdt(gdtd: *const gdt.Gdtd, code_selector_idx: usize, data_selector_idx: usize) void {
+    asm volatile (
+        \\lgdt (%%rax)
+        \\pushq %%rdi
+        \\leaq 1f(%%rip), %%rax
+        \\pushq %%rax
+        \\lretq
+        \\1:
+        \\movq %%rsi, %%rax
+        \\mov %%ax, %%ds
+        \\mov %%ax, %%es
+        \\mov %%ax, %%fs
+        \\mov %%ax, %%gs
+        \\mov %%ax, %%ss
+        :
+        : [gdtd] "{rax}" (gdtd),
+          [code_selector_idx] "{rdi}" (code_selector_idx),
+          [data_selector_idx] "{rsi}" (data_selector_idx),
+        : "rax"
     );
 }
