@@ -64,15 +64,16 @@ pub inline fn sti() void {
 // }
 
 
-pub inline fn lgdt(gdtd: *const gdt.Gdtd) void {
+
+pub inline fn lgdt(gdtd: *const gdt.Gdtd, code_selector_idx: usize, data_selector_idx: usize) void {
     asm volatile (
         \\lgdt (%%rax)
-        \\pushq $0x28
+        \\pushq %%rdi
         \\leaq 1f(%%rip), %%rax
         \\pushq %%rax
         \\lretq
         \\1:
-        \\movq $0x30, %%rax
+        \\movq %%rsi, %%rax
         \\mov %%ax, %%ds
         \\mov %%ax, %%es
         \\mov %%ax, %%fs
@@ -80,6 +81,8 @@ pub inline fn lgdt(gdtd: *const gdt.Gdtd) void {
         \\mov %%ax, %%ss
         :
         : [gdtd] "{rax}" (gdtd),
+          [code_selector_idx] "{rdi}" (code_selector_idx),
+          [data_selector_idx] "{rsi}" (data_selector_idx),
         : "rax"
     );
 }

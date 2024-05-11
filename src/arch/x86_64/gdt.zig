@@ -290,5 +290,5 @@ pub fn init() void {
 
     selfLogDebug();
 
-    assm.lgdt(&gdtd);
+    assm.lgdt(&gdtd, segment_selectors.kernel_code_x64,segment_selectors.kernel_data_x64);
 }
