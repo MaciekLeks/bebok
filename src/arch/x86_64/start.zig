@@ -2,7 +2,7 @@ const limine = @import("limine");
 const std = @import("std");
 const paging = @import("paging.zig");
 const gdt = @import("gdt.zig");
-const idt = @import("idt.zig");
+const idt = @import("int.zig");
 const cpu = @import("cpu.zig");
 
 const log = std.log.scoped(.start);
@@ -26,6 +26,7 @@ pub fn init() void {
     cpu.cli();
     gdt.init();
     idt.init();
+    cpu.sti();
 
     paging.init();
 }

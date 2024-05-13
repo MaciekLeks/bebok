@@ -1,5 +1,5 @@
 const gdt = @import("gdt.zig");
-const idt = @import("idt.zig");
+const idt = @import("int.zig");
 
 pub fn halt() noreturn {
     while (true) {
@@ -63,7 +63,6 @@ pub inline fn lidt(idtd: *const idt.Idtd) void {
         : [idtd] "{rax}" (idtd),
     );
 }
-
 
 // Load the GDT and set the code and data segment registers; Setting the segment registers is necessary even if Limine already had set the same selectors.
 pub inline fn lgdt(gdtd: *const gdt.Gdtd, code_selector: usize, data_selector: usize) void {
