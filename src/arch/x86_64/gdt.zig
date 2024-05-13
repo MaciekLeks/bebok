@@ -265,8 +265,8 @@ fn selfLogDebug() void {
 }
 
 pub fn init() void {
-    log.debug("Initializing GDT", .{});
-    defer log.debug("GDT initialized", .{});
+    log.info("Initializing GDT", .{});
+    defer log.info("GDT initialized", .{});
     gdtd = .{
         .size = @sizeOf(@TypeOf(gdt)) - 1,
         .offset = @intFromPtr(&gdt),

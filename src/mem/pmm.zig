@@ -37,6 +37,9 @@ var avl_tree_by_size: AvlTreeBySize = undefined;
 var avl_tree_by_vaddr: AvlTreeByVaddr = undefined;
 
 pub fn init() !void {
+    log.info("PMM initialization", .{});
+    defer log.info("PMM initialization done", .{});
+
     if (mmap_req.response) |mmap_res| {
         var best_region: ?[]u8 = null;
         var best_region_entry_idx: usize = undefined;
