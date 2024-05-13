@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const config = @import("config");
-const assm = @import("asm.zig");
+const cpu = @import("cpu.zig");
 const start = @import("start.zig");
 const paging = @import("paging.zig");
 const pmm = @import("mem/pmm.zig");
@@ -32,15 +32,15 @@ pub fn logFn(comptime message_level: std.log.Level, comptime scope: @Type(.EnumL
     const msg = std.fmt.allocPrint(log_allocator, prefix ++ " " ++ format, args) catch "\x1b[31m\x1b[1m!!!LOG_FN_OOM!!!\x1b[0m";
 
     for (msg) |char| {
-        assm.putb(char);
+        cpu.putb(char);
         if (char == '\n') {
-            for (0..prefix.len - 10) |_| assm.putb(' ');
-            assm.putb('|');
-            assm.putb(' ');
+            for (0..prefix.len - 10) |_| cpu.putb(' ');
+            cpu.putb('|');
+            cpu.putb(' ');
         }
     }
 
-    assm.putb('\n');
+    cpu.putb('\n');
 }
 
 pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
@@ -48,7 +48,7 @@ pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
 
     log.err("{s}", .{msg});
 
-    assm.halt();
+    cpu.halt();
 }
 
 export fn _start() callconv(.C) noreturn {

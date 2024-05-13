@@ -1,4 +1,5 @@
 const gdt = @import("gdt.zig");
+const idt = @import("idt.zig");
 
 pub fn halt() noreturn {
     while (true) {
@@ -55,13 +56,13 @@ pub inline fn sti() void {
     asm volatile ("sti");
 }
 
-// pub inline fn lgdt(gdtd: *const gdt.Gdtd) void {
-//     asm volatile (
-//         \\gdt (%%rax)
-//         :
-//         : [gdtd] "{rax}" (gdtd),
-//     );
-// }
+pub inline fn lidt(idtd: *const idt.Idtd) void {
+    asm volatile (
+        \\lidt (%%rax)
+        :
+        : [idtd] "{rax}" (idtd),
+    );
+}
 
 
 

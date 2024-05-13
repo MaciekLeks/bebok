@@ -10,7 +10,7 @@ const std = @import("std");
 
 const paging = @import("paging.zig");
 const gdt = @import("gdt.zig");
-const assm = @import("asm.zig");
+const cpu = @import("cpu.zig");
 //const heap = @import("memory/heap.zig");
 //export means that linker can see this function
 
@@ -93,7 +93,7 @@ pub fn init() void {
         done(); //TODO remove it from here
     }
 
-    assm.cli();
+    cpu.cli();
     gdt.init();
 
 
