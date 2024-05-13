@@ -86,3 +86,7 @@ pub inline fn lgdt(gdtd: *const gdt.Gdtd, code_selector: usize, data_selector: u
         : "rax"
     );
 }
+
+pub inline fn div0() void {
+    asm volatile ("int $0");
+}

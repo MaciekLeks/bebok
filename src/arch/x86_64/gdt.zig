@@ -162,7 +162,7 @@ const gdt = [_]GdtEntry{
         .limit_low = 0, //irrelevant
         .base_low = 0,
         .access = .{
-            .accessed = false,
+            .accessed = true, //to avoid page fault in interrupts
             .readable_writable = .{ .code = .readable },
             .direction_conforming = .{ .code = .restricted },
             .executable = true,
