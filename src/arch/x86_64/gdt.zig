@@ -107,7 +107,6 @@ const gdt = [_]GdtEntry{
         .limit_a = 0xffff,
         .base_a = 0,
         .access = .{
-            // equals to 0x92
             .accessed = false,
             .readable_writable = .{ .data = .writable },
             .direction_conforming = .{ .data = .grows_up },
@@ -128,7 +127,6 @@ const gdt = [_]GdtEntry{
         .limit_a = 0xffff,
         .base_a = 0,
         .access = .{
-            // equals to 0x9a
             .accessed = false,
             .readable_writable = .{ .code = .readable },
             .direction_conforming = .{ .code = .restricted },
@@ -138,7 +136,6 @@ const gdt = [_]GdtEntry{
         },
         .limit_b = 0xf,
         .flags = .{
-            // equals to 0xa
             .long_mode = false,
             .db = .x32,
             .granularity = .page,
@@ -150,7 +147,6 @@ const gdt = [_]GdtEntry{
         .limit_a = 0xffff,
         .base_a = 0,
         .access = .{
-            // equals to 0x92
             .accessed = false,
             .readable_writable = .{ .data = .writable },
             .direction_conforming = .{ .data = .grows_up },
@@ -160,7 +156,6 @@ const gdt = [_]GdtEntry{
         },
         .limit_b = 0xf,
         .flags = .{
-            // equals to 0xc
             .long_mode = false,
             .db = .x32,
             .granularity = .page,
@@ -171,7 +166,6 @@ const gdt = [_]GdtEntry{
         .limit_a = 0, //irrelevant
         .base_a = 0,
         .access = .{
-            // equals to 0x9a
             .accessed = false,
             .readable_writable = .{ .code = .readable },
             .direction_conforming = .{ .code = .restricted },
@@ -181,7 +175,6 @@ const gdt = [_]GdtEntry{
         },
         .limit_b = 0,
         .flags = .{
-            // equals to 0xa
             .long_mode = true,
             .db = .default,
             .granularity = .page,
@@ -193,7 +186,6 @@ const gdt = [_]GdtEntry{
         .limit_a = 0, //irrelevant
         .base_a = 0,
         .access = .{
-            // equals to 0x92
             .accessed = true, //to avoid page fault
             .readable_writable = .{ .data = .writable },
             .direction_conforming = .{ .data = .grows_up },
@@ -203,7 +195,6 @@ const gdt = [_]GdtEntry{
         },
         .limit_b = 0, //irrelevant
         .flags = .{
-            // equals to 0xc
             .long_mode = false,
             .db = .x32,
             .granularity = .page,
@@ -215,7 +206,6 @@ const gdt = [_]GdtEntry{
         .limit_a = 0xffff,
         .base_a = 0,
         .access = .{
-            // equals to 0xfa
             .accessed = false,
             .readable_writable = .{ .code = .readable },
             .direction_conforming = .{ .code = .restricted },
@@ -225,7 +215,6 @@ const gdt = [_]GdtEntry{
         },
         .limit_b = 0,
         .flags = .{
-            // equals to 0xc
             .long_mode = true,
             .db = .default,
             .granularity = .page,
@@ -237,7 +226,6 @@ const gdt = [_]GdtEntry{
         .limit_a = 0xffff,
         .base_a = 0,
         .access = .{
-            // equals to 0xf2
             .accessed = false,
             .readable_writable = .{ .data = .writable },
             .direction_conforming = .{ .data = .grows_up },
@@ -247,7 +235,6 @@ const gdt = [_]GdtEntry{
         },
         .limit_b = 0,
         .flags = .{
-            // equals to 0xc
             .long_mode = false,
             .db = .x32,
             .granularity = .page,
