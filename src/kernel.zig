@@ -74,7 +74,7 @@ export fn _start() callconv(.C) noreturn {
     var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");
     pty.printf("Bebok version: {any}\n", .{config.kernel_version});
 
-    cpu.div0();
+    //cpu.div0();
 
 
     start.done(); //only now we can hlt - do not use defer after start.init();

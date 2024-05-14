@@ -14,6 +14,7 @@ const pic_master_cmd_port = 0x20;
 const pic_master_data_port = 0x21;
 const pic_slave_cmd_port = 0xA0;
 const pic_slave_data_port = 0xA1;
+const pic_eoi = 0x20;
 
 const pic_init_command = 0b0001_0001;
 const pic_end_of_init = 0b0000_0001;
@@ -40,7 +41,7 @@ pub const Exception = struct {
 };
 
 const et = [_]Exception{
-    .{ .vec_no = 0x0, .mnemonic = "#DE", .type = .fault, .description = "Divide Error" },
+    .{ .vec_no = 0x0, .mnemonic = "#DE", .type = .fault, .description = "Division Error" },
     .{ .vec_no = 0x1, .mnemonic = "#DB", .type = .fault, .description = "Debug Exception" },
     .{ .vec_no = 0x3, .mnemonic = "#BP", .type = .trap, .description = "Breakpoint" },
     .{ .vec_no = 0x4, .mnemonic = "#OF", .type = .trap, .description = "Overflow" },
@@ -72,6 +73,7 @@ const IdtEntry = packed struct(u128) {
     reserved_a: u5 = 0,
     gate_type: GateType,
     reserved_b: u1 = 0,
+    ///CPU Privilege Level which are allowed to access this interrupt via the INT instruction. Hardware interrupts ignore this mechanism.
     privilege: dpl.PrivilegeLevel,
     present: bool,
     offset_high: u48,
@@ -130,7 +132,7 @@ fn exceptionFnBind(comptime idx: u5) ExceptionFn {
     }.handle;
 }
 
-fn InterruptFnBind(comptime idx: u5) ExceptionFn {
+fn interruptFnBind(comptime idx: u5) ExceptionFn {
     return struct {
         fn handle() callconv(.Interrupt) void {
             log.debug(std.fmt.comptimePrint("Interrupt: idx={d}", .{idx}), .{});
@@ -138,9 +140,18 @@ fn InterruptFnBind(comptime idx: u5) ExceptionFn {
     }.handle;
 }
 
+fn interruptWithAckowledgeFnBind(comptime irq: u5, comptime logging: bool ) ExceptionFn {
+    return struct {
+        fn handle() callconv(.Interrupt) void {
+            if (logging) log.debug(std.fmt.comptimePrint("Interrupt: IRQ {d}", .{irq}), .{});
+            if (irq >= pic_slave_irq_start) cpu.outb(pic_slave_cmd_port, pic_eoi) else cpu.outb(pic_master_cmd_port, pic_eoi);
+        }
+    }.handle;
+}
+
 pub fn init() void {
-    log.info("Initializing Intterupts Handling", .{});
-    defer log.info("Iinterrupts Handling initialized", .{});
+    log.info("Initializing interrupts handling", .{});
+    defer log.info("Interrupts handling initialized", .{});
 
     // Remap IRQs to 0x20->0x2F
     remapPIC(pic_master_cmd_port, pic_master_data_port, pic_master_irq_start); // Remap master PIC (0-7)
@@ -149,8 +160,8 @@ pub fn init() void {
     // Update the IDT with the exceptions to 0x0->0x1F
     inline for (0..total_exceptions) |i| {
         switch (i) {
-            inline 0x02, 0x09, 0x15, 0x16...0x1B, 0x1F => |ei| {
-                idt[ei].setOffset(@intFromPtr(&InterruptFnBind(ei)));
+           0x02, 0x09, 0x15, 0x16...0x1B, 0x1F => |ei| {
+                idt[ei].setOffset(@intFromPtr(&interruptFnBind(ei)));
                 idt[ei].segment_selector = gdt.segment_selectors.kernel_code_x64;
                 idt[ei].interrupt_stack_table = 0;
                 idt[ei].gate_type = IdtEntry.GateType.interrupt_gate;
@@ -160,7 +171,7 @@ pub fn init() void {
             else => {},
         }
     }
-    inline for (et, 0..) |e, i| {
+     inline for (et, 0..) |e, i| {
         idt[e.vec_no].setOffset(@intFromPtr(&exceptionFnBind(i)));
         idt[e.vec_no].segment_selector = gdt.segment_selectors.kernel_code_x64;
         idt[e.vec_no].interrupt_stack_table = 0;
@@ -169,16 +180,27 @@ pub fn init() void {
         idt[e.vec_no].present = true;
     }
 
+    // PIC IRQs
     inline for (0..total_irqs) |i| {
-        idt[pic_master_irq_start + i].setOffset(@intFromPtr(&InterruptFnBind(i)));
         idt[pic_master_irq_start + i].segment_selector = gdt.segment_selectors.kernel_code_x64;
         idt[pic_master_irq_start + i].interrupt_stack_table = 0;
         idt[pic_master_irq_start + i].gate_type = IdtEntry.GateType.interrupt_gate;
-        idt[pic_master_irq_start + i].privilege = dpl.PrivilegeLevel.ring0;
+        idt[pic_master_irq_start + i].privilege = dpl.PrivilegeLevel.ring3;
         idt[pic_master_irq_start + i].present = true;
+        switch (i) {
+            1 => {
+                idt[pic_master_irq_start + i].setOffset(@intFromPtr(&interruptWithAckowledgeFnBind(i, true)));
+            },
+            else => {
+                idt[pic_master_irq_start + i].setOffset(@intFromPtr(&interruptWithAckowledgeFnBind(i, false)));
+            },
+        }
+
+        // Softwares interrupts
+       //TODO: add
+
     }
 
     idtd.offset = @intFromPtr(&idt);
-
     cpu.lidt(&idtd);
 }
