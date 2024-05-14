@@ -122,8 +122,8 @@ var idtd: Idtd = .{
     .offset = undefined,
 };
 
-const ExceptionFn = fn () callconv(.Interrupt) void;
-fn exceptionFnBind(comptime idx: u5) ExceptionFn {
+const HandleFn = fn () callconv(.Interrupt) void;
+fn exceptionFnBind(comptime idx: u5) HandleFn {
     return struct {
         fn handle() callconv(.Interrupt) void {
             log.err(std.fmt.comptimePrint("Exception: vec_no={d}, mnemonic={s}, description={s}", .{ et[idx].vec_no, et[idx].mnemonic, et[idx].description }), .{});
@@ -132,7 +132,7 @@ fn exceptionFnBind(comptime idx: u5) ExceptionFn {
     }.handle;
 }
 
-fn interruptFnBind(comptime idx: u5) ExceptionFn {
+fn interruptFnBind(comptime idx: u5) HandleFn {
     return struct {
         fn handle() callconv(.Interrupt) void {
             log.debug(std.fmt.comptimePrint("Interrupt: idx={d}", .{idx}), .{});
@@ -140,7 +140,7 @@ fn interruptFnBind(comptime idx: u5) ExceptionFn {
     }.handle;
 }
 
-fn interruptWithAckowledgeFnBind(comptime irq: u5, comptime logging: bool ) ExceptionFn {
+fn interruptWithAckowledgeFnBind(comptime irq: u5, comptime logging: bool ) HandleFn {
     return struct {
         fn handle() callconv(.Interrupt) void {
             if (logging) log.debug(std.fmt.comptimePrint("Interrupt: IRQ {d}", .{irq}), .{});
@@ -157,7 +157,7 @@ pub fn init() void {
     remapPIC(pic_master_cmd_port, pic_master_data_port, pic_master_irq_start); // Remap master PIC (0-7)
     remapPIC(pic_slave_cmd_port, pic_slave_data_port, pic_slave_irq_start); // Remap slave PIC (7-15)
 
-    // Update the IDT with the exceptions to 0x0->0x1F
+    // Update the IDT with the exceptions: 0x0->0x1F
     inline for (0..total_exceptions) |i| {
         switch (i) {
            0x02, 0x09, 0x15, 0x16...0x1B, 0x1F => |ei| {

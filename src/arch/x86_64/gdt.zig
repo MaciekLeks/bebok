@@ -253,7 +253,7 @@ pub const segment_selectors = .{
     .user_data = 0x40,
 };
 
-fn selfLogDebug() void {
+fn logDebugInfo() void {
     log.debug("GDTD:  size=0x{x}, offset=0x{x}", .{ gdtd.size, gdtd.offset });
 
     for (gdt, 0..) |entry, i| {
@@ -272,7 +272,7 @@ pub fn init() void {
         .offset = @intFromPtr(&gdt),
     };
 
-    selfLogDebug();
+    logDebugInfo();
 
     cpu.lgdt(&gdtd, segment_selectors.kernel_code_x64,segment_selectors.kernel_data_x64);
 }
