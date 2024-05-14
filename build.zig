@@ -126,7 +126,7 @@ fn buildIsoFileAction(b: *Build, compile_kernel_action: *Build.Step.Compile) *Bu
     const limine_dep = b.dependency("limine", .{});
     const iso_prepate_files_action = b.addWriteFiles();
     _ = iso_prepate_files_action.addCopyFile(compile_kernel_action.getEmittedBin(), "kernel.elf");
-    _ = iso_prepate_files_action.addCopyFile(.{ .path = "limine.cfg" }, "limine.cfg");
+    _ = iso_prepate_files_action.addCopyFile(.{ .path = "src/boot/limine.cfg" }, "limine.cfg");
     _ = iso_prepate_files_action.addCopyFile(limine_dep.path("limine-bios.sys"), "limine-bios.sys");
     _ = iso_prepate_files_action.addCopyFile(limine_dep.path("limine-bios-cd.bin"), "limine-bios-cd.bin");
     _ = iso_prepate_files_action.addCopyFile(limine_dep.path("limine-uefi-cd.bin"), "limine-uefi-cd.bin");
