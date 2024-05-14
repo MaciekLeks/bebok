@@ -1,4 +1,5 @@
 const gdt = @import("gdt.zig");
+const idt = @import("int.zig");
 
 pub fn halt() noreturn {
     while (true) {
@@ -55,17 +56,16 @@ pub inline fn sti() void {
     asm volatile ("sti");
 }
 
-// pub inline fn lgdt(gdtd: *const gdt.Gdtd) void {
-//     asm volatile (
-//         \\gdt (%%rax)
-//         :
-//         : [gdtd] "{rax}" (gdtd),
-//     );
-// }
+pub inline fn lidt(idtd: *const idt.Idtd) void {
+    asm volatile (
+        \\lidt (%%rax)
+        :
+        : [idtd] "{rax}" (idtd),
+    );
+}
 
-
-
-pub inline fn lgdt(gdtd: *const gdt.Gdtd, code_selector_idx: usize, data_selector_idx: usize) void {
+// Load the GDT and set the code and data segment registers; Setting the segment registers is necessary even if Limine already had set the same selectors.
+pub inline fn lgdt(gdtd: *const gdt.Gdtd, code_selector: usize, data_selector: usize) void {
     asm volatile (
         \\lgdt (%%rax)
         \\pushq %%rdi
@@ -81,8 +81,12 @@ pub inline fn lgdt(gdtd: *const gdt.Gdtd, code_selector_idx: usize, data_selecto
         \\mov %%ax, %%ss
         :
         : [gdtd] "{rax}" (gdtd),
-          [code_selector_idx] "{rdi}" (code_selector_idx),
-          [data_selector_idx] "{rsi}" (data_selector_idx),
+          [code_selector_idx] "{rdi}" (code_selector),
+          [data_selector_idx] "{rsi}" (data_selector),
         : "rax"
     );
+}
+
+pub inline fn div0() void {
+    asm volatile ("int $0");
 }

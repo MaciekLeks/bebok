@@ -1,15 +1,16 @@
 const std = @import("std");
-const assm = @import("asm.zig");
+const cpu = @import("cpu.zig");
+const dpl = @import("dpl.zig");
 
 const log = std.log.scoped(.gdt);
 
 const GdtEntry = packed struct(u64) {
-    limit_a: u16, //0-15
-    base_a: u24, //16-39
+    limit_low: u16, //0-15
+    base_low: u24, //16-39
     access: AccessType, //40-47
-    limit_b: u4, //48-51
+    limit_high: u4, //48-51
     flags: Flags, //52-55
-    base_b: u8, //56-63
+    base_high: u8, //56-63
 
     const Flags = packed struct(u4) {
         reserved: u1 = 0, //Reserved
@@ -34,7 +35,7 @@ const GdtEntry = packed struct(u64) {
         direction_conforming: DirectionConforming, //Direction bit/Conforming bit
         executable: bool, //Executable bit
         type: DescriptorType, //Descriptor type bit
-        privilege: PrivilegeLevel, //Privilege level
+        privilege: dpl.PrivilegeLevel, //Privilege level
         present: bool = true, //Present bit
 
         const ReadableWritable = packed union {
@@ -64,12 +65,7 @@ const GdtEntry = packed struct(u64) {
             code_data = 1,
         };
 
-        const PrivilegeLevel = enum(u2) {
-            ring0 = 0, //kernel
-            ring1 = 1,
-            ring2 = 2,
-            ring3 = 3, //user
-        };
+
     };
 };
 
@@ -82,8 +78,8 @@ pub const Gdtd = packed struct(u80) {
 const gdt = [_]GdtEntry{
     @bitCast(@as(u64, 0)),
     .{ //Kernel Mode Code Segment - x16
-        .limit_a = 0xffff,
-        .base_a = 0,
+        .limit_low = 0xffff,
+        .base_low = 0,
         .access = .{
             // equals to 0x9a
             .accessed = false,
@@ -93,21 +89,20 @@ const gdt = [_]GdtEntry{
             .type = .code_data,
             .privilege = .ring0,
         },
-        .limit_b = 0,
+        .limit_high = 0,
         .flags = .{
             // equals to 0xa
             .long_mode = false,
             .db = .default,
             .granularity = .byte,
         },
-        .base_b = 0,
+        .base_high = 0,
     },
     .{
         //Kernel Mode Data Segment - x16
-        .limit_a = 0xffff,
-        .base_a = 0,
+        .limit_low = 0xffff,
+        .base_low = 0,
         .access = .{
-            // equals to 0x92
             .accessed = false,
             .readable_writable = .{ .data = .writable },
             .direction_conforming = .{ .data = .grows_up },
@@ -115,20 +110,19 @@ const gdt = [_]GdtEntry{
             .type = .code_data,
             .privilege = .ring0,
         },
-        .limit_b = 0,
+        .limit_high = 0,
         .flags = .{
             // equals to 0xc
             .long_mode = false,
             .db = .x32,
             .granularity = .byte,
         },
-        .base_b = 0,
+        .base_high = 0,
     },
     .{ //Kernel Mode Code Segment - x32
-        .limit_a = 0xffff,
-        .base_a = 0,
+        .limit_low = 0xffff,
+        .base_low = 0,
         .access = .{
-            // equals to 0x9a
             .accessed = false,
             .readable_writable = .{ .code = .readable },
             .direction_conforming = .{ .code = .restricted },
@@ -136,21 +130,19 @@ const gdt = [_]GdtEntry{
             .type = .code_data,
             .privilege = .ring0,
         },
-        .limit_b = 0xf,
+        .limit_high = 0xf,
         .flags = .{
-            // equals to 0xa
             .long_mode = false,
             .db = .x32,
             .granularity = .page,
         },
-        .base_b = 0,
+        .base_high = 0,
     },
     .{
         //Kernel Mode Data Segment - x32
-        .limit_a = 0xffff,
-        .base_a = 0,
+        .limit_low = 0xffff,
+        .base_low = 0,
         .access = .{
-            // equals to 0x92
             .accessed = false,
             .readable_writable = .{ .data = .writable },
             .direction_conforming = .{ .data = .grows_up },
@@ -158,42 +150,38 @@ const gdt = [_]GdtEntry{
             .type = .code_data,
             .privilege = .ring0,
         },
-        .limit_b = 0xf,
+        .limit_high = 0xf,
         .flags = .{
-            // equals to 0xc
             .long_mode = false,
             .db = .x32,
             .granularity = .page,
         },
-        .base_b = 0,
+        .base_high = 0,
     },
     .{ //Kernel Mode Code Segment - x64
-        .limit_a = 0, //irrelevant
-        .base_a = 0,
+        .limit_low = 0, //irrelevant
+        .base_low = 0,
         .access = .{
-            // equals to 0x9a
-            .accessed = false,
+            .accessed = true, //to avoid page fault in interrupts
             .readable_writable = .{ .code = .readable },
             .direction_conforming = .{ .code = .restricted },
             .executable = true,
             .type = .code_data,
             .privilege = .ring0,
         },
-        .limit_b = 0,
+        .limit_high = 0,
         .flags = .{
-            // equals to 0xa
             .long_mode = true,
             .db = .default,
             .granularity = .page,
         },
-        .base_b = 0,
+        .base_high = 0,
     },
     .{
         //Kernel Mode Data Segment - x64
-        .limit_a = 0, //irrelevant
-        .base_a = 0,
+        .limit_low = 0, //irrelevant
+        .base_low = 0,
         .access = .{
-            // equals to 0x92
             .accessed = true, //to avoid page fault
             .readable_writable = .{ .data = .writable },
             .direction_conforming = .{ .data = .grows_up },
@@ -201,21 +189,19 @@ const gdt = [_]GdtEntry{
             .type = .code_data,
             .privilege = .ring0,
         },
-        .limit_b = 0, //irrelevant
+        .limit_high = 0, //irrelevant
         .flags = .{
-            // equals to 0xc
             .long_mode = false,
             .db = .x32,
             .granularity = .page,
         },
-        .base_b = 0,
+        .base_high = 0,
     },
     .{
         //User Mode Code Segment
-        .limit_a = 0xffff,
-        .base_a = 0,
+        .limit_low = 0xffff,
+        .base_low = 0,
         .access = .{
-            // equals to 0xfa
             .accessed = false,
             .readable_writable = .{ .code = .readable },
             .direction_conforming = .{ .code = .restricted },
@@ -223,21 +209,19 @@ const gdt = [_]GdtEntry{
             .type = .code_data,
             .privilege = .ring3,
         },
-        .limit_b = 0,
+        .limit_high = 0,
         .flags = .{
-            // equals to 0xc
             .long_mode = true,
             .db = .default,
             .granularity = .page,
         },
-        .base_b = 0,
+        .base_high = 0,
     },
     .{
         //User Mode Data Segment
-        .limit_a = 0xffff,
-        .base_a = 0,
+        .limit_low = 0xffff,
+        .base_low = 0,
         .access = .{
-            // equals to 0xf2
             .accessed = false,
             .readable_writable = .{ .data = .writable },
             .direction_conforming = .{ .data = .grows_up },
@@ -245,14 +229,13 @@ const gdt = [_]GdtEntry{
             .type = .code_data,
             .privilege = .ring3,
         },
-        .limit_b = 0,
+        .limit_high = 0,
         .flags = .{
-            // equals to 0xc
             .long_mode = false,
             .db = .x32,
             .granularity = .page,
         },
-        .base_b = 0,
+        .base_high = 0,
     },
     //TODO add TSS
 };
@@ -282,8 +265,8 @@ fn selfLogDebug() void {
 }
 
 pub fn init() void {
-    log.debug("Initializing GDT", .{});
-    defer log.debug("GDT initialized", .{});
+    log.info("Initializing GDT", .{});
+    defer log.info("GDT initialized", .{});
     gdtd = .{
         .size = @sizeOf(@TypeOf(gdt)) - 1,
         .offset = @intFromPtr(&gdt),
@@ -291,5 +274,5 @@ pub fn init() void {
 
     selfLogDebug();
 
-    assm.lgdt(&gdtd, segment_selectors.kernel_code_x64,segment_selectors.kernel_data_x64);
+    cpu.lgdt(&gdtd, segment_selectors.kernel_code_x64,segment_selectors.kernel_data_x64);
 }

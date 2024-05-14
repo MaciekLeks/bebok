@@ -11,11 +11,11 @@ In Silesian language, a creature from our (Upper Silesians) demonology.
 - All Limine features
 - PMM (Physical Memory Manager) using Buddy Allocator for memory slices and AVL tree for the whole regions
 - Custom GDT (Global Descriptor Table) with kernel code and data segments, in addition to the default one provided by Limine
+- IDT (Interrupt Descriptor Table) with basic handlers for the Exceptions and PIC (Programmable Interrupt Controller) IRQs
 - Basic terminal support in graphical mode with the PC Screen Fonts (version 1 and 2)
 
-
 # Current Development Steps
-- [ ] Implementing IDT
+- [ ] block device ops (I/O) 
 
 # How to run
 ```bash

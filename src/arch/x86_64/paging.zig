@@ -1,6 +1,6 @@
 const limine = @import("limine");
 const std = @import("std");
-const assm = @import("asm.zig");
+const cpu = @import("cpu.zig");
 
 /// Holds indexes of all paging tables
 /// each table holds indexes of 512 entries, so we need only 9 bytes to store index
@@ -57,7 +57,7 @@ pub fn init() void {
         log.debug("HHDM offset: 0x{x}", .{hhdm_offset});
     } else @panic("No HHDM bootloader response available");
 
-    const vaddr = assm.cr3();
+    const vaddr = cpu.cr3();
     log.info("cr3: 0x{x}", .{vaddr});
     log.info("vaddr: 0x0 -> {any}", .{pagingIndexFromVaddr(0)});
     log.info("vaddr: 0x2000 -> {any}", .{pagingIndexFromVaddr(0x2001)});
