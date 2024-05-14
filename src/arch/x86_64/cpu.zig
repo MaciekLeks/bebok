@@ -7,6 +7,52 @@ pub fn halt() noreturn {
     }
 }
 
+pub inline fn in(comptime T: type, port: u16) T {
+    return switch (T) {
+        u8 => asm volatile ("inb %[port], %[ret]"
+            : [ret] "={al}" (-> u8),
+            : [port] "N{dx}" (port),
+        ),
+
+        u16 => asm volatile ("inw %[port], %[ret]"
+            : [ret] "={al}" (-> u16),
+            : [port] "N{dx}" (port),
+        ),
+
+        u32 => asm volatile ("inl %[port], %[ret]"
+            : [ret] "={eax}" (-> u32),
+            : [port] "N{dx}" (port),
+        ),
+
+        else => unreachable,
+    };
+}
+
+pub inline fn out(comptime T: type, port: u16, value: T) void {
+    switch (T) {
+        u8 => asm volatile ("outb %[value], %[port]"
+            :
+            : [value] "{al}" (value),
+              [port] "N{dx}" (port),
+        ),
+
+        u16 => asm volatile ("outw %[value], %[port]"
+            :
+            : [value] "{al}" (value),
+              [port] "N{dx}" (port),
+        ),
+
+        u32 => asm volatile ("outl %[value], %[port]"
+            :
+            : [value] "{eax}" (value),
+              [port] "N{dx}" (port),
+        ),
+
+        else => unreachable,
+    }
+}
+
+// DEPRECIATED: use in instead
 pub inline fn inb(port: u16) u8 {
     return asm volatile ("inb %[port], %[result]"
         : [result] "={al}" (-> u8),
@@ -14,6 +60,8 @@ pub inline fn inb(port: u16) u8 {
     );
 }
 
+
+// DEPRECIATED: use in instead
 pub inline fn inw(port: u16) u16 {
     return asm volatile ("inw %[port], %[result]"
         : [result] "={ax}" (-> u16),
@@ -21,6 +69,7 @@ pub inline fn inw(port: u16) u16 {
     );
 }
 
+// DEPRECIATED: use out instead
 pub inline fn outb(port: u16, data: u8) void {
     asm volatile ("outb %[data], %[port]"
         :
@@ -29,6 +78,7 @@ pub inline fn outb(port: u16, data: u8) void {
     );
 }
 
+// DEPRECIATED: use out instead
 pub inline fn outw(port: u16, data: u16) void {
     asm volatile ("outw %[data], %[port]"
         :

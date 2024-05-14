@@ -4,6 +4,7 @@ const Target = std.Target;
 const Feature = std.Target.Cpu.Feature;
 
 const bebok_iso_filename = "bebok.iso";
+const bebok_disk_img_filename = "disk.qcow2";
 const kernel_version = std.SemanticVersion{.major = 0, .minor = 1, .patch = 0};
 
 // fn nasmRun(b: *Build, src: []const u8, dst: []const u8, options: []const []const u8, prev_step: ?*Build.Step) error{OutOfMemory}!*Build.Step {
@@ -152,6 +153,16 @@ fn buildIsoFileAction(b: *Build, compile_kernel_action: *Build.Step.Compile) *Bu
     return iso_build_action;
 }
 
+fn buildDiskImgFileAction(b: *Build, out_file: *Build.LazyPath) *Build.Step.Run {
+    const qemu_img_action = b.addSystemCommand(&.{"qemu-img"});
+    qemu_img_action.addArg("create");
+    qemu_img_action.addArg("-f");
+    qemu_img_action.addArg("qcow2");
+    out_file.* = qemu_img_action.addOutputFileArg(bebok_disk_img_filename); //output file is not the last one in the sequence of args, we can't add it from outside
+    qemu_img_action.addArg("1G");
+    return qemu_img_action;
+}
+
 fn injectLimineStages(limine_run_action: *Build.Step.Run, iso_file: Build.LazyPath) void {
     limine_run_action.addArg("bios-install");
     limine_run_action.addFileArg(iso_file);
@@ -164,7 +175,15 @@ fn installIsoFileAction(b: *Build, iso_build_task: *Build.Step, iso_file: Build.
     return b.addInstallFile(iso_artifact_path, bebok_iso_filename);
 }
 
-fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, iso_file: Build.LazyPath, debug: bool) !*Build.Step.Run {
+fn installDiskImgFileAction(b: *Build, disk_img_build_task: *Build.Step, disk_img_file: Build.LazyPath) *Build.Step.InstallFile {
+    const copy_disk_img_task = b.addWriteFiles();
+    copy_disk_img_task.step.dependOn(disk_img_build_task);
+    const disk_img_artifact_path = copy_disk_img_task.addCopyFile(disk_img_file, bebok_disk_img_filename);
+    return b.addInstallFile(disk_img_artifact_path, bebok_disk_img_filename);
+}
+
+
+fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, iso_file: Build.LazyPath, disk_img_file: Build.LazyPath, debug: bool) !*Build.Step.Run {
     const qemu_iso_action = b.addSystemCommand(&.{switch (target.result.cpu.arch) {
         .x86_64 => "qemu-system-x86_64",
         else => return error.UnsupportedArch,
@@ -178,6 +197,8 @@ fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, iso_file: Build.LazyPa
             qemu_iso_action.addArg("-no-reboot");
             qemu_iso_action.addArg("-cdrom");
             qemu_iso_action.addFileArg(iso_file);
+            qemu_iso_action.addArg("-drive");
+            qemu_iso_action.addPrefixedFileArg("file=", disk_img_file);
             qemu_iso_action.addArgs(&.{
                 "-boot",
                 "d",
@@ -248,15 +269,23 @@ pub fn build(b: *Build) !void {
     iso_stage.dependOn(install_iso_file_task);
     iso_stage.dependOn(install_kernel_task); //to be able to debug in gdb
 
-    const qemu_iso_action = try qemuIsoAction(b, target, build_iso_file_action_output, false); //run with the cached iso file
+    var qemu_disk_img_action_output: Build.LazyPath = undefined;
+    const qemu_disk_img_action = buildDiskImgFileAction(b, &qemu_disk_img_action_output);
+    const qemu_disk_img_task = &qemu_disk_img_action.step;
+    const qemu_install_disk_img_file_action = installDiskImgFileAction(b, qemu_disk_img_task, qemu_disk_img_action_output);
+    const qemu_install_disk_img_file_task = &qemu_install_disk_img_file_action.step;
+
+    const qemu_iso_action = try qemuIsoAction(b, target, build_iso_file_action_output, qemu_disk_img_action_output, false); //run with the cached iso file
     const qemu_iso_stage = b.step("iso-qemu", "Run the ISO in QEMU");
     qemu_iso_stage.dependOn(iso_stage);
+    qemu_iso_stage.dependOn(qemu_install_disk_img_file_task);
     qemu_iso_stage.dependOn(&qemu_iso_action.step);
 
     // debug mode
-    const qemu_iso_debug_action = try qemuIsoAction(b, target, build_iso_file_action_output, true); //run with the cached iso file
+    const qemu_iso_debug_action = try qemuIsoAction(b, target, build_iso_file_action_output, qemu_disk_img_action_output,true); //run with the cached iso file
     const qemu_iso_debug_stage = b.step("iso-qemu-debug", "Run the ISO in QEMU in debug mode");
     qemu_iso_debug_stage.dependOn(iso_stage);
+    qemu_iso_stage.dependOn(&qemu_disk_img_action.step);
     qemu_iso_debug_stage.dependOn(&qemu_iso_debug_action.step);
 
     b.default_step = iso_stage;

@@ -144,7 +144,7 @@ fn interruptWithAckowledgeFnBind(comptime irq: u5, comptime logging: bool ) Hand
     return struct {
         fn handle() callconv(.Interrupt) void {
             if (logging) log.debug(std.fmt.comptimePrint("Interrupt: IRQ {d}", .{irq}), .{});
-            if (irq >= pic_slave_irq_start) cpu.outb(pic_slave_cmd_port, pic_eoi) else cpu.outb(pic_master_cmd_port, pic_eoi);
+            if (irq >= pic_slave_irq_start) cpu.out(u8, pic_slave_cmd_port, pic_eoi) else cpu.out(u8, pic_master_cmd_port, pic_eoi);
         }
     }.handle;
 }
