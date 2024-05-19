@@ -3,8 +3,8 @@
     .version = "0.1.0-dev",
     .dependencies = .{
         .limine_zig = .{
-            .url = "git+https://github.com/limine-bootloader/limine-zig#trunk",
-            .hash = "1220889cec612d653c31a4063d20daa9ec382ac23f76e9cc60a778b0ad17377bafa1",
+            .url = "git+https://github.com/MaciekLeks/limine-zig#trunk",
+            .hash = "1220575fc7f3f08985a8d96a66fa2afe566695ff4cf7d157c8d00d5b160d6fd21cfe",
         },
         .limine = .{
             .url = "git+https://github.com/limine-bootloader/limine#v7.x-binary",
@@ -12,7 +12,7 @@
         },
         .zigavl = .{
             .url = "git+https://github.com/MaciekLeks/zigavl.git#main",
-            .hash = "1220340243e8f3f93cccad5dbd0598483d38055827559d38ea4540cea9b8197452fc"
+            .hash = "1220a2167c63a4d8faea9ecd8b5b39d66b1042066649c8289ed688958a5ff93e1d3d",
         }
     },
     .paths = .{""},

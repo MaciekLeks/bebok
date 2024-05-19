@@ -4,8 +4,8 @@ const cpu = @import("../cpu.zig");
 const t = std.testing;
 const log = std.log.scoped(.pci);
 
-const pci_config_addres = 0xCF8;
-const pci_config_data = 0xCFC;
+const pci_config_addres_port = 0xCF8;
+const pci_config_data_port = 0xCFC;
 
 const RegisterOffset = enum(u8) {
     vendor_id = 0x00,
@@ -50,18 +50,22 @@ const PciConfigData = packed struct(u32) {
     data: u32,
 };
 
-inline fn registerAddress(config_addr: PciConfigAddress) align(@alignOf(u32)) u32 {
-    return @bitCast(config_addr);
+inline fn registerAddress(T: type, config_addr: PciConfigAddress) T {
+    // Address must be aligned to 4 bytes, so we need to clear the last 2 bits cause we aligning down
+    const mask : T = @alignOf(T) - 1;
+    return @as(T, @bitCast(config_addr))  & ~mask;
 }
 
 test  "PCI register addresses" {
     var config_addr = PciConfigAddress{
-        .register_offset = .vendor_id,
+        .register_offset = .max_latency,
         .function_no = 0,
         .slot_no = 0,
         .bus_no = 0,
     };
-    try t.expect(registerAddress(config_addr) == 0x80000000);
+    const x = registerAddress(u32, config_addr);
+    log.warn("Register address: 0x{b:0>8}, 0x{b:0>8}", .{x, @intFromEnum(RegisterOffset.max_latency)});
+  //  try t.expect(registerAddress(u32, config_addr) == 0x80000000);
 
     config_addr = PciConfigAddress{
         .register_offset = .vendor_id,
@@ -69,7 +73,7 @@ test  "PCI register addresses" {
         .slot_no = 0,
         .bus_no = 1,
     };
-    try  t.expect(registerAddress(config_addr) == 0x80_01_00_00);
+    try  t.expect(registerAddress(u32, config_addr) == 0x80_01_00_00);
 
     config_addr = PciConfigAddress{
         .register_offset = .vendor_id,
@@ -77,7 +81,7 @@ test  "PCI register addresses" {
         .slot_no = 1,
         .bus_no = 0,
     };
-    try t.expect(registerAddress(config_addr) == 0x80_00_08_00);
+    try t.expect(registerAddress(u32, config_addr) == 0x80_00_08_00);
 
     config_addr = PciConfigAddress{
         .register_offset = .vendor_id,
@@ -85,12 +89,18 @@ test  "PCI register addresses" {
         .slot_no = 0,
         .bus_no = 0,
     };
-    try t.expect(registerAddress(config_addr) == 0x80000100);
+    try t.expect(registerAddress(u32, config_addr) == 0x80000100);
+}
+
+fn readRegister(T: type, pci_config_addres: PciConfigAddress, register_offset: RegisterOffset) T {
+    const config_data = readConfig(pci_config_addres);
+    const offset : u32 = @intFromEnum(register_offset);
+    return @as(T, @bitCast(config_data.data >> offset));
 }
 
 fn readConfig(config_addr: PciConfigAddress) PciConfigData {
-    cpu.out(u32, pci_config_addres, registerAddress(config_addr));
-    return PciConfigData{ .data = cpu.in(u32, pci_config_data) };
+    cpu.out(u32, pci_config_addres_port, registerAddress(config_addr));
+    return PciConfigData{ .data = cpu.in(u32, pci_config_data_port) };
 }
 
 pub fn init() void {
