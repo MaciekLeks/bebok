@@ -198,18 +198,23 @@ fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, debug: bool) !*Build.S
     switch (target.result.cpu.arch) {
         .x86_64 => {
             qemu_iso_action.addArgs(&.{
+                "-M", "q35", //for PCIe and NVMe support
                 "-m", "2G",
             });
             qemu_iso_action.addArg("-no-reboot");
             qemu_iso_action.addArg("-cdrom");
             qemu_iso_action.addArg(try std.fmt.allocPrint(b.allocator, "{s}/{s}", .{b.install_prefix, bebok_iso_filename})); //TODO: can't take installed artifact LazyPAth
+            qemu_iso_action.addArgs(&.{ //PCIe controller
+                "-device",
+                "pcie-root-port,id=pcie_port0,multifunction=on,bus=pcie.0,addr=0x10",
+            });
+           qemu_iso_action.addArgs(&.{ //NVMe controller
+               "-device",
+                "nvme,drive=drv0,serial=123456789,bus=pcie_port0",
+            });
             qemu_iso_action.addArg("-drive");
             //> TODO: can't take installed artifact LazyPAth, see my issue: https://stackoverflow.com/questions/78499409/buid-system-getting-installed-relative-path
             qemu_iso_action.addArg(try std.fmt.allocPrint(b.allocator, "file={s}/{s},format=qcow2,if=none,id=drv0", .{b.install_prefix, bebok_disk_img_filename}));
-            qemu_iso_action.addArgs(&.{ //NVMe controller
-               "-device",
-                "nvme,drive=drv0,serial=123456789",
-            });
             //boot from cdrom
             qemu_iso_action.addArgs(&.{
                 "-boot",
@@ -290,21 +295,20 @@ pub fn build(b: *Build) !void {
     //const qemu_iso_action = try qemuIsoAction(b, target, build_iso_file_action_output, qemu_disk_img_file_action_output, false); //run with the cached iso file
     const qemu_iso_action = try qemuIsoAction(b,target, false); //run with the cached iso file
     const qemu_iso_task =  &qemu_iso_action.step;
-    const qemu_iso_stage = b.step("iso-qemu", "Run the ISO in QEMU");
-    //qemu_iso_stage.dependOn(iso_stage);
-    qemu_iso_task.dependOn(qemu_disk_img_file_task);
     qemu_iso_task.dependOn(qemu_install_disk_img_file_task);
-    //qemu_disk_img_action_output.addStepDependencies(qemu_iso_task);
-    qemu_iso_stage.dependOn(build_iso_file_task); //we use cached iso file
+    qemu_iso_task.dependOn(install_iso_file_task);
+    const qemu_iso_stage = b.step("iso-qemu", "Run the ISO in QEMU");
     qemu_iso_stage.dependOn(qemu_iso_task);
 
+
     // debug mode
-    const qemu_iso_debug_action = try qemuIsoAction(b, target, true); //run with the cached iso file
-    const qemu_iso_debug_stage = b.step("iso-qemu-debug", "Run the ISO in QEMU in debug mode");
-    //qemu_iso_debug_stage.dependOn(iso_stage);
-    qemu_iso_stage.dependOn(build_iso_file_task); //we use cached iso file
-    qemu_iso_stage.dependOn(qemu_install_disk_img_file_task);
-    qemu_iso_debug_stage.dependOn(&qemu_iso_debug_action.step);
+   const qemu_iso_debug_action = try qemuIsoAction(b, target, true); //run with the cached iso file
+   const qemu_iso_debug_task =  &qemu_iso_debug_action.step;
+   qemu_iso_debug_task.dependOn(qemu_install_disk_img_file_task);
+   qemu_iso_debug_task.dependOn(install_iso_file_task);
+    qemu_iso_debug_task.dependOn(install_kernel_task); //to be able to debug in gdb
+   const qemu_iso_debug_stage = b.step("iso-qemu-debug", "Run the ISO in QEMU with debug mode enabled");
+   qemu_iso_debug_stage.dependOn(qemu_iso_debug_task);
 
     b.default_step = iso_stage;
 }

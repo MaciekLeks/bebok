@@ -40,23 +40,19 @@ const RegisterOffset = enum(u8) {
 const PciConfigAddress = packed struct(u32) {
     register_offset: RegisterOffset, //0-7
     function_no: u3, //8-10
-    slot_no: u5,  //11-15 //physical device
-    bus_no: u8,     //16-23
+    slot_no: u5, //11-15 //physical device
+    bus_no: u8, //16-23
     reserved: u7 = 0, //24-30
     enable: u1 = 1, //31
 };
 
-const PciConfigData = packed struct(u32) {
-    data: u32,
-};
-
 inline fn registerAddress(T: type, config_addr: PciConfigAddress) T {
     // Address must be aligned to 4 bytes, so we need to clear the last 2 bits cause we aligning down
-    const mask : T = @alignOf(T) - 1;
-    return @as(T, @bitCast(config_addr))  & ~mask;
+    const mask: T = @alignOf(T) - 1;
+    return @as(T, @bitCast(config_addr)) & ~mask;
 }
 
-test  "PCI register addresses" {
+test "PCI register addresses" {
     var config_addr = PciConfigAddress{
         .register_offset = .max_latency,
         .function_no = 0,
@@ -64,8 +60,8 @@ test  "PCI register addresses" {
         .bus_no = 0,
     };
     const x = registerAddress(u32, config_addr);
-    log.warn("Register address: 0x{b:0>8}, 0x{b:0>8}", .{x, @intFromEnum(RegisterOffset.max_latency)});
-  //  try t.expect(registerAddress(u32, config_addr) == 0x80000000);
+    log.warn("Register address: 0x{b:0>8}, 0x{b:0>8}", .{ x, @intFromEnum(RegisterOffset.max_latency) });
+    //  try t.expect(registerAddress(u32, config_addr) == 0x80000000);
 
     config_addr = PciConfigAddress{
         .register_offset = .vendor_id,
@@ -73,7 +69,7 @@ test  "PCI register addresses" {
         .slot_no = 0,
         .bus_no = 1,
     };
-    try  t.expect(registerAddress(u32, config_addr) == 0x80_01_00_00);
+    try t.expect(registerAddress(u32, config_addr) == 0x80_01_00_00);
 
     config_addr = PciConfigAddress{
         .register_offset = .vendor_id,
@@ -92,20 +88,92 @@ test  "PCI register addresses" {
     try t.expect(registerAddress(u32, config_addr) == 0x80000100);
 }
 
-fn readRegister(T: type, pci_config_addres: PciConfigAddress, register_offset: RegisterOffset) T {
-    const config_data = readConfig(pci_config_addres);
-    const offset : u32 = @intFromEnum(register_offset);
-    return @as(T, @bitCast(config_data.data >> offset));
+fn readRegister(
+    T: type,
+    config_addr: PciConfigAddress,
+) T {
+    cpu.out(u32, pci_config_addres_port, registerAddress(u32, config_addr));
+    return cpu.in(T, pci_config_data_port);
 }
 
-fn readConfig(config_addr: PciConfigAddress) PciConfigData {
-    cpu.out(u32, pci_config_addres_port, registerAddress(config_addr));
-    return PciConfigData{ .data = cpu.in(u32, pci_config_data_port) };
+fn checkBus(bus: u8) void {
+    for (0..32) |slot| {
+        checkSlot(bus, @intCast(slot));
+    }
+}
+
+fn checkSlot(bus: u8, slot: u5) void {
+    if (readRegister(u16, PciConfigAddress{
+        .register_offset = .vendor_id,
+        .function_no = 0,
+        .slot_no = slot,
+        .bus_no = bus,
+    }) == 0xFFFF) {
+        return;
+    }
+
+    checkFunction(bus, slot, 0);
+    //const header_type = if (readRegister(u8, PciConfigAddress{
+    _ = if (readRegister(u8, PciConfigAddress{
+        .register_offset = .header_type,
+        .function_no = 0,
+        .slot_no = slot,
+        .bus_no = bus,
+    }) & 0x80 == 0) {
+        return;
+    };
+
+    for (1..8) |function| {
+        const function_no: u3 = @truncate(function);
+        if (readRegister(u16, PciConfigAddress{
+            .register_offset = .vendor_id,
+            .function_no = function_no,
+            .slot_no = slot,
+            .bus_no = bus,
+        }) != 0xFFFF) {
+            checkFunction(bus, slot, function_no);
+        }
+    }
+}
+
+fn checkFunction(bus: u8, slot: u5, function: u3) void {
+    const class_code = readRegister(u8, .{
+        .register_offset = .class_code,
+        .function_no = function,
+        .slot_no = slot,
+        .bus_no = bus,
+    });
+
+    const subclass = readRegister(u8, .{
+        .register_offset = .subclass,
+        .function_no = function,
+        .slot_no = slot,
+        .bus_no = bus,
+    });
+
+    if (class_code == 0x06 and subclass == 0x04) {
+        // PCI-to-PCI bridge
+        // TODO: implement
+        log.warn("PCI-to-PCI bridge", .{});
+    } else {
+        log.warn("PCI device: bus: {d}, slot: {d}, function: {d}, class: {d}, subclass: {d}", .{
+            bus,
+            slot,
+            function,
+            class_code,
+            subclass,
+        });
+    }
+}
+
+fn setRegisterOffset(config_addr: *PciConfigAddress, register_offset: RegisterOffset) *PciConfigAddress {
+    config_addr.*.register_offset = register_offset;
+    return config_addr;
 }
 
 pub fn init() void {
-    log.info("Initializing PCI");
+    log.info("Initializing PCI", .{});
+    defer log.info("PCI initialized", .{});
 
-
-    defer log.info("PCI initialized");
+    checkBus(0);
 }
