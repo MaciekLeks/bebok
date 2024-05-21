@@ -103,15 +103,8 @@ fn readRegister(
          }
         break :blk cd;
     };
-    const shr_bit_no : u5= @intCast( (@intFromEnum(config_addr.register_offset) & 0b11) * 8) ;
-    const before_mask   =config_data >> shr_bit_no;
-    const mask = 0xFFFF_FFFF >> (32 - @sizeOf(T) * 8);
-    const ret: T = @intCast((config_data >> shr_bit_no) & (0xFFFF_FFFF >> (32 - @sizeOf(T) * 8)));
-
-    if (config_data != 0xFFFF_FFFF) {
-        log.warn("Read register: ret: 0x{x}, config_data: 0x{x} for {s}, shr: {d}, before_mask: 0x{x}, mask: 0x{x}, sizeof(T): {d}", .{ ret, config_data, @tagName(config_addr.register_offset), shr_bit_no, before_mask, mask, @sizeOf(T) });
-    }
-    return ret;
+    const shift_bit_no : u5= @intCast( (@intFromEnum(config_addr.register_offset) & 0b11) * 8) ;
+    return @intCast((config_data >> shift_bit_no) & (0xFFFF_FFFF >> (32 - @sizeOf(T) * 8)));
 }
 
 fn checkBus(bus: u8) void {
