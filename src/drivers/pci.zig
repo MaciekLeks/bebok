@@ -151,17 +151,52 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
         .bus_no = bus,
     });
 
+    const prog_if = readRegister(u8, .{
+        .register_offset = .prog_if,
+        .function_no = function,
+        .slot_no = slot,
+        .bus_no = bus,
+    });
+
+    //TODO: remove this
+    const header_type = readRegister(u8, .{
+        .register_offset = .header_type,
+        .function_no = function,
+        .slot_no = slot,
+        .bus_no = bus,
+    });
+
+    //TODO remove this
+    const vendor_id = readRegister(u16, .{
+        .register_offset = .vendor_id,
+        .function_no = function,
+        .slot_no = slot,
+        .bus_no = bus,
+    });
+
+    //TODO remove this
+    const device_id = readRegister(u16, .{
+        .register_offset = .device_id,
+        .function_no = function,
+        .slot_no = slot,
+        .bus_no = bus,
+    });
+
     if (class_code == 0x06 and subclass == 0x04) {
         // PCI-to-PCI bridge
         // TODO: implement
         log.warn("PCI-to-PCI bridge", .{});
     } else {
-        log.warn("PCI device: bus: {d}, slot: {d}, function: {d}, class: {d}, subclass: {d}", .{
+        log.warn("PCI device: bus: {d}, slot: {d}, function: {d}, class: {d}, subclass: {d}, prog_id: {d}, header_type: 0x{x}, vendor_id: 0x{x}, device_id=0x{x}", .{
             bus,
             slot,
             function,
             class_code,
             subclass,
+            prog_if,
+            header_type,
+            vendor_id,
+            device_id,
         });
     }
 }
