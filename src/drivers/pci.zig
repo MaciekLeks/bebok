@@ -112,8 +112,7 @@ fn readRegister(
 ) T {
     cpu.out(u32, pci_config_addres_port, registerAddress(u32, config_addr));
     const config_data  = blk: {
-       //TODO: port not habe to be u16 on all platforms
-       var cd = cpu.in(T,  @as(u16, pci_config_data_port) + (@intFromEnum(config_addr.register_offset) & 0b11)); //use offset on the data config port
+       var cd = cpu.in(T,  @as(cpu.PortNumberType, pci_config_data_port) + (@intFromEnum(config_addr.register_offset) & 0b11)); //use offset on the data config port
          if (native_endian == .big) {
               cd = @byteSwap(cd);
          }
@@ -131,7 +130,7 @@ fn writeRegister(
     if (native_endian == .big) {
         value = @byteSwap(value);
     }
-    cpu.out(T, @as(u16, pci_config_data_port) + (@intFromEnum(config_addr.register_offset) & 0b11), value);
+    cpu.out(T, @as(cpu.PortNumberType, pci_config_data_port) + (@intFromEnum(config_addr.register_offset) & 0b11), value);
 }
 
 

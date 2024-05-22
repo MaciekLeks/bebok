@@ -7,7 +7,9 @@ pub fn halt() noreturn {
     }
 }
 
-pub inline fn in(comptime T: type, port: u16) T {
+pub const PortNumberType = u16; // Port numbers are 16-bit for all x86 architectures
+
+pub inline fn in(comptime T: type, port: PortNumberType) T {
     return switch (T) {
         u8 => asm volatile ("inb %[port], %[ret]"
             : [ret] "={al}" (-> u8),
@@ -28,7 +30,7 @@ pub inline fn in(comptime T: type, port: u16) T {
     };
 }
 
-pub inline fn out(comptime T: type, port: u16, value: T) void {
+pub inline fn out(comptime T: type, port: PortNumberType, value: T) void {
     switch (T) {
         u8 => asm volatile ("outb %[value], %[port]"
             :
@@ -53,7 +55,7 @@ pub inline fn out(comptime T: type, port: u16, value: T) void {
 }
 
 // DEPRECIATED: use in instead
-pub inline fn inb(port: u16) u8 {
+pub inline fn inb(port: PortNumberType) u8 {
     return asm volatile ("inb %[port], %[result]"
         : [result] "={al}" (-> u8),
         : [port] "{dx}" (port),
@@ -62,7 +64,7 @@ pub inline fn inb(port: u16) u8 {
 
 
 // DEPRECIATED: use in instead
-pub inline fn inw(port: u16) u16 {
+pub inline fn inw(port: PortNumberType) u16 {
     return asm volatile ("inw %[port], %[result]"
         : [result] "={ax}" (-> u16),
         : [port] "{dx}" (port),
@@ -70,7 +72,7 @@ pub inline fn inw(port: u16) u16 {
 }
 
 // DEPRECIATED: use out instead
-pub inline fn outb(port: u16, data: u8) void {
+pub inline fn outb(port: PortNumberType, data: u8) void {
     asm volatile ("outb %[data], %[port]"
         :
         : [data] "{al}" (data),
@@ -79,7 +81,7 @@ pub inline fn outb(port: u16, data: u8) void {
 }
 
 // DEPRECIATED: use out instead
-pub inline fn outw(port: u16, data: u16) void {
+pub inline fn outw(port: PortNumberType, data: u16) void {
     asm volatile ("outw %[data], %[port]"
         :
         : [data] "{ax}" (data),
