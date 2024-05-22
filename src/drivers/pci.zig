@@ -56,10 +56,11 @@ const ConfigAddress = packed struct(u32) {
 const BAR = struct {
     prefetchable: bool, //TODO: change paging settings based on this
     address: union(enum) {
-        a32 : u32,
-        a64 : u64,
+        a32: u32,
+        a64: u64,
     },
     mmio: bool, //memory mapped i/o:  false => i/o space bar layout , true => i/o memory space bar layout
+    size: u32,
 };
 
 const ConfigData = u32;
@@ -106,26 +107,19 @@ test "PCI register addresses" {
     try t.expect(registerAddress(u32, config_addr) == 0x80000100);
 }
 
-fn readRegister(
-    T: type,
-    config_addr: ConfigAddress,
-) T {
+fn readRegister(T: type, config_addr: ConfigAddress) T {
     cpu.out(u32, pci_config_addres_port, registerAddress(u32, config_addr));
-    const config_data  = blk: {
-       var cd = cpu.in(T,  @as(cpu.PortNumberType, pci_config_data_port) + (@intFromEnum(config_addr.register_offset) & 0b11)); //use offset on the data config port
-         if (native_endian == .big) {
-              cd = @byteSwap(cd);
-         }
+    const config_data = blk: {
+        var cd = cpu.in(T, @as(cpu.PortNumberType, pci_config_data_port) + (@intFromEnum(config_addr.register_offset) & 0b11)); //use offset on the data config port
+        if (native_endian == .big) {
+            cd = @byteSwap(cd);
+        }
         break :blk cd;
     };
     return config_data;
 }
 
-fn writeRegister(
-    T: type,
-    config_addr: ConfigAddress,
-    value: T,
-) void {
+fn writeRegister(T: type, config_addr: ConfigAddress, value: T) void {
     cpu.out(u32, pci_config_addres_port, registerAddress(u32, config_addr));
     if (native_endian == .big) {
         value = @byteSwap(value);
@@ -133,20 +127,57 @@ fn writeRegister(
     cpu.out(T, @as(cpu.PortNumberType, pci_config_data_port) + (@intFromEnum(config_addr.register_offset) & 0b11), value);
 }
 
-
 fn readBAR(config_addr: ConfigAddress) BAR {
     var bar: BAR = undefined;
     const bar_value = readRegister(u32, config_addr);
+
+    var next_bar_value: u32 = undefined;
+    var next_bar_addr: ConfigAddress = undefined;
+
     bar.mmio = bar_value & 0b1 == 0b0;
-    const is_a64 = bar_value & 0b10 == 0b10;
-    bar.prefetchable = bar_value & 0b100 == 0b100;
-    if (!is_a64) {
-        bar.address = .{ .a32 = bar_value & 0xFFFF_FFF0 };
+    const is_a64 = if (bar.mmio) bar_value & 0b10 == 0b10 else false;
+
+    if (bar.mmio) {
+        bar.prefetchable = bar_value & 0b100 == 0b100;
+        if (!is_a64) {
+            bar.address = .{ .a32 = bar_value & 0xFFFF_FFF0 };
+        } else {
+            next_bar_addr = config_addr;
+            next_bar_value = readRegister(u32, setRegisterOffset(&next_bar_addr, @enumFromInt(@intFromEnum(config_addr.register_offset) + @sizeOf(u32))).*);
+            bar.address = .{ .a64 = @as(u64, next_bar_value & 0xFFFFFFFF) << 32 | bar_value & 0xFFFF_FFF0 };
+        }
     } else {
-        var next_config_addr = config_addr;
-        const next_bar_value = readRegister(u32, setRegisterOffset(&next_config_addr, @enumFromInt(@intFromEnum(config_addr.register_offset) + @sizeOf(u32))).*);
-        bar.address= .{ .a64 = @as(u64, next_bar_value & 0xFFFFFFFF) << 32 | bar_value & 0xFFFF_FFF0 };
+        bar.address = .{ .a32 = bar_value & 0xFFFF_FFFC };
     }
+
+    //determine the ammount of the address space
+    // TODO: only with barN not barN+1 in case of 64 bit - is it OK? - check the spec, meanwile it works u64 size code is commented out
+    var command_addr = config_addr; //copy the config address
+    _ = setRegisterOffset(&command_addr, .command); //change register offset to command
+    const orig_command = readRegister(u16, command_addr);
+    const disable_command = orig_command & ~@as(u16, 0b11);
+    writeRegister(u16, command_addr, disable_command);
+
+    writeRegister(u32, config_addr, 0xFFFFFFFF);
+    const bar_size_low = readRegister(u32, config_addr);
+    // var bar_size_high: u32 = 0;
+    // writeRegister(u32, config_addr, bar_value);
+    // if (is_a64) {
+    //     writeRegister(u32, next_bar_addr, 0xFFFFFFFF);
+    //     bar_size_high = readRegister(u32, next_bar_addr);
+    //     writeRegister(u32, next_bar_addr, next_bar_value);
+    // }
+    writeRegister(u32, command_addr, orig_command);
+
+    //var bar_size = bar_size_low |  @as(u64, bar_size_high << @sizeOf(u32));
+    var bar_size = bar_size_low;
+    bar_size &= if (bar.mmio) 0xFFFF_FFF0 else 0xFFFF_FFFC; //hide information bits
+    bar_size = @addWithOverflow(~bar_size, 0x1)[0]; //overflow if bar_size == 0
+    // end of determining the ammount of the address space
+
+    //if (bar_size > 0xFFFF_FFFF) @panic("BAR size is too big");
+    //bar.size = @intCast(bar_size);
+    bar.size = bar_size;
 
     return bar;
 }
@@ -254,12 +285,7 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
     });
 
     //TODO remove this
-    const bar0 = readBAR(.{
-        .register_offset = .bar0,
-        .function_no = function,
-        .slot_no = slot,
-        .bus_no = bus
-    });
+    const bar0 = readBAR(.{ .register_offset = .bar0, .function_no = function, .slot_no = slot, .bus_no = bus });
 
     //TODO: remove this
     const command = readRegister(u16, .{
@@ -269,11 +295,10 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
         .bus_no = bus,
     });
 
-
     if (class_code == 0x06 and subclass == 0x04) {
         // PCI-to-PCI bridge
         log.warn("PCI-to-PCI bridge", .{});
-        checkBus(bus+1);
+        checkBus(bus + 1);
     } else {
         log.info("PCI device: bus: {d}, slot: {d}, function: {d}, class: {d}, subclass: {d}, prog_id: {d}, header_type: 0x{x}, vendor_id: 0x{x}, device_id=0x{x}, interrupt_no: 0x{x}, interrupt_pin: 0x{x}, bar0: {}, command: 0b{b:0>16}", .{
             bus,
