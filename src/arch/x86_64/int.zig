@@ -188,7 +188,7 @@ pub fn init() void {
         idt[pic_master_irq_start + i].privilege = dpl.PrivilegeLevel.ring3;
         idt[pic_master_irq_start + i].present = true;
         switch (i) {
-            1 => {
+            1, 0xa => { //TODO: 0xa -> PCI - write function to set handler from outside this file
                 idt[pic_master_irq_start + i].setOffset(@intFromPtr(&interruptWithAckowledgeFnBind(i, true)));
             },
             else => {

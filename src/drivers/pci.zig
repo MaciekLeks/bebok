@@ -4,6 +4,7 @@ const t = std.testing;
 const log = std.log.scoped(.pci);
 
 const native_endian = @import("builtin").target.cpu.arch.endian();
+const assert = std.debug.assert;
 
 const pci_config_addres_port = 0xCF8;
 const pci_config_data_port = 0xCFC;
@@ -45,6 +46,20 @@ const ConfigAddress = packed struct(u32) {
     bus_no: u8, //16-23
     reserved: u7 = 0, //24-30
     enable: u1 = 1, //31
+};
+
+// const AdressType = {
+//     .x64,
+//     .x32,
+// };
+
+const BAR = struct {
+    prefetchable: bool, //1
+    address: union(enum) {
+        a32 : u32,
+        a64 : u64,
+    },
+    mmio: bool, //memory mapped i/o:  false => i/o space bar layout , true => i/o memory space bar layout
 };
 
 const ConfigData = u32;
@@ -105,6 +120,24 @@ fn readRegister(
     };
     const shift_bit_no : u5= @intCast( (@intFromEnum(config_addr.register_offset) & 0b11) * 8) ;
     return @intCast((config_data >> shift_bit_no) & (0xFFFF_FFFF >> (32 - @sizeOf(T) * 8)));
+}
+
+
+fn readBAR(config_addr: ConfigAddress) BAR {
+    var bar: BAR = undefined;
+    const bar_value = readRegister(u32, config_addr);
+    bar.mmio = bar_value & 0b1 == 0b0;
+    const is_a64 = bar_value & 0b10 == 0b10;
+    bar.prefetchable = bar_value & 0b100 == 0b100;
+    if (!is_a64) {
+        bar.address = .{ .a32 = bar_value & 0xFFFF_FFF0 };
+    } else {
+        var next_config_addr = config_addr;
+        const next_bar_value = readRegister(u32, setRegisterOffset(&next_config_addr, @enumFromInt(@intFromEnum(config_addr.register_offset) + @sizeOf(u32))).*);
+        bar.address= .{ .a64 = @as(u64, next_bar_value & 0xFFFFFFFF) << 32 | bar_value & 0xFFFF_FFF0 };
+    }
+
+    return bar;
 }
 
 fn checkBus(bus: u8) void {
@@ -193,12 +226,37 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
         .bus_no = bus,
     });
 
+    //TODO remove this
+    const interrupt_line = readRegister(u8, .{
+        .register_offset = .interrupt_line,
+        .function_no = function,
+        .slot_no = slot,
+        .bus_no = bus,
+    });
+
+    // TODO remove this
+    const interrupt_pin = readRegister(u8, .{
+        .register_offset = .interrupt_pin,
+        .function_no = function,
+        .slot_no = slot,
+        .bus_no = bus,
+    });
+
+    //TODO remove this
+    const bar0 = readBAR(.{
+        .register_offset = .bar0,
+        .function_no = function,
+        .slot_no = slot,
+        .bus_no = bus
+    });
+
+
     if (class_code == 0x06 and subclass == 0x04) {
         // PCI-to-PCI bridge
         log.warn("PCI-to-PCI bridge", .{});
         checkBus(bus+1);
     } else {
-        log.info("PCI device: bus: {d}, slot: {d}, function: {d}, class: {d}, subclass: {d}, prog_id: {d}, header_type: 0x{x}, vendor_id: 0x{x}, device_id=0x{x}", .{
+        log.info("PCI device: bus: {d}, slot: {d}, function: {d}, class: {d}, subclass: {d}, prog_id: {d}, header_type: 0x{x}, vendor_id: 0x{x}, device_id=0x{x}, interrupt_no: 0x{x}, interrupt_pin: 0x{x}, bar0: {}", .{
             bus,
             slot,
             function,
@@ -208,6 +266,9 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
             header_type,
             vendor_id,
             device_id,
+            interrupt_line,
+            interrupt_pin,
+            bar0,
         });
     }
 }
