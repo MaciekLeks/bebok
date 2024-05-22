@@ -54,7 +54,7 @@ const ConfigAddress = packed struct(u32) {
 // };
 
 const BAR = struct {
-    prefetchable: bool, //1
+    prefetchable: bool, //TODO: change paging settings based on this
     address: union(enum) {
         a32 : u32,
         a64 : u64,
@@ -112,14 +112,26 @@ fn readRegister(
 ) T {
     cpu.out(u32, pci_config_addres_port, registerAddress(u32, config_addr));
     const config_data  = blk: {
-       var cd = cpu.in(ConfigData, pci_config_data_port); //always little endian
+       //TODO: port not habe to be u16 on all platforms
+       var cd = cpu.in(T,  @as(u16, pci_config_data_port) + (@intFromEnum(config_addr.register_offset) & 0b11)); //use offset on the data config port
          if (native_endian == .big) {
               cd = @byteSwap(cd);
          }
         break :blk cd;
     };
-    const shift_bit_no : u5= @intCast( (@intFromEnum(config_addr.register_offset) & 0b11) * 8) ;
-    return @intCast((config_data >> shift_bit_no) & (0xFFFF_FFFF >> (32 - @sizeOf(T) * 8)));
+    return config_data;
+}
+
+fn writeRegister(
+    T: type,
+    config_addr: ConfigAddress,
+    value: T,
+) void {
+    cpu.out(u32, pci_config_addres_port, registerAddress(u32, config_addr));
+    if (native_endian == .big) {
+        value = @byteSwap(value);
+    }
+    cpu.out(T, @as(u16, pci_config_data_port) + (@intFromEnum(config_addr.register_offset) & 0b11), value);
 }
 
 
@@ -250,13 +262,21 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
         .bus_no = bus
     });
 
+    //TODO: remove this
+    const command = readRegister(u16, .{
+        .register_offset = .command,
+        .function_no = function,
+        .slot_no = slot,
+        .bus_no = bus,
+    });
+
 
     if (class_code == 0x06 and subclass == 0x04) {
         // PCI-to-PCI bridge
         log.warn("PCI-to-PCI bridge", .{});
         checkBus(bus+1);
     } else {
-        log.info("PCI device: bus: {d}, slot: {d}, function: {d}, class: {d}, subclass: {d}, prog_id: {d}, header_type: 0x{x}, vendor_id: 0x{x}, device_id=0x{x}, interrupt_no: 0x{x}, interrupt_pin: 0x{x}, bar0: {}", .{
+        log.info("PCI device: bus: {d}, slot: {d}, function: {d}, class: {d}, subclass: {d}, prog_id: {d}, header_type: 0x{x}, vendor_id: 0x{x}, device_id=0x{x}, interrupt_no: 0x{x}, interrupt_pin: 0x{x}, bar0: {}, command: 0b{b:0>16}", .{
             bus,
             slot,
             function,
@@ -269,6 +289,7 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
             interrupt_line,
             interrupt_pin,
             bar0,
+            command,
         });
     }
 }
