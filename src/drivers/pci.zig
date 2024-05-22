@@ -60,7 +60,10 @@ const BAR = struct {
         a64: u64,
     },
     mmio: bool, //memory mapped i/o:  false => i/o space bar layout , true => i/o memory space bar layout
-    size: u32,
+    size: union(enum) {
+        as32: u32,
+        as64: u64,
+    }
 };
 
 const ConfigData = u32;
@@ -159,25 +162,37 @@ fn readBAR(config_addr: ConfigAddress) BAR {
     writeRegister(u16, command_addr, disable_command);
 
     writeRegister(u32, config_addr, 0xFFFFFFFF);
+
     const bar_size_low = readRegister(u32, config_addr);
-    // var bar_size_high: u32 = 0;
-    // writeRegister(u32, config_addr, bar_value);
-    // if (is_a64) {
-    //     writeRegister(u32, next_bar_addr, 0xFFFFFFFF);
-    //     bar_size_high = readRegister(u32, next_bar_addr);
-    //     writeRegister(u32, next_bar_addr, next_bar_value);
-    // }
+    var bar_size_high: u32 = 0;
+    writeRegister(u32, config_addr, bar_value);
+    if (is_a64) {
+        writeRegister(u32, next_bar_addr, 0xFFFFFFFF);
+        bar_size_high = readRegister(u32, next_bar_addr);
+        writeRegister(u32, next_bar_addr, next_bar_value);
+    }
     writeRegister(u32, command_addr, orig_command);
 
-    //var bar_size = bar_size_low |  @as(u64, bar_size_high << @sizeOf(u32));
-    var bar_size = bar_size_low;
+    var bar_size : u64 = undefined;
+    //var bar_size = bar_size_low;
     bar_size &= if (bar.mmio) 0xFFFF_FFF0 else 0xFFFF_FFFC; //hide information bits
-    bar_size = @addWithOverflow(~bar_size, 0x1)[0]; //overflow if bar_size == 0
+    if (is_a64)  {
+        bar_size = @as(u64, bar_size_high << @sizeOf(u32)) / bar_size_low;
+        bar_size &= 0xFFFF_FFFF_FFFF_FFF0; //hide information bits
+    } else {
+        bar_size = bar_size_low;
+        bar_size &= if (bar.mmio) 0xFFFF_FFF0 else 0xFFFF_FFFC; //hide information bits
+    }
+    bar_size = if (bar_size != 0) ~bar_size + 0x1 else 0; //invert and add 1
     // end of determining the ammount of the address space
 
-    //if (bar_size > 0xFFFF_FFFF) @panic("BAR size is too big");
-    //bar.size = @intCast(bar_size);
-    bar.size = bar_size;
+    switch (bar.mmio) {
+        false => bar.size = .{ .as32 = @truncate(bar_size) },
+        true => bar.size = switch (bar.address) {
+            .a32 => .{ .as32 = @truncate(bar_size) },
+            .a64  => .{ .as64 = bar_size },
+        },
+    }
 
     return bar;
 }
