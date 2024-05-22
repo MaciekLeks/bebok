@@ -383,7 +383,13 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
         log.warn("PCI-to-PCI bridge", .{});
         checkBus(bus + 1);
     } else {
-        log.info("PCI device: bus: {d}, slot: {d}, function: {d}, class: {d}, subclass: {d}, prog_id: {d}, header_type: 0x{x}, vendor_id: 0x{x}, device_id=0x{x}, interrupt_no: 0x{x}, interrupt_pin: 0x{x}, bar0: {}, command: 0b{b:0>16}", .{
+        const size_KB = switch (bar0.size) {
+            .as32 => bar0.size.as32 / 1024,
+            .as64 => bar0.size.as64 / 1024,
+        };
+        const size_MB = if (size_KB > 1024) size_KB / 1024 else 0;
+        const size_GB = if (size_MB > 1024) size_MB / 1024 else 0;
+        log.info("PCI device: bus: {d}, slot: {d}, function: {d}, class: {d}, subclass: {d}, prog_id: {d}, header_type: 0x{x}, vendor_id: 0x{x}, device_id=0x{x}, interrupt_no: 0x{x}, interrupt_pin: 0x{x}, bar0: {}, size: {d}GB, {d}MB, {d}KB, command: 0b{b:0>16}", .{
             bus,
             slot,
             function,
@@ -396,6 +402,9 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
             interrupt_line,
             interrupt_pin,
             bar0,
+            size_GB,
+            size_MB,
+            size_KB,
             command,
         });
     }
