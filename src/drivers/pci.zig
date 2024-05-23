@@ -48,11 +48,6 @@ const ConfigAddress = packed struct(u32) {
     enable: u1 = 1, //31
 };
 
-// const AdressType = {
-//     .x64,
-//     .x32,
-// };
-
 const BAR = struct {
     prefetchable: bool, //TODO: change paging settings based on this
     address: union(enum) {
@@ -120,6 +115,15 @@ fn readRegister(T: type, config_addr: ConfigAddress) T {
         break :blk cd;
     };
     return config_data;
+}
+
+fn readRegisterWithArgs(T: type, register_offset: RegisterOffset, function_no: u3, slot_no: u5, bus_no: u8) T {
+    return readRegister(T, ConfigAddress{
+        .register_offset = register_offset,
+        .function_no = function_no,
+        .slot_no = slot_no,
+        .bus_no = bus_no,
+    });
 }
 
 fn writeRegister(T: type, config_addr: ConfigAddress, value: T) void {
@@ -204,7 +208,7 @@ fn readBAR(bar_addr: ConfigAddress) BAR {
     var next_bar_addr: ConfigAddress = undefined;
 
     bar.mmio = bar_value & 0b1 == 0b0;
-    const is_a64 = if (bar.mmio) bar_value & 0b10 == 0b10 else false;
+    const is_a64 = if (bar.mmio) bar_value & 0b110 == 0b100 else false;
 
     if (bar.mmio) {
         bar.prefetchable = bar_value & 0b100 == 0b100;
@@ -213,14 +217,14 @@ fn readBAR(bar_addr: ConfigAddress) BAR {
         } else {
             next_bar_addr = bar_addr;
             next_bar_value = readRegister(u32, setRegisterOffset(&next_bar_addr, @enumFromInt(@intFromEnum(bar_addr.register_offset) + @sizeOf(u32))).*);
-            bar.address = .{ .a64 = @as(u64, next_bar_value & 0xFFFFFFFF) << 32 | bar_value & 0xFFFF_FFF0 };
+            bar.address = .{ .a64 = @as(u64, next_bar_value & 0xFFFF_FFFF) << 32 | bar_value & 0xFFFF_FFF0 };
         }
     } else {
         bar.address = .{ .a32 = bar_value & 0xFFFF_FFFC };
     }
 
     // determine the ammount of the address space
-    const bar_size = determineAddressSpaceSize(bar,bar_addr,  bar_value,  next_bar_addr, next_bar_value, is_a64);
+    const bar_size = determineAddressSpaceSize(bar, bar_addr, bar_value, next_bar_addr, next_bar_value, is_a64);
 
     switch (bar.mmio) {
         false => bar.size = .{ .as32 = @truncate(bar_size) },
@@ -233,28 +237,27 @@ fn readBAR(bar_addr: ConfigAddress) BAR {
     return bar;
 }
 
-fn determineAddressSpaceSize(bar: BAR, bar_addr: ConfigAddress,bar_value: u32,  next_bar_addr: ConfigAddress, next_bar_value: u32, is_a64: bool) u64 {
+fn determineAddressSpaceSize(bar: BAR, bar_addr: ConfigAddress, bar_value: u32, next_bar_addr: ConfigAddress, next_bar_value: u32, is_a64: bool) u64 {
     var command_addr = bar_addr; //copy the config address
 
     _ = setRegisterOffset(&command_addr, .command); //change register offset to command
     const orig_command = readRegister(u16, command_addr);
-    const disable_command = orig_command & ~@as(u16, 0b11);
+    const disable_command = orig_command & ~@as(u16, 0b11); //disable i/o space bit and memory space bit while getting the size
     writeRegister(u16, command_addr, disable_command);
-    writeRegister(u32, bar_addr, 0xFFFFFFFF);
+    writeRegister(u32, bar_addr, 0xFFFF_FFFF);
     const bar_size_low = readRegister(u32, bar_addr);
     var bar_size_high: u32 = 0;
     writeRegister(u32, bar_addr, bar_value);
     if (is_a64) {
-        writeRegister(u32, next_bar_addr, 0xFFFFFFFF);
+        writeRegister(u32, next_bar_addr, 0xFFFF_FFFF);
         bar_size_high = readRegister(u32, next_bar_addr);
         writeRegister(u32, next_bar_addr, next_bar_value);
     }
     writeRegister(u32, command_addr, orig_command); //restore the original command
 
     var bar_size: u64 = undefined;
-    bar_size &= if (bar.mmio) 0xFFFF_FFF0 else 0xFFFF_FFFC; //hide information bits
     if (is_a64) {
-        bar_size = @as(u64, bar_size_high << @sizeOf(u32)) / bar_size_low;
+        bar_size = @as(u64, bar_size_high) <<  @bitSizeOf(u32) | bar_size_low;
         bar_size &= 0xFFFF_FFFF_FFFF_FFF0; //hide information bits
     } else {
         bar_size = bar_size_low;
@@ -272,124 +275,50 @@ fn checkBus(bus: u8) void {
 }
 
 fn checkSlot(bus: u8, slot: u5) void {
-    if (readRegister(u16, ConfigAddress{
-        .register_offset = .vendor_id,
-        .function_no = 0,
-        .slot_no = slot,
-        .bus_no = bus,
-    }) == 0xFFFF) {
+    if (readRegisterWithArgs(u16, .vendor_id, 0, slot, bus) == 0xFFFF) {
         return;
     }
-
     checkFunction(bus, slot, 0);
-    //const header_type = if (readRegister(u8, PciConfigAddress{
-    _ = if (readRegister(u8, ConfigAddress{
-        .register_offset = .header_type,
-        .function_no = 0,
-        .slot_no = slot,
-        .bus_no = bus,
-    }) & 0x80 == 0) {
+    _ = if (readRegisterWithArgs(u8, .header_type, 0, slot, bus) & 0x80 == 0) {
         return;
     };
-
     for (1..8) |function| {
         const function_no: u3 = @truncate(function);
-        if (readRegister(u16, ConfigAddress{
-            .register_offset = .vendor_id,
-            .function_no = function_no,
-            .slot_no = slot,
-            .bus_no = bus,
-        }) != 0xFFFF) {
+        if (readRegisterWithArgs(u16, .vendor_id, function_no, slot, bus) != 0xFFFF) {
             checkFunction(bus, slot, function_no);
         }
     }
 }
 
 fn checkFunction(bus: u8, slot: u5, function: u3) void {
-    const class_code = readRegister(u8, .{
-        .register_offset = .class_code,
-        .function_no = function,
-        .slot_no = slot,
-        .bus_no = bus,
-    });
+    const class_code = readRegisterWithArgs(u8, .class_code, function, slot, bus);
+    const subclass = readRegisterWithArgs(u8, .subclass, function, slot, bus);
+    const prog_if = readRegisterWithArgs(u8, .prog_if, function, slot, bus);
+    const header_type = readRegisterWithArgs(u8, .header_type, function, slot, bus);
+    const vendor_id = readRegisterWithArgs(u16, .vendor_id, function, slot, bus);
+    const device_id = readRegisterWithArgs(u16, .device_id, function, slot, bus);
+    const interrupt_line = readRegisterWithArgs(u8, .interrupt_line, function, slot, bus);
+    const interrupt_pin = readRegisterWithArgs(u8, .interrupt_pin, function, slot, bus);
+    const command = readRegisterWithArgs(u16, .command, function, slot, bus);
 
-    const subclass = readRegister(u8, .{
-        .register_offset = .subclass,
-        .function_no = function,
-        .slot_no = slot,
-        .bus_no = bus,
-    });
-
-    const prog_if = readRegister(u8, .{
-        .register_offset = .prog_if,
-        .function_no = function,
-        .slot_no = slot,
-        .bus_no = bus,
-    });
-
-    //TODO: remove this
-    const header_type = readRegister(u8, .{
-        .register_offset = .header_type,
-        .function_no = function,
-        .slot_no = slot,
-        .bus_no = bus,
-    });
-
-    //TODO remove this
-    const vendor_id = readRegister(u16, .{
-        .register_offset = .vendor_id,
-        .function_no = function,
-        .slot_no = slot,
-        .bus_no = bus,
-    });
-
-    //TODO remove this
-    const device_id = readRegister(u16, .{
-        .register_offset = .device_id,
-        .function_no = function,
-        .slot_no = slot,
-        .bus_no = bus,
-    });
-
-    //TODO remove this
-    const interrupt_line = readRegister(u8, .{
-        .register_offset = .interrupt_line,
-        .function_no = function,
-        .slot_no = slot,
-        .bus_no = bus,
-    });
-
-    // TODO remove this
-    const interrupt_pin = readRegister(u8, .{
-        .register_offset = .interrupt_pin,
-        .function_no = function,
-        .slot_no = slot,
-        .bus_no = bus,
-    });
-
-    //TODO remove this
-    const bar0 = readBAR(.{ .register_offset = .bar0, .function_no = function, .slot_no = slot, .bus_no = bus });
-
-    //TODO: remove this
-    const command = readRegister(u16, .{
-        .register_offset = .command,
-        .function_no = function,
-        .slot_no = slot,
-        .bus_no = bus,
-    });
+    const bar = readBAR(.{ .register_offset = .bar0, .function_no = function, .slot_no = slot, .bus_no = bus });
 
     if (class_code == 0x06 and subclass == 0x04) {
         // PCI-to-PCI bridge
         log.warn("PCI-to-PCI bridge", .{});
         checkBus(bus + 1);
     } else {
-        const size_KB = switch (bar0.size) {
-            .as32 => bar0.size.as32 / 1024,
-            .as64 => bar0.size.as64 / 1024,
+        const size_KB = switch (bar.size) {
+            .as32 => bar.size.as32 / 1024,
+            .as64 => bar.size.as64 / 1024,
         };
         const size_MB = if (size_KB > 1024) size_KB / 1024 else 0;
         const size_GB = if (size_MB > 1024) size_MB / 1024 else 0;
-        log.info("PCI device: bus: {d}, slot: {d}, function: {d}, class: {d}, subclass: {d}, prog_id: {d}, header_type: 0x{x}, vendor_id: 0x{x}, device_id=0x{x}, interrupt_no: 0x{x}, interrupt_pin: 0x{x}, bar0: {}, size: {d}GB, {d}MB, {d}KB, command: 0b{b:0>16}", .{
+        const addr = switch (bar.address) {
+            .a32 => bar.address.a32,
+            .a64 => bar.address.a64,
+        };
+        log.info("PCI device: bus: {d}, slot: {d}, function: {d}, class: {d}, subclass: {d}, prog_id: {d}, header_type: 0x{x}, vendor_id: 0x{x}, device_id=0x{x}, interrupt_no: 0x{x}, interrupt_pin: 0x{x}, bar: {}, bar.addr: 0x{x}, size: {d}GB, {d}MB, {d}KB, command: 0b{b:0>16}", .{
             bus,
             slot,
             function,
@@ -401,7 +330,8 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
             device_id,
             interrupt_line,
             interrupt_pin,
-            bar0,
+            bar,
+            addr,
             size_GB,
             size_MB,
             size_KB,
