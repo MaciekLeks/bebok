@@ -159,6 +159,15 @@ fn writeRegister(T: type, config_addr: ConfigAddress, value: T) void {
     cpu.out(T, @as(cpu.PortNumberType, pci_config_data_port) + (@intFromEnum(config_addr.register_offset) & 0b11), value);
 }
 
+fn writeRegisterWithArgs(T: type, register_offset: RegisterOffset, function_no: u3, slot_no: u5, bus_no: u8, value: T) void {
+    writeRegister(T, ConfigAddress{
+        .register_offset = register_offset,
+        .function_no = function_no,
+        .slot_no = slot_no,
+        .bus_no = bus_no,
+    }, value);
+}
+
 fn readBAR(bar_addr: ConfigAddress) BAR {
     var bar: BAR = undefined;
     const bar_value = readRegister(u32, bar_addr);
@@ -174,8 +183,13 @@ fn readBAR(bar_addr: ConfigAddress) BAR {
         if (!is_a64) {
             bar.address = .{ .a32 = bar_value & 0xFFFF_FFF0 };
         } else {
-            next_bar_addr = bar_addr;
-            next_bar_value = readRegister(u32, setRegisterOffset(&next_bar_addr, @enumFromInt(@intFromEnum(bar_addr.register_offset) + @sizeOf(u32))).*);
+            next_bar_addr = .{
+                .register_offset = @enumFromInt(@intFromEnum(bar_addr.register_offset) + @sizeOf(u32)),
+                .function_no = bar_addr.function_no,
+                .slot_no = bar_addr.slot_no,
+                .bus_no = bar_addr.bus_no,
+            };
+            next_bar_value = readRegister(u32, next_bar_addr);
             bar.address = .{ .a64 = @as(u64, next_bar_value & 0xFFFF_FFFF) << 32 | bar_value & 0xFFFF_FFF0 };
         }
     } else {
@@ -197,12 +211,9 @@ fn readBAR(bar_addr: ConfigAddress) BAR {
 }
 
 fn determineAddressSpaceSize(bar: BAR, bar_addr: ConfigAddress, bar_value: u32, next_bar_addr: ConfigAddress, next_bar_value: u32, is_a64: bool) u64 {
-    var command_addr = bar_addr; //copy the config address
-
-    _ = setRegisterOffset(&command_addr, .command); //change register offset to command
-    const orig_command = readRegister(u16, command_addr);
+    const orig_command = readRegisterWithArgs(u16, .command, 0, bar_addr.slot_no, bar_addr.bus_no);
     const disable_command = orig_command & ~@as(u16, 0b11); //disable i/o space bit and memory space bit while getting the size
-    writeRegister(u16, command_addr, disable_command);
+    writeRegisterWithArgs(u16, .command, bar_addr.function_no, bar_addr.slot_no, bar_addr.bus_no, disable_command);
     writeRegister(u32, bar_addr, 0xFFFF_FFFF);
     const bar_size_low = readRegister(u32, bar_addr);
     var bar_size_high: u32 = 0;
@@ -212,7 +223,7 @@ fn determineAddressSpaceSize(bar: BAR, bar_addr: ConfigAddress, bar_value: u32, 
         bar_size_high = readRegister(u32, next_bar_addr);
         writeRegister(u32, next_bar_addr, next_bar_value);
     }
-    writeRegister(u32, command_addr, orig_command); //restore the original command
+    writeRegisterWithArgs(u32, .command, bar_addr.function_no, bar_addr.slot_no, bar_addr.bus_no, orig_command);
 
     var bar_size: u64 = undefined;
     if (is_a64) {
@@ -302,11 +313,6 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
     notifyDriver(class_code, subclass, prog_if);
 }
 
-fn setRegisterOffset(config_addr: *ConfigAddress, register_offset: RegisterOffset) *ConfigAddress {
-    config_addr.*.register_offset = register_offset;
-    return config_addr;
-}
-
 var device_list: ?DeviceList = null;
 
 pub fn registerDriver(driver: *const Driver) !void {
@@ -314,13 +320,11 @@ pub fn registerDriver(driver: *const Driver) !void {
     try device_list.?.append(driver);
 }
 
-
-
 fn notifyDriver(class_code: u8, subclass: u8, prog_if: u8) void {
     assert(device_list != null);
     for (device_list.?.items) |d| {
         if (d.interested(class_code, subclass, prog_if)) {
-            log.info("interested", .{ });
+            log.info("interested", .{});
             d.update();
         }
     }
