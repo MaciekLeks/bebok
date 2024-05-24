@@ -1,13 +1,38 @@
 const std = @import("std");
 const cpu = @import("../cpu.zig");
+const heap = @import("../mem/heap.zig").heap;
+//contollers
+const nvme = @import("./nvme.zig");
+//end of controllers
+
 const t = std.testing;
 const log = std.log.scoped(.pci);
+const ArrayList = std.ArrayList;
 
 const native_endian = @import("builtin").target.cpu.arch.endian();
 const assert = std.debug.assert;
 
 const pci_config_addres_port = 0xCF8;
 const pci_config_data_port = 0xCFC;
+
+pub const Driver = union(enum) {
+    const Self = @This();
+    nvme: *const nvme.Controller,
+
+    pub fn interested(self: Self, class_code: u8, subclass: u8, prog_if: u8) bool {
+        return switch (self) {
+            inline else => |it| it.interested(class_code, subclass, prog_if),
+        };
+    }
+
+    pub fn update(self: Self) void {
+        return switch (self) {
+            inline else => |it| it.update(),
+        };
+    }
+};
+
+const DeviceList = ArrayList(*const Driver);
 
 const RegisterOffset = enum(u8) {
     vendor_id = 0x00,
@@ -134,72 +159,6 @@ fn writeRegister(T: type, config_addr: ConfigAddress, value: T) void {
     cpu.out(T, @as(cpu.PortNumberType, pci_config_data_port) + (@intFromEnum(config_addr.register_offset) & 0b11), value);
 }
 
-// fn readBAR(config_addr: ConfigAddress) BAR {
-//     var bar: BAR = undefined;
-//     const bar_value = readRegister(u32, config_addr);
-//
-//     var next_bar_value: u32 = undefined;
-//     var next_bar_addr: ConfigAddress = undefined;
-//
-//     bar.mmio = bar_value & 0b1 == 0b0;
-//     const is_a64 = if (bar.mmio) bar_value & 0b10 == 0b10 else false;
-//
-//     if (bar.mmio) {
-//         bar.prefetchable = bar_value & 0b100 == 0b100;
-//         if (!is_a64) {
-//             bar.address = .{ .a32 = bar_value & 0xFFFF_FFF0 };
-//         } else {
-//             next_bar_addr = config_addr;
-//             next_bar_value = readRegister(u32, setRegisterOffset(&next_bar_addr, @enumFromInt(@intFromEnum(config_addr.register_offset) + @sizeOf(u32))).*);
-//             bar.address = .{ .a64 = @as(u64, next_bar_value & 0xFFFFFFFF) << 32 | bar_value & 0xFFFF_FFF0 };
-//         }
-//     } else {
-//         bar.address = .{ .a32 = bar_value & 0xFFFF_FFFC };
-//     }
-//
-//     //determine the ammount of the address space
-//     var command_addr = config_addr; //copy the config address
-//     _ = setRegisterOffset(&command_addr, .command); //change register offset to command
-//     const orig_command = readRegister(u16, command_addr);
-//     const disable_command = orig_command & ~@as(u16, 0b11);
-//     writeRegister(u16, command_addr, disable_command);
-//
-//     writeRegister(u32, config_addr, 0xFFFFFFFF);
-//
-//     const bar_size_low = readRegister(u32, config_addr);
-//     var bar_size_high: u32 = 0;
-//     writeRegister(u32, config_addr, bar_value);
-//     if (is_a64) {
-//         writeRegister(u32, next_bar_addr, 0xFFFFFFFF);
-//         bar_size_high = readRegister(u32, next_bar_addr);
-//         writeRegister(u32, next_bar_addr, next_bar_value);
-//     }
-//     writeRegister(u32, command_addr, orig_command);
-//
-//     var bar_size : u64 = undefined;
-//     //var bar_size = bar_size_low;
-//     bar_size &= if (bar.mmio) 0xFFFF_FFF0 else 0xFFFF_FFFC; //hide information bits
-//     if (is_a64)  {
-//         bar_size = @as(u64, bar_size_high << @sizeOf(u32)) / bar_size_low;
-//         bar_size &= 0xFFFF_FFFF_FFFF_FFF0; //hide information bits
-//     } else {
-//         bar_size = bar_size_low;
-//         bar_size &= if (bar.mmio) 0xFFFF_FFF0 else 0xFFFF_FFFC; //hide information bits
-//     }
-//     bar_size = if (bar_size != 0) ~bar_size + 0x1 else 0; //invert and add 1
-//     // end of determining the ammount of the address space
-//
-//     switch (bar.mmio) {
-//         false => bar.size = .{ .as32 = @truncate(bar_size) },
-//         true => bar.size = switch (bar.address) {
-//             .a32 => .{ .as32 = @truncate(bar_size) },
-//             .a64  => .{ .as64 = bar_size },
-//         },
-//     }
-//
-//     return bar;
-// }
-
 fn readBAR(bar_addr: ConfigAddress) BAR {
     var bar: BAR = undefined;
     const bar_value = readRegister(u32, bar_addr);
@@ -257,7 +216,8 @@ fn determineAddressSpaceSize(bar: BAR, bar_addr: ConfigAddress, bar_value: u32, 
 
     var bar_size: u64 = undefined;
     if (is_a64) {
-        bar_size = @as(u64, bar_size_high) <<  @bitSizeOf(u32) | bar_size_low;
+        bar_size = @as(u64, bar_size_high) << @bitSizeOf(u32) | bar_size_low;
+        // TODO: I'm not sure if this is correct for bar+1, should be also masked with 0xFFFF_FFF0_FFFF_FFF0?
         bar_size &= 0xFFFF_FFFF_FFFF_FFF0; //hide information bits
     } else {
         bar_size = bar_size_low;
@@ -305,7 +265,7 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
 
     if (class_code == 0x06 and subclass == 0x04) {
         // PCI-to-PCI bridge
-        log.warn("PCI-to-PCI bridge", .{});
+        log.debug("PCI-to-PCI bridge", .{});
         checkBus(bus + 1);
     } else {
         const size_KB = switch (bar.size) {
@@ -318,7 +278,7 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
             .a32 => bar.address.a32,
             .a64 => bar.address.a64,
         };
-        log.info("PCI device: bus: {d}, slot: {d}, function: {d}, class: {d}, subclass: {d}, prog_id: {d}, header_type: 0x{x}, vendor_id: 0x{x}, device_id=0x{x}, interrupt_no: 0x{x}, interrupt_pin: 0x{x}, bar: {}, bar.addr: 0x{x}, size: {d}GB, {d}MB, {d}KB, command: 0b{b:0>16}", .{
+        log.debug("PCI device: bus: {d}, slot: {d}, function: {d}, class: {d}, subclass: {d}, prog_id: {d}, header_type: 0x{x}, vendor_id: 0x{x}, device_id=0x{x}, interrupt_no: 0x{x}, interrupt_pin: 0x{x}, bar: {}, bar.addr: 0x{x}, size: {d}GB, {d}MB, {d}KB, command: 0b{b:0>16}", .{
             bus,
             slot,
             function,
@@ -338,6 +298,8 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
             command,
         });
     }
+
+    notifyDriver(class_code, subclass, prog_if);
 }
 
 fn setRegisterOffset(config_addr: *ConfigAddress, register_offset: RegisterOffset) *ConfigAddress {
@@ -345,9 +307,39 @@ fn setRegisterOffset(config_addr: *ConfigAddress, register_offset: RegisterOffse
     return config_addr;
 }
 
+var device_list: ?DeviceList = null;
+
+pub fn registerDriver(driver: *const Driver) !void {
+    assert(device_list != null);
+    try device_list.?.append(driver);
+}
+
+
+
+fn notifyDriver(class_code: u8, subclass: u8, prog_if: u8) void {
+    assert(device_list != null);
+    for (device_list.?.items) |d| {
+        if (d.interested(class_code, subclass, prog_if)) {
+            log.info("interested", .{ });
+            d.update();
+        }
+    }
+}
+
+pub fn deinit() void {
+    log.info("Deinitializing PCI", .{});
+    defer log.info("PCI deinitialized", .{});
+
+    device_list.deinit();
+}
+
 pub fn init() void {
     log.info("Initializing PCI", .{});
     defer log.info("PCI initialized", .{});
 
+    device_list = DeviceList.init(heap.page_allocator);
+}
+
+pub fn scan() void {
     checkBus(0);
 }
