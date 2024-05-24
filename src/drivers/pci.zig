@@ -2,7 +2,7 @@ const std = @import("std");
 const cpu = @import("../cpu.zig");
 const heap = @import("../mem/heap.zig").heap;
 //contollers
-const nvme = @import("./nvme.zig");
+const Nvme = @import("./Nvme.zig");
 //end of controllers
 
 const t = std.testing;
@@ -17,7 +17,7 @@ const pci_config_data_port = 0xCFC;
 
 pub const Driver = union(enum) {
     const Self = @This();
-    nvme: *const nvme.Controller,
+    nvme: *const Nvme,
 
     pub fn interested(self: Self, class_code: u8, subclass: u8, prog_if: u8) bool {
         return switch (self) {
@@ -25,16 +25,16 @@ pub const Driver = union(enum) {
         };
     }
 
-    pub fn update(self: Self) void {
+    pub fn update(self: Self, function_no: u3, slot_no: u5, bus_no: u8) void {
         return switch (self) {
-            inline else => |it| it.update(),
+            inline else => |it| it.update(function_no, slot_no, bus_no),
         };
     }
 };
 
 const DeviceList = ArrayList(*const Driver);
 
-const RegisterOffset = enum(u8) {
+pub const RegisterOffset = enum(u8) {
     vendor_id = 0x00,
     device_id = 0x02,
     command = 0x04,
@@ -73,7 +73,7 @@ const ConfigAddress = packed struct(u32) {
     enable: u1 = 1, //31
 };
 
-const BAR = struct {
+pub const BAR = struct {
     prefetchable: bool, //TODO: change paging settings based on this
     address: union(enum) {
         a32: u32,
@@ -168,7 +168,7 @@ fn writeRegisterWithArgs(T: type, register_offset: RegisterOffset, function_no: 
     }, value);
 }
 
-fn readBAR(bar_addr: ConfigAddress) BAR {
+pub fn readBAR(bar_addr: ConfigAddress) BAR {
     var bar: BAR = undefined;
     const bar_value = readRegister(u32, bar_addr);
 
@@ -208,6 +208,15 @@ fn readBAR(bar_addr: ConfigAddress) BAR {
     }
 
     return bar;
+}
+
+pub fn readBARWithArgs(register_offset: RegisterOffset, function_no: u3, slot_no: u5, bus_no: u8) BAR {
+    return readBAR(ConfigAddress{
+        .register_offset = register_offset,
+        .function_no = function_no,
+        .slot_no = slot_no,
+        .bus_no = bus_no,
+    });
 }
 
 fn determineAddressSpaceSize(bar: BAR, bar_addr: ConfigAddress, bar_value: u32, next_bar_addr: ConfigAddress, next_bar_value: u32, is_a64: bool) u64 {
@@ -310,7 +319,12 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
         });
     }
 
-    notifyDriver(class_code, subclass, prog_if);
+    notifyDriver(function, slot, bus, class_code, subclass, prog_if);
+}
+
+pub fn enableBusMastering(function: u3, slot: u5, bus: u8 ) void {
+    const command = readRegisterWithArgs(u16, .command, function, slot, bus);
+    writeRegisterWithArgs(u16, .command, function, slot, bus, command | 0x4);
 }
 
 var device_list: ?DeviceList = null;
@@ -320,12 +334,12 @@ pub fn registerDriver(driver: *const Driver) !void {
     try device_list.?.append(driver);
 }
 
-fn notifyDriver(class_code: u8, subclass: u8, prog_if: u8) void {
+fn notifyDriver(function: u3, slot: u5, bus: u8, class_code: u8, subclass: u8, prog_if: u8) void {
     assert(device_list != null);
     for (device_list.?.items) |d| {
         if (d.interested(class_code, subclass, prog_if)) {
             log.info("interested", .{});
-            d.update();
+            d.update(function, slot, bus);
         }
     }
 }

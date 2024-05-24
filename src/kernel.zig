@@ -8,7 +8,7 @@ const pmm = @import("mem/pmm.zig");
 const heap = @import("mem/heap.zig").heap;
 const term = @import("terminal");
 const pci = @import("drivers/pci.zig");
-const nvme = @import("drivers/nvme.zig");
+const Nvme = @import("drivers/Nvme.zig");
 
 const log = std.log.scoped(.kernel);
 
@@ -81,9 +81,9 @@ export fn _start() callconv(.C) noreturn {
     //cpu.div0();
     //pci test start
     pci.init();
-    nvme.init();
+    Nvme.init();
     pci.scan();
-    defer nvme.deinit();
+    defer Nvme.deinit();
     defer pci.deinit(); //TODO: na pewno?
 
 
