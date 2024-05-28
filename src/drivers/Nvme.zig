@@ -9,6 +9,13 @@ const nvme_prog_if = 0x02;
 
 const Self = @This();
 
+const CSSField = packed struct(u8){
+    nvmcs: u1, //0 NVM Command Set or Discovery Controller
+    rsrvd: u5, //1-5
+    iocs : u1, //6 I/O Command Set
+    acs: u1, //7 Admin Command Set only
+};
+
 const CAPRegister = packed struct(u64) {
     mqes: u16, //0-15
     cqr: u1, //16
@@ -17,7 +24,7 @@ const CAPRegister = packed struct(u64) {
     to: u8, //24-31
     dstrd: u4, //32-35
     nsqr: u1, //36-36
-    css: u8, //37-44
+    css: CSSField, //37-44
     bsp: u1, //45
     cps: u2, //46-47
     mpsmin: u4, //48-51
@@ -89,9 +96,9 @@ const RegisterSet = packed struct {
 };
 
 
-fn readRegister(T: type, bar: pci.BAR, register_set_field: @TypeOf(.enum_literal)) *volatile T {
+fn readRegister(T: type, bar: pci.BAR, register_set_field: @TypeOf(.enum_literal)) T {
     return  switch (bar.address) {
-        inline else  => |addr|  @ptrFromInt(paging.vaddrFromPaddr(addr) + @offsetOf(RegisterSet, @tagName(register_set_field)))
+        inline else  => |addr|  @as(* volatile T, @ptrFromInt(paging.vaddrFromPaddr(addr) + @offsetOf(RegisterSet, @tagName(register_set_field)))).*
     };
 }
 
@@ -152,11 +159,27 @@ pub fn update(_: Self,  function: u3, slot: u5, bus: u8) void {
         }
     );
 
-    const cap_ptr =readRegister(CAPRegister, bar, .cap);
-    //const vs_ptr = readRegister(VSRegister, bar, @offsetOf(RegisterSet, @tagName(.cc)));
-    const vs_ptr = readRegister(VSRegister, bar,  .cc);
-    log.warn("CAP: 0b{}, VS: 0b{}", .{cap_ptr.*, vs_ptr.*});
+    // Reset the controller
+    var cc = readRegister(CCRegister, bar, .cc);
+    cc.en = 0;
+    writeRegister(CCRegister, bar, .cc, cc);
 
+    // Wait the controller to be disabled
+    while (readRegister(CSTSRegister, bar, .csts).rdy != 0) {}
+
+    log.info("NVMe controller is disabled", .{});
+
+    // Check if the controller supports NVM Command Set and Admin Command Set
+    const cap = readRegister(CAPRegister, bar, .cap);
+    if (cap.css.nvmcs == 0) {
+        log.err("NVMe controller does not support NVM Command Set", .{});
+        return;
+    }
+
+    if (cap.css.acs == 0) {
+        log.err("NVMe controller does not support Admin Command Set", .{});
+        return;
+    }
 
 
 }
