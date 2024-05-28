@@ -9,13 +9,108 @@ const nvme_prog_if = 0x02;
 
 const Self = @This();
 
+const CAPRegister = packed struct(u64) {
+    mqes: u16, //0-15
+    cqr: u1, //16
+    ams: u2, //17-18
+    rsrvd_a: u5, //19-23
+    to: u8, //24-31
+    dstrd: u4, //32-35
+    nsqr: u1, //36-36
+    css: u8, //37-44
+    bsp: u1, //45
+    cps: u2, //46-47
+    mpsmin: u4, //48-51
+    mpsmax: u4, //52-55
+    pmrs: u1, //56
+    cmbs: u1, //57
+    nsss: u1, //58
+    crms: u2, //59-60
+    rsrvd_b: u3, //61-63
+};
+
+const CCRegister = packed struct(u32) {
+    en: u1, //0 use to reset the controller
+    rsrvd_a: u3, //1-3
+    css: u3, //4-6
+    mps: u4, //7-10
+    ams: u3, //11-13
+    shn: u2, //14-15
+    iosqes: u4, //16-19
+    iocqes: u4, //20-23
+    crime: u1, //24
+    rsrvd_b: u7, //25-31
+};
+
+const VSRegister = packed struct(u32) {
+    tet: u8, //0-7
+    mnr: u8, //8-15
+    mjn: u8, //16-23
+    rsvd: u8, //24-31
+};
+
+const CSTSRegister = packed struct(u32) {
+    rdy: u1, //0
+    cfs: u1, //1
+    shst: u2, //2-3
+    nssro: u1, //4
+    pp: u1, //5
+    st: u1, //6
+    rsvd: u25, //7-31
+};
+
+const AQARegister = packed struct(u32) {
+    asqs: u12, //0-11
+    rsrvd_a: u4, //12-15
+    acqs: u12, //16-27
+    rsrvd_b: u4, //28-31
+};
+
+const ASQEntry = packed struct(u64) {
+    asqb: u12, //0-11
+    rsrvd: u52, //12-63
+};
+
+const ACQEntry = packed struct(u64) {
+    acqb: u12, //0-11
+    rsrvd: u52, //12-63
+};
+
+const RegisterSet = packed struct {
+    cap: CAPRegister,
+    vs: VSRegister,
+    intms: u32,
+    intmc: u32,
+    cc: CCRegister,
+    csts: CSTSRegister,
+    aqa: AQARegister,
+    asq: ASQEntry,
+    acq: ACQEntry,
+};
+
+
+fn readRegister(T: type, bar: pci.BAR, register_set_field: @TypeOf(.enum_literal)) *volatile T {
+    return  switch (bar.address) {
+        inline else  => |addr|  @ptrFromInt(paging.vaddrFromPaddr(addr) + @offsetOf(RegisterSet, @tagName(register_set_field)))
+    };
+}
+
+fn writeRegister(T: type, bar: pci.BAR, register_set_field: @TypeOf(.enum_literal), value: T) void {
+    switch (bar.address) {
+        inline else  => |addr| @as(* volatile T, @ptrFromInt(paging.vaddrFromPaddr(addr) + @offsetOf(RegisterSet, @tagName(register_set_field)))).* = value,
+    }
+}
+
 pub fn interested(_: Self, class_code: u8, subclass: u8, prog_if: u8) bool {
     return class_code == nvme_class_code and subclass == nvme_subclass and prog_if == nvme_prog_if;
 }
 
 pub fn update(_: Self,  function: u3, slot: u5, bus: u8) void {
     const bar = pci.readBARWithArgs(.bar0, function, slot, bus);
-    pci.enableBusMastering(function, slot, bus);
+
+    //  bus-mastering DMA, and memory space access in the PCI configuration space
+    const command = pci.readRegisterWithArgs(u16, .command, function, slot, bus);
+    pci.writeRegisterWithArgs(u16, .command, function, slot, bus, command | 0b110);
 
    const vaddr = switch (bar.address) {
         inline else  => |addr| paging.vaddrFromPaddr(addr),
@@ -30,6 +125,10 @@ pub fn update(_: Self,  function: u3, slot: u5, bus: u8) void {
     const asq_reg_ptr : *volatile u64 = @ptrFromInt(vaddr + 0x28);
     const acq_reg_ptr : *volatile u64 = @ptrFromInt(vaddr + 0x30);
 
+    const register_set_ptr : *volatile RegisterSet  = @ptrFromInt(vaddr);
+
+    //log register_set_ptr content
+    log.warn("NVMe register set at address {}:", .{register_set_ptr.*});
 
 
     log.warn(\\bar:{}, addr:0x{x},
@@ -52,6 +151,12 @@ pub fn update(_: Self,  function: u3, slot: u5, bus: u8) void {
             acq_reg_ptr.*,
         }
     );
+
+    const cap_ptr =readRegister(CAPRegister, bar, .cap);
+    //const vs_ptr = readRegister(VSRegister, bar, @offsetOf(RegisterSet, @tagName(.cc)));
+    const vs_ptr = readRegister(VSRegister, bar,  .cc);
+    log.warn("CAP: 0b{}, VS: 0b{}", .{cap_ptr.*, vs_ptr.*});
+
 
 
 }

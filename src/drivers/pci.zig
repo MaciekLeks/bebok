@@ -142,7 +142,7 @@ fn readRegister(T: type, config_addr: ConfigAddress) T {
     return config_data;
 }
 
-fn readRegisterWithArgs(T: type, register_offset: RegisterOffset, function_no: u3, slot_no: u5, bus_no: u8) T {
+pub fn readRegisterWithArgs(T: type, register_offset: RegisterOffset, function_no: u3, slot_no: u5, bus_no: u8) T {
     return readRegister(T, ConfigAddress{
         .register_offset = register_offset,
         .function_no = function_no,
@@ -159,7 +159,7 @@ fn writeRegister(T: type, config_addr: ConfigAddress, value: T) void {
     cpu.out(T, @as(cpu.PortNumberType, pci_config_data_port) + (@intFromEnum(config_addr.register_offset) & 0b11), value);
 }
 
-fn writeRegisterWithArgs(T: type, register_offset: RegisterOffset, function_no: u3, slot_no: u5, bus_no: u8, value: T) void {
+pub fn writeRegisterWithArgs(T: type, register_offset: RegisterOffset, function_no: u3, slot_no: u5, bus_no: u8, value: T) void {
     writeRegister(T, ConfigAddress{
         .register_offset = register_offset,
         .function_no = function_no,
@@ -320,11 +320,6 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
     }
 
     notifyDriver(function, slot, bus, class_code, subclass, prog_if);
-}
-
-pub fn enableBusMastering(function: u3, slot: u5, bus: u8 ) void {
-    const command = readRegisterWithArgs(u16, .command, function, slot, bus);
-    writeRegisterWithArgs(u16, .command, function, slot, bus, command | 0x4);
 }
 
 var device_list: ?DeviceList = null;
