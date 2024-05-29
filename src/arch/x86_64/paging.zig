@@ -196,6 +196,18 @@ pub fn init() void {
         if (hhdm_offset != 0xFFFF_8000_0000_0000)  @panic("Invalid HHDM offset");
     } else  @panic("No HHDM bootloader response available");
 
+
+    if (paging_mode_request.response) |paging_mode_response| {
+        switch (paging_mode_response.mode) {
+            .four_level => {
+                log.info("4-level paging enabled", .{});
+            },
+            .five_level => {
+                log.info("5-level paging enabled", .{});
+            },
+        }
+    } else  @panic("No paging mode bootloader response available");
+
     const vaddr =cpu.cr3();
     log.warn("cr3: 0x{x}", .{vaddr});
     lvl4_pt = lvl4TableFromRegister();
