@@ -4,7 +4,7 @@
     .dependencies = .{
         .limine_zig = .{
             .url = "git+https://github.com/MaciekLeks/limine-zig#trunk",
-            .hash = "1220575fc7f3f08985a8d96a66fa2afe566695ff4cf7d157c8d00d5b160d6fd21cfe",
+            .hash = "122021bb754764323f91dc9b85dfd9375f0f47d341d8df23fd39c4001da39df0b483"
         },
         .limine = .{
             .url = "git+https://github.com/limine-bootloader/limine#v7.x-binary",
