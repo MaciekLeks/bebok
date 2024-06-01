@@ -100,6 +100,12 @@ pub inline fn cr3() usize {
     );
 }
 
+pub inline fn cr4() usize {
+    return asm volatile ("mov %cr4, %[result]"
+    : [result] "={eax}" (-> usize),
+    );
+}
+
 pub inline fn cli() void {
     asm volatile ("cli");
 }

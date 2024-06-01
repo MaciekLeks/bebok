@@ -239,7 +239,8 @@ pub fn build(b: *Build) !void {
 
     const build_options = .{
         .arch = b.option(std.Target.Cpu.Arch, "arch", "The architecture to build for") orelse b.host.result.cpu.arch,
-        .mem_page_size = b.option(enum(u32) { normal = 4096 }, "page-size", "The page size to be used; 'normal' represents 4096 bytes ") orelse .normal,
+      //  .mem_page_size = b.option(enum(u32) { normal = 4096 }, "page-size", "The page size to be used; 'normal' represents 4096 bytes ") orelse .normal,
+        .mem_page_size = b.option(enum(u32) { normal = 4096 }, "page-size", "The page size to be used; 'normal' represents 4096 bytes; Only 4KB supported for now. ") orelse .normal,
         .mem_bit_tree_max_levels = b.option(u8, "mem-bit-tree-max-levels", "Maximum number of the bit tree levels to manage memory, calculated as log2(total_memory_in_bytes/page_size_in_bytes)+ 1; defaults to 32") orelse 32,
     };
 

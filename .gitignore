@@ -6,3 +6,4 @@ tmp
 .gdbinit*
 gdb.log
 
+/tmp/debug.log

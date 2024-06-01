@@ -1,8 +1,15 @@
 const limine = @import("limine");
 const std = @import("std");
 const cpu = @import("cpu.zig");
+const config = @import("config");
 
-pub const page_size = 4096;
+pub const page_size = config.mem_page_size;
+
+const PageSizeType = enum(u32) {
+    size_4k = 4096,
+    size_2m = 2 * 1024 * 1024,
+    size_1g = 1024 * 1024 * 1024,
+};
 
 const PageTable = [512]PageTableEntry;
 
@@ -30,9 +37,9 @@ const PageTableEntry = packed struct(u64) {
 /// each table holds indexes of 512 entries, so we need only 9 bytes to store index
 /// Offset is 12 bits to address 4KiB page
 const PagingIndex = struct {
-    lvl4: u9, //lvl4
-    lvl3: u9, //lvl3
-    lvl2: u9, //lvl2
+    lvl4: u9, //pml4
+    lvl3: u9, //pdpt
+    lvl2: u9, //pd
     lvl1: u9, //pt
     offset: u12,
 };
@@ -148,7 +155,7 @@ inline fn lvl4Table() *PageTable {
 //
 fn retrieveTableFromIndex(comptime lvl: PagingLevel, pidx: PagingIndex) *PageTable {
     var current_table: *PageTable = lvl4Table();
-    const ti = 4;
+    const ti = @intFromEnum(PagingLevel.lvl4);
     inline for ([_]u9{ pidx.lvl4, pidx.lvl3, pidx.lvl2 }, 0..3) |lvl_id, i| {
         if ((ti - i) == @intFromEnum(lvl)) {
             return current_table;
@@ -188,6 +195,11 @@ var lvl4_pt: *PageTable = undefined;
 
 pub fn init() void {
     log.debug("Initializing...", .{});
+
+    if (page_size != 4096) {
+        @panic("Unsupported page size");
+    }
+
     defer log.debug("Initialized", .{});
 
     if (hhdm_request.response) |hhdm_response| {
@@ -234,14 +246,37 @@ pub fn init() void {
     // log.warn("lvl1e: 0xffff800000100000 -> {any}", .{lvl1e.*});
 
     //new aproach
-    const lvl4e2 = retrieveEntryFromVaddr(.lvl4, 0xffff800000100000);
-    log.warn("lvl4e2: 0xffff800000100000 -> {any}", .{lvl4e2.*});
-    const lvl3e2 = retrieveEntryFromVaddr(.lvl3, 0xffff800000100000);
-    log.warn("lvl3e2: 0xffff800000100000 -> {any}", .{lvl3e2.*});
-    const lvl2e2 = retrieveEntryFromVaddr(.lvl2, 0xffff800000100000);
-    log.warn("lvl2e2: 0xffff800000100000 -> {any}", .{lvl2e2.*});
-    const lvl1e2 = retrieveEntryFromVaddr(.lvl1, 0xffff800000100000);
-    log.warn("lvl1e2: 0xffff800000100000 -> {any}", .{lvl1e2.*});
+    // const lvl4e2 = retrieveEntryFromVaddr(.lvl4, 0xffff800000100001);
+    // log.warn("lvl4e2: 0xffff800000100000 -> {any}", .{lvl4e2.*});
+    // const lvl3e2 = retrieveEntryFromVaddr(.lvl3, 0xffff800000100001);
+    // log.warn("lvl3e2: 0xffff800000100000 -> {any}", .{lvl3e2.*});
+    // const lvl2e2 = retrieveEntryFromVaddr(.lvl2, 0xffff800000100001);
+    // log.warn("lvl2e2: 0xffff800000100000 -> {}, 0b{b:0>64}", .{lvl2e2.*, @as(u64, @bitCast(lvl2e2.*))});
+    // const lvl1e2 = retrieveEntryFromVaddr(.lvl1, 0xffff800000100001);
+    // log.warn("lvl1e2: 0xffff800000100000 -> {any}", .{lvl1e2.*});
 
+    const lvl4e = retrieveEntryFromVaddr(.lvl4, 0xffff_8000_fe80_0000);
+    log.warn("lvl4e: -> {}", .{lvl4e.*});
+     const lvl3e = retrieveEntryFromVaddr(.lvl3, 0xffff_8000_fe80_0000);
+     log.warn("lvl3e:  -> {}", .{lvl3e.*});
+     const lvl2e = retrieveEntryFromVaddr(.lvl2,0xffff_8000_fe80_0000 );
+     log.warn("lvl2e: -> {}", .{lvl2e.*});
+
+    var pi = pagingIndexFromVaddr(0xffff_8000_fe80_0000);
+     log.warn("pidx: -> {any}", .{pi});
+     pi.lvl2 +=1 ;
+    const lvl2t = retrieveTableFromIndex(.lvl2, pi);
+     log.warn("lvl2e+1:  -> {}", .{lvl2t[pi.lvl2]});
+
+    const lvl1e = retrieveEntryFromVaddr(.lvl1, 0xffff_8000_fe80_0000);
+    log.warn("lvl1e:  -> {}", .{lvl1e.*});
+    pi.lvl2 -= 1;
+    pi.lvl1 += 1;
+    const lvl1t = retrieveTableFromIndex(.lvl1, pi);
+    log.warn("lvl1e+1:  -> {}", .{lvl1t[pi.lvl1]});
+
+
+    log.warn("cr4: 0b{b:0>64}", .{@as(u64, cpu.cr4())});
+    log.warn("cr3: 0b{b:0>64}", .{@as(u64, cpu.cr3())});
 
 }
