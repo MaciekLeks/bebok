@@ -3,6 +3,8 @@ const std = @import("std");
 const cpu = @import("cpu.zig");
 const config = @import("config");
 
+const psf = @import("paging/structure_formats.zig");
+
 pub const page_size = config.mem_page_size;
 
 const PageSizeType = enum(u32) {
@@ -188,7 +190,8 @@ pub inline fn vaddrFromPaddr(paddr: usize) usize {
 }
 
 fn lvl4TableFromRegister()  *PageTable {
-    return @ptrFromInt(vaddrFromPaddr(cpu.cr3()));
+    const cr3_formatted: psf.Cr3Structure(false) =@bitCast( cpu.cr3());
+    return @ptrFromInt(vaddrFromPaddr(cr3_formatted.aligned_address_4kbytes << @bitSizeOf(u12)));
 }
 
 var lvl4_pt: *PageTable = undefined;
