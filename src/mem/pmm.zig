@@ -45,9 +45,10 @@ pub fn init() !void {
         var best_region_entry_idx: usize = undefined;
 
         for (mmap_res.entries(), 0..) |entry, i| {
+            const size_kb = entry.length / 1024;
             const size_mb = entry.length / 1024 / 1024;
             const size_gb = if (size_mb > 1024) size_mb / 1024 else 0;
-            log.debug("init(): Memory map entry {d: >3}: {s: <23} 0x{x} -- 0x{x} of size {d}MB ({d}GB)", .{ i, @tagName(entry.kind), entry.base, entry.base + entry.length, size_mb, size_gb });
+            log.debug("init(): Memory map entry {d: >3}: {s: <23} 0x{x} -- 0x{x} of size {d}KB {d}MB ({d}GB)", .{ i, @tagName(entry.kind), entry.base, entry.base + entry.length, size_kb, size_mb, size_gb });
             if (entry.kind == .usable and (best_region == null or best_region.?.len < entry.length)) {
                 best_region = @as([*]u8, @ptrFromInt(entry.base))[0..entry.length];
                 best_region_entry_idx = i;

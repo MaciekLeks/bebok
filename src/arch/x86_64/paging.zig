@@ -371,11 +371,6 @@ pub inline fn vaddrFromPaddr(paddr: usize) usize {
 //const Pml4t = [512]Pml4e;
 fn Pml4TableFromCr3() []Pml4e {
     const cr3_formatted: Cr3Structure(false) = @bitCast(cpu.cr3());
-    log.warn("cr3_formatted: {}", .{cr3_formatted});
-    log.warn("cr3_formatted: 0x{x:0>16}", .{@as(u64, cr3_formatted.aligned_address_4kbytes)});
-    log.warn("cr3: 0x{x:0>16}", .{@as(u64, cpu.cr3())});
-    log.warn("cr3_formated_ptr: 0b{x:0>64}", .{@intFromPtr(cr3_formatted.retrieve_table(Pml4e))});
-    //    return @ptrFromInt(vaddrFromPaddr(cr3_formatted.aligned_address_4kbytes << @bitSizeOf(u12)));
     return cr3_formatted.retrieve_table(Pml4);
 }
 
@@ -407,20 +402,19 @@ pub fn init() void {
         }
     } else @panic("No paging mode bootloader response available");
 
-    const vaddr = cpu.cr3();
-    log.warn("cr3: 0x{x}", .{vaddr});
     pml4t = Pml4TableFromCr3();
 
-    log.warn("lvl4: {}", .{pml4t[0]});
-
     //const lvl4e = retrieveEntryFromVaddr(PagingStructureEntry(page_size, .lvl4), .four_level, page_size, .lvl4, 0xffff_8000_fe80_0000);
-    const pml4e = entryFromVaddr( .pml4, 0xffff_8000_fe80_0000);
-    log.warn("pml4e: -> {}", .{pml4e.*});
-     const pdpte = entryFromVaddr(.pdpt, 0xffff_8000_fe80_0000);
+    const vaddr_test = 0xffff_8000_fe80_0000;
+    const pidx = pagingIndexFromVaddr(vaddr_test);
+    log.warn("pidx: -> {}", .{pidx});
+    const pml4e = entryFromVaddr( .pml4, vaddr_test);
+    log.warn("pml4e: -> {}, ptr={*}", .{pml4e.*, pml4e});
+     const pdpte = entryFromVaddr(.pdpt, vaddr_test);
      log.warn("pdpte:  -> {}", .{pdpte.*});
-     const pde = entryFromVaddr(.pd, 0xffff_8000_fe80_0000);
+     const pde = entryFromVaddr(.pd, vaddr_test);
      log.warn("pde:  -> {}, pfn={*}", .{pde.*, pde.retrieve_table()});
-    const pte = entryFromVaddr(.pt, 0xffff_8000_fe80_0000);
+    const pte = entryFromVaddr(.pt, vaddr_test);
     log.warn("pte: -> {}, pfn= {*}", .{pte.*, pte.retrieve_frame_address()});
 
     log.warn("cr4: 0b{b:0>64}", .{@as(u64, cpu.cr4())});
