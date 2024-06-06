@@ -125,7 +125,7 @@ test "PCI register addresses" {
         .register_offset = .vendor_id,
         .function_no = 1,
         .slot_no = 0,
-        .bus_no = 0,
+        .bus_no = 0
     };
     try t.expect(registerAddress(u32, config_addr) == 0x80000100);
 }
@@ -315,7 +315,7 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
             size_GB,
             size_MB,
             size_KB,
-            command,
+            command
         });
     }
 

@@ -4,6 +4,5 @@ zig-cache/
 .swp
 tmp
 .gdbinit*
-gdb.log
 
-/tmp/debug.log
+*.log

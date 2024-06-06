@@ -106,6 +106,14 @@ pub inline fn cr4() usize {
     );
 }
 
+pub inline fn invlpg(addr: usize) void {
+    asm volatile ("invlpg (%[addr])"
+    :
+    : [addr] "r" (addr),
+    : "memory"
+    );
+}
+
 pub inline fn cli() void {
     asm volatile ("cli");
 }
@@ -148,3 +156,5 @@ pub inline fn lgdt(gdtd: *const gdt.Gdtd, code_selector: usize, data_selector: u
 pub inline fn div0() void {
     asm volatile ("int $0");
 }
+
+
