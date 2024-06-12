@@ -17,7 +17,7 @@ pub inline fn done() noreturn {
     cpu.halt();
 }
 
-pub fn init() void {
+pub fn init() !void {
     // Ensure the bootloader actually understands our base revision (see spec).
     if (!base_revision.is_supported()) {
         done(); //TODO remove it from here
@@ -28,5 +28,5 @@ pub fn init() void {
     idt.init();
     cpu.sti();
 
-    paging.init();
+    try paging.init();
 }

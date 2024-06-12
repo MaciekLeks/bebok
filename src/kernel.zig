@@ -56,7 +56,10 @@ pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
 
 
 export fn _start() callconv(.C) noreturn {
-    start.init();
+    start.init() catch |err| {
+        log.err("Startup error: {}", .{err});
+        @panic("Startup error");
+    };
 
     log.debug("Hello, world!", .{});
 
@@ -71,6 +74,7 @@ export fn _start() callconv(.C) noreturn {
         log.err("OOM: {}", .{err});
         @panic("OOM");
     };
+    log.warn("Allocated memory at {*}", .{memory});
     allocator.free(memory);
 
 

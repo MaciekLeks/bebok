@@ -1,13 +1,48 @@
 //! This is paging solely for 4-Level Paging, but it also supports 4-Kilobyte, 2-Megabyte, and 1-Gigabyte pages.
+//! For now this code supports both recursive page table mapping and CR3-based page table mapping.
+//! For recursive mapping, it uses 510 (not 511) in the PML4 table.
+//! Virtual Address for	Address Structure (octal)
+//! Page                                   	0o_SSSSSS_AAA_BBB_CCC_DDD_EEEE
+//! Level 1 Table Entry   PML4   0o_SSSSSS_RRR_AAA_BBB_CCC_DDDD
+//! Level 2 Table Entry  PDPT    0o_SSSSSS_RRR_RRR_AAA_BBB_CCCC
+//! Level 3 Table Entry  PD        0o_SSSSSS_RRR_RRR_RRR_AAA_BBBB
+//! Level 4 Table Entry  PT	    0o_SSSSSS_RRR_RRR_RRR_RRR_AAAA,
+//! where: SSSSSS is the sign extension of the 48-bit address
+//! RRR is the index of the recursive entry, which means that they are all copies of bit 47
+//! AAA is the index into the PML4 (lvl4) table
+//! BBB is the index into the PDPT (lvl3) table
+//! CCC is the index into the PD (lvl2) table
+//! DDD is the index into the PT (lvl1) table
+//! EEEE is the offset into the page
+
 const limine = @import("limine");
 const std = @import("std");
 const cpu = @import("cpu.zig");
 const config = @import("config");
 
-pub const page_size = config.mem_page_size;
-const page_size_4k = 0x1000;
-const page_size_2m = 0x200000;
-const page_size_1g = 0x40000000;
+fn RecursiveInfo(comptime recursive_index: u9) type {
+    return struct {
+        const rec_idx: usize = recursive_index; //510
+        const sign = 0o177777 << 48; //sign extension
+
+        // retrieve the page table indices of the address that we want to translate
+        pub inline fn pml4TableAddr() usize {
+            return sign | (rec_idx << 39) | (rec_idx << 30) | (rec_idx << 21) | (rec_idx << 12);
+        }
+        pub inline fn pdptTablAddr(pml4_idx: usize) usize {
+            return sign | (rec_idx << 39) | (rec_idx << 30) | (rec_idx << 21) | (pml4_idx << 12);
+        }
+        pub inline fn pdTableAddr(pml4_idx: usize, pdpt_idx: usize) usize {
+            return sign | (rec_idx << 39) | (rec_idx << 30) | (pml4_idx << 21) | (pdpt_idx << 12);
+        }
+        pub inline fn ptTableAddr(pml4_idx: usize, pdpt_idx: usize, pd_idx: usize) usize {
+            return sign | (rec_idx << 39) | (pml4_idx << 30) | (pdpt_idx << 21) | (pd_idx << 12);
+        }
+    };
+}
+
+const PageSize = enum(u32) { ps4k = 0x1000, ps2m = 0x200000, ps1g = 0x40000000 };
+pub const default_page_size: PageSize = @enumFromInt(config.mem_page_size);
 
 const PagingMode = enum(u1) {
     four_level = 0,
@@ -15,6 +50,13 @@ const PagingMode = enum(u1) {
 };
 
 const GenericEntry = usize;
+const RecInfo = RecursiveInfo(510); //0x776
+
+const GenericEntryInfo = struct {
+    entry_ptr: ?*GenericEntry,
+    lvl: Level,
+    ps: PageSize,
+};
 
 pub fn Cr3Structure(comptime pcid: bool) type {
     if (pcid) {
@@ -45,17 +87,19 @@ pub fn Cr3Structure(comptime pcid: bool) type {
     }
 }
 
-const Pml4e = PagingStructureEntry(config.mem_page_size, .pml4);
-const Pdpte = PagingStructureEntry(config.mem_page_size, .pdpt);
-const Pde = PagingStructureEntry(config.mem_page_size, .pd);
-const Pte = PagingStructureEntry(config.mem_page_size, .pt);
+const Pml4e = PagingStructureEntry(default_page_size, .pml4);
+const Pdpte = PagingStructureEntry(default_page_size, .pdpt);
+const Pdpte1Gbyte = PagingStructureEntry(.ps1g, .pdpt);
+const Pde = PagingStructureEntry(default_page_size, .pd);
+const Pde2MByte = PagingStructureEntry(.ps2m, .pd);
+const Pte = PagingStructureEntry(default_page_size, .pt);
 const Pml4 = [512]Pml4e;
 const Pdpt = [512]Pdpte;
 const Pd = [512]Pde;
 const Pt = [512]Pte;
 
 // TODO: usngnamespace does not work in case of the fields
-pub fn PagingStructureEntry(comptime ps: u32, comptime lvl: Level) type {
+pub fn PagingStructureEntry(comptime ps: PageSize, comptime lvl: Level) type {
     //return packed struct(GenericEntry) {
     return switch (lvl) {
         .pml4 => packed struct(GenericEntry) {
@@ -75,13 +119,13 @@ pub fn PagingStructureEntry(comptime ps: u32, comptime lvl: Level) type {
             ignrd_b: u11 = 0, //52-62
             execute_disable: bool = false, //63
 
-            pub fn retrieve_table(self: Self) []Pdpte {
-                return @as(*Pdpt, @ptrFromInt(vaddrFromPaddr(self.aligned_address_4kbytes << @bitSizeOf(u12))));
+            pub fn retrieveTable(self: Self) ?[]Pdpte {
+                return if (self.present) @as(*Pdpt, @ptrFromInt(vaddrFromPaddr(self.aligned_address_4kbytes << @bitSizeOf(u12)))) else null;
             }
         },
         // .pdpte1gbytes
         .pdpt => switch (ps) {
-            page_size_1g => packed struct(GenericEntry) {
+            .ps1g => packed struct(GenericEntry) {
                 const Self = @This();
                 present: bool, //0
                 writable: bool, //1
@@ -96,17 +140,21 @@ pub fn PagingStructureEntry(comptime ps: u32, comptime lvl: Level) type {
                 restart: u1, //11
                 pat: u1, //12
                 rsrvd_a: u17, //13-29
-                aligned_address_1gbyte: u21, //30-50
+                aligned_address_1gbytes: u21, //30-50
                 rsrvd_b: u1, //51 //must be 0
                 ignrd_b: u7, //52-58
                 protection_key: u4, //59-62
                 execute_disable: bool, //63
 
-                pub fn retrieve_frame_address(self: Self) []GenericEntry {
-                    return @as(*[page_size_1g]GenericEntry, @ptrFromInt(vaddrFromPaddr(self.aligned_address_4kbytes << @bitSizeOf(u12))));
+                pub inline fn retrieveFrameVirt(self: Self) ?usize {
+                    return if (self.present) self.aligned_address_1gbytes else null;
+                }
+
+                pub inline fn retrieveFrame(self: Self) ?[]usize {
+                    return if (self.present) @as(*[.ps1g]GenericEntry, @ptrFromInt(self.retrieve_frame_address().?)) else null;
                 }
             },
-            page_size_4k, page_size_2m => packed struct(GenericEntry) {
+            .ps4k, .ps2m => packed struct(GenericEntry) {
                 const Self = @This();
                 present: bool = false, //0
                 writable: bool = false, //1
@@ -123,14 +171,14 @@ pub fn PagingStructureEntry(comptime ps: u32, comptime lvl: Level) type {
                 ignr_b: u11 = 0, //52-62
                 execute_disable: bool = false, //63
 
-                pub fn retrieve_table(self: Self) []Pde {
-                    return @as(*Pd, @ptrFromInt(vaddrFromPaddr(self.aligned_address_4kbytes << @bitSizeOf(u12))));
+                pub inline fn retrieveTable(self: Self) ?[]Pde {
+                    return if (self.present) @as(*Pd, @ptrFromInt(vaddrFromPaddr(self.aligned_address_4kbytes << @bitSizeOf(u12)))) else null;
                 }
             },
-            else => @compileError("Unsupported page size:" ++ ps),
+            //            else => @compileError("Unsupported page size:" ++ @tagName(ps)),
         },
         .pd => switch (ps) {
-            page_size_2m => packed struct(GenericEntry) {
+            .ps2m => packed struct(GenericEntry) {
                 const Self = @This();
                 present: bool = false, //0
                 writable: bool = false, //1
@@ -145,17 +193,21 @@ pub fn PagingStructureEntry(comptime ps: u32, comptime lvl: Level) type {
                 restart: u1 = 0, //11
                 pat: u1 = 0, //12
                 rsrvd_a: u8 = 0, //13-20
-                aligned_address_2mbytes: u29, //21-50
+                aligned_address_2mbytes: u30, //21-50
                 rsrvd_b: u1 = 0, //51
                 ignrd_b: u7 = 0, //52-58
                 protection_key: u4 = 0, //59-62
                 execute_disable: bool = false, //63
 
-                pub fn retrieve_frame_address(self: Self) []GenericEntry {
-                    return @as(*[page_size_2m]GenericEntry, @ptrFromInt(vaddrFromPaddr(self.aligned_address_4kbytes << @bitSizeOf(u12))));
+                pub inline fn retrieveFrameVirt(self: Self) ?usize {
+                    return if (self.present) self.aligned_address_2mbytes else null;
+                }
+
+                pub inline fn retrievFrame(self: Self) ?[]usize {
+                    return if (self.present) @as(*[.ps2m]usize, @ptrFromInt(self.retrieveFrameVirt().?)) else null;
                 }
             },
-            page_size_4k => packed struct(GenericEntry) {
+            .ps4k => packed struct(GenericEntry) {
                 const Self = @This();
                 present: bool = false, //0
                 writable: bool = false, //1
@@ -164,15 +216,15 @@ pub fn PagingStructureEntry(comptime ps: u32, comptime lvl: Level) type {
                 cache_disabled: bool = false, //4
                 accessed: bool = false, //5
                 ignrd_a: bool = false, //6
-                hudge: bool = false , //7 //must be 0
+                hudge: bool = false, //7 //must be 0
                 ignrd_b: u3 = 0, //8-10
                 restart: u1 = 0, //11
                 aligned_address_4kbytes: u39, //12-50
                 rsrvd_a: u1 = 0, //51-51 //must be 0
                 ignrd_c: u11 = 0, //52-62
                 execute_disable: bool = true, //63
-                pub fn retrieve_table(self: Self) []Pte {
-                    return @as(*Pt, @ptrFromInt(vaddrFromPaddr(self.aligned_address_4kbytes << @bitSizeOf(u12))));
+                pub inline fn retrieveTable(self: Self) ?[]Pte {
+                    return if (self.present) @as(*Pt, @ptrFromInt(vaddrFromPaddr(self.aligned_address_4kbytes << @bitSizeOf(u12)))) else null;
                 }
             },
             else => @compileError("Unsupported page size:" ++ ps),
@@ -196,32 +248,16 @@ pub fn PagingStructureEntry(comptime ps: u32, comptime lvl: Level) type {
             protection_key: u4 = 0, //59-62
             execute_disable: bool = false, //63
 
-            pub fn retrieve_frame_address(self: Self) []GenericEntry {
-                return @as(*[page_size_4k]GenericEntry, @ptrFromInt(vaddrFromPaddr(self.aligned_address_4kbytes << @bitSizeOf(u12))));
+            pub inline fn retrieveFrameVirt(self: Self) ?usize {
+                return if (self.present) self.aligned_address_4kbytes else null;
+            }
+
+            pub inline fn retrieveFrame(self: Self) ?[]usize {
+                return if (self.present) @as(*[@intFromEnum(PageSize.ps4k)]GenericEntry, @ptrFromInt(self.retrieveFrameVirt().?)) else null;
             }
         },
     };
 }
-
-// const PageTableEntry = packed struct(u64) {
-//     present: bool, // 0
-//     writable: bool, // 1
-//     user: bool, // 2
-//     write_through: bool, // 3
-//     cache_disable: bool, // 4
-//     accessed: bool, // 5
-//     dirty: bool, // 6
-//     huge: bool, // 7
-//     global: bool, // 8
-//     rsvd_a: u3, // 9-11
-//     aligned_address: u40, // 12-51, 4KiB aligned address
-//     rsvd_b: u11, // 52-62
-//     execute_disabled: bool, // 63
-//
-//     pub fn retrieve_table(self: PageTableEntry) *PageTable {
-//         return @ptrFromInt(vaddrFromPaddr(self.aligned_address << @bitSizeOf(u12)));
-//     }
-// };
 
 /// Holds indexes of all paging tables
 /// each table holds indexes of 512 entries, so we need only 9 bytes to store index
@@ -268,7 +304,7 @@ test indexFromVaddr {
 }
 
 // Get virtual address from paging indexes
-pub inline fn vaddrFromIndex(pidx: Index) usize {
+pub inline fn virtFromIndex(pidx: Index) usize {
     const addr = (@as(usize, pidx.pml4_idx) << 39) | (@as(usize, pidx.pdpt_idx) << 30) | (@as(usize, pidx.pd_idx) << 21) | @as(usize, pidx.pt_idx) << 12 | pidx.offset;
     switch (addr & @as(usize, 1) << 47) {
         0 => return addr & 0x7FFF_FFFF_FFFF,
@@ -277,106 +313,203 @@ pub inline fn vaddrFromIndex(pidx: Index) usize {
     }
 }
 
-test vaddrFromIndex {
-    try std.testing.expect(0x2001, vaddrFromIndex(.{ .lvl4 = 0, .lvl3 = 0, .lvl2 = 0, .lvl1 = 2, .offset = 1 }));
-    try std.testing.expect(0xffff800000100000, vaddrFromIndex(.{ .lvl4 = 0x100, .lvl3 = 0x0, .lvl2 = 0x0, .lvl1 = 0x100, .offset = 0x0 }));
+test virtFromIndex {
+    try std.testing.expect(0x2001, virtFromIndex(.{ .lvl4 = 0, .lvl3 = 0, .lvl2 = 0, .lvl1 = 2, .offset = 1 }));
+    try std.testing.expect(0xffff800000100000, virtFromIndex(.{ .lvl4 = 0x100, .lvl3 = 0x0, .lvl2 = 0x0, .lvl1 = 0x100, .offset = 0x0 }));
 }
 
-pub fn physFromVirt(vaddr: usize) usize {
+
+pub fn physFromVirtInfo(vaddr: usize) !struct { phys: usize, lvl: Level, ps: PageSize } {
     const pidx = indexFromVaddr(vaddr);
 
-    switch (page_size) {
-        //TODO uncomment when 4k pages are supported
-        // page_size_4k => {
-        //     const pt = (510 << 39) | @as(usize, pidx.pdpt_idx) << 30 | @as(usize, pidx.pd_idx) << 12;
-        //     const table: [*]Pte = @ptrFromInt(pt);
-        //     return (@as(usize, table[pidx.pt_idx].aligned_address_4kbytes) <<  12) + pidx.offset;
-        // },
-        page_size_4k,  page_size_2m => {
-            var tmp_pidx = pidx;
-            _ = &tmp_pidx;
-            const pd = (510 << 39) | (510) << 30 | @as(usize, pidx.pd_idx) << 21;
-            const pde: *Pde = @ptrFromInt(pd);
-            return (@as(usize, pde.aligned_address_4kbytes) <<  12) + pidx.offset;
-        },
-        page_size_1g => {
-            const pdpt = (510 << 39) | (510) << 30 | (510) << 21;
-            const table: [*]Pdpte = @ptrFromInt(pdpt);
-            return (@as(u64, table[pidx.pdpt_idx].aligned_address_4kbytes) <<  30) + pidx.offset;
-        },
-        else => @compileError("Unsupported page size"),
+    const pml4_table: ?[]Pml4e = tableFromIndex(.pml4, pidx) orelse return error.PageFault;
+    const pdpt_table: ?[]Pdpte = pml4_table.?[pidx.pml4_idx].retrieveTable() orelse return error.PageFault;
+
+    const pdpte = pdpt_table.?[pidx.pdpt_idx];
+    if (!pdpte.present) return error.PageFault;
+
+    if (pdpte.hudge) {
+        return .{ .phys = @as(PagingStructureEntry(.ps1g, .pdpt), @bitCast(pdpte)).retrieveFrameVirt().? + pidx.offset, .lvl = .pdpt, .ps = .ps1g };
     }
+
+    const pd_table: ?[]Pde = pdpte.retrieveTable() orelse return error.PageFault;
+    const pde = pd_table.?[pidx.pd_idx];
+    if (!pde.present) return error.PageFault;
+
+    if (pde.hudge) {
+        return .{ .phys = @as(PagingStructureEntry(.ps2m, .pd), @bitCast(pde)).retrieveFrameVirt().? + pidx.offset, .lvl = .pd, .ps = .ps2m };
+    }
+
+    const pt_table: ?[]Pte = pde.retrieveTable() orelse return error.PageFault;
+    const pte = pt_table.?[pidx.pt_idx];
+    if (!pte.present) return error.PageFault;
+
+    return .{ .phys = @as(PagingStructureEntry(.ps4k, .pt), pte).retrieveFrameVirt().? + pidx.offset, .lvl = .pt, .ps = .ps4k };
 }
 
+// Recursive get physical address from virtual address
+pub fn recPhysFromVirtInfo(vaddr: usize) !struct { phys: usize, lvl: Level, ps: PageSize } {
+    const pidx = indexFromVaddr(vaddr);
+
+    // check if pml4 entry is present
+    const pml4e = @as(*Pml4, @ptrFromInt(RecInfo.pml4TableAddr()))[pidx.pml4_idx];
+    if (!pml4e.present) return error.PageFault;
+
+    // check if pdpt entry is present
+    const pdpte = @as(*Pdpt, @ptrFromInt(RecInfo.pdptTablAddr(pidx.pml4_idx)))[pidx.pdpt_idx];
+    if (!pdpte.present) return error.PageFault;
+
+    if (pdpte.hudge) {
+        return .{ .phys = @as(PagingStructureEntry(.ps1g, .pdpt), @bitCast(pdpte)).retrieveFrameVirt().? + pidx.offset, .lvl = .pdpt, .ps = .ps1g };
+    }
+
+    // check if pd entry is present
+    const pde = @as(*Pd, @ptrFromInt(RecInfo.pdTableAddr(pidx.pml4_idx, pidx.pdpt_idx)))[pidx.pd_idx];
+    if (!pde.present) return error.PageFault;
+
+    if (pde.hudge) {
+        return .{ .phys = @as(PagingStructureEntry(.ps2m, .pd), @bitCast(pde)).retrieveFrameVirt().? + pidx.offset, .lvl = .pd, .ps = .ps2m };
+    }
+
+    // check if pt entry is present
+    const pte = @as(*Pt, @ptrFromInt(RecInfo.ptTableAddr(pidx.pml4_idx, pidx.pdpt_idx, pidx.pd_idx)))[pidx.pt_idx];
+    if (!pte.present) return error.PageFault;
+
+    return .{ .phys = @as(PagingStructureEntry(.ps4k, .pt), pte).retrieveFrameVirt().? + pidx.offset, .lvl = .pt, .ps = .ps4k };
+}
+
+pub inline fn physFromVirt(vaddr: usize) !usize {
+    const info = try physFromVirtInfo(vaddr);
+    return info.phys;
+}
+
+pub inline fn recPhysFromVirt(vaddr: usize) !usize {
+    const info = try recPhysFromVirtInfo(vaddr);
+    return info.phys;
+}
 
 inline fn lvl4Table() []Pml4e {
     return pml4t;
 }
 
 inline fn tableFromIndex(comptime lvl: Level, pidx: Index) switch (lvl) {
-    .pml4 => []Pml4e,
-    .pdpt => []Pdpte,
-    .pd => []Pde,
-    .pt => []Pte,
+    .pml4 => ?[]Pml4e,
+    .pdpt => ?[]Pdpte,
+    .pd => ?[]Pde,
+    .pt => ?[]Pte,
 } {
     switch (lvl) {
         .pml4 => {
             return lvl4Table();
         },
         .pdpt => {
-            return tableFromIndex(.pml4, pidx)[pidx.pml4_idx].retrieve_table();
+            return tableFromIndex(.pml4, pidx).?[pidx.pml4_idx].retrieveTable();
         },
         .pd => {
-            return tableFromIndex(.pdpt, pidx)[pidx.pdpt_idx].retrieve_table();
+            return tableFromIndex(.pdpt, pidx).?[pidx.pdpt_idx].retrieveTable();
         },
         .pt => {
-            return tableFromIndex(.pd, pidx)[pidx.pd_idx].retrieve_table();
+            return tableFromIndex(.pd, pidx).?[pidx.pd_idx].retrieveTable();
         },
     }
 }
 
 //fn tableFromVaddr(EntryType: type, comptime lvl: Level, vaddr: usize) []EntryType {
 fn tableFromVaddr(comptime lvl: Level, vaddr: usize) switch (lvl) {
-    .pml4 => []Pml4e,
-    .pdpt => []Pdpte,
-    .pd => []Pde,
-    .pt => []Pte,
+    .pml4 => ?[]Pml4e,
+    .pdpt => ?[]Pdpte,
+    .pd => ?[]Pde,
+    .pt => ?[]Pte,
 } {
     const pidx = indexFromVaddr(vaddr);
     return tableFromIndex(lvl, pidx);
 }
 
-fn retrieveEntryFromVaddr(EntryType: type, comptime pm: PagingMode, comptime ps: u32, comptime lvl: Level, vaddr: usize) *EntryType {
+// Search for the lowest level entry in the paging table which is present
+fn lowestEntryFromVirtInfo(vaddr: usize) !GenericEntryInfo {
     const pidx = indexFromVaddr(vaddr);
-    //const table = tableFromVaddr(EntryType, lvl, vaddr);
-    const table: []EntryType = tableFromVaddr(lvl, vaddr);
-    return switch (pm) {
-        .four_level => switch (ps) {
-            page_size_4k => switch (lvl) {
-                .pml4 => &table[pidx.pml4_idx],
-                .pdpt => &table[pidx.pdpt_idx],
-                .pd => &table[pidx.pd_idx],
-                .pt => &table[pidx.pt_idx],
+
+    var res: GenericEntryInfo = .{ .entry_ptr = null, .lvl = .pt, .ps = .ps4k };
+    inline for ([_]Level{ Level.pml4, Level.pdpt, Level.pd, Level.pt }) |lvl_idx| {
+        const table = tableFromIndex(lvl_idx, pidx) orelse return error.PageFault;
+
+        switch (lvl_idx) {
+            .pml4 => {
+                const entry_ptr = &table[pidx.pml4_idx];
+                if (!entry_ptr.present) {
+                    return error.PageFault;
+                }
+                res = .{ .entry_ptr = @ptrCast(entry_ptr), .lvl = lvl_idx, .ps = .ps4k };
             },
-            page_size_2m => switch (lvl) {
-                .pml4 => &table[pidx.pml4_idx],
-                .pdpt => &table[pidx.pdpt_idx],
-                .pd => &table[pidx.pd_idx],
-                else => @compileError("Unsupported page level for 2-MByte page."),
+            .pdpt => {
+                const entry_ptr = &table[pidx.pdpt_idx];
+                if (!entry_ptr.present) {
+                    return res;
+                }
+
+                if (entry_ptr.hudge) {
+                    return .{ .entry_ptr = @ptrCast(entry_ptr), .lvl = lvl_idx, .ps = .ps1g };
+                }
+
+                res = .{ .entry_ptr = @ptrCast(entry_ptr), .lvl = lvl_idx, .ps = .ps2m };
             },
-            page_size_1g => switch (lvl) { // Poprawiona wartość rozmiaru strony na format heksadecymalny
-                .pml4 => &table[pidx.pml4_idx],
-                .pdpt => &table[pidx.pdpt_idx],
-                else => @compileError("Unsupported page level for 1-GByte page."),
+            .pd => {
+                const entry_ptr = &table[pidx.pd_idx];
+                if (!entry_ptr.present) {
+                    return res;
+                }
+
+                if (entry_ptr.hudge) {
+                    return .{ .entry_ptr = @ptrCast(entry_ptr), .lvl = lvl_idx, .ps = .ps2m };
+                }
+
+                res = .{ .entry_ptr = @ptrCast(entry_ptr), .lvl = lvl_idx, .ps = .ps4k };
             },
-            else => @compileError("Unsupported page size"),
-        },
-        else => @compileError("Unsupported 5-Level Paging mode"),
-    };
+            .pt => {
+                const entry_ptr = &table[pidx.pt_idx];
+                if (!entry_ptr.present) {
+                    return res;
+                }
+
+                return .{ .entry_ptr = @ptrCast(entry_ptr), .lvl = lvl_idx, .ps = .ps4k };
+            },
+        }
+    }
 }
 
-inline fn entryFromVaddr(comptime lvl: Level, vaddr: usize) *PagingStructureEntry(page_size, lvl) {
-    return retrieveEntryFromVaddr(PagingStructureEntry(page_size, lvl), .four_level, page_size, lvl, vaddr);
+fn recLowestEntryFromVirtInfo(vaddr: usize) !GenericEntryInfo {
+    const pidx = indexFromVaddr(vaddr);
+
+    var res: GenericEntryInfo = .{ .entry_ptr = null, .lvl = .pml4, .ps = .ps4k };
+
+    // check if pml4 entry is present
+    const pml4e = @as(*Pml4, @ptrFromInt(RecInfo.pml4TableAddr()))[pidx.pml4_idx];
+    if (!pml4e.present) return error.PageFault;
+
+    res = .{ .entry_ptr = @ptrCast(pml4e), .lvl = .pml4, .ps = .ps4k };
+
+    // check if pdpt entry is present
+    const pdpte = @as(*Pdpt, @ptrFromInt(RecInfo.pdptTablAddr(pidx.pml4_idx)))[pidx.pdpt_idx];
+
+    if (!pdpte.present) return res;
+
+    if (pdpte.hudge) {
+        return .{ .entry_ptr = @ptrCast(pdpte), .lvl = .pdpt, .ps = .ps1g };
+    }
+
+    res = .{ .entry_ptr = @ptrCast(pdpte), .lvl = .pdpt, .ps = .ps2m };
+
+    const pde = @as(*Pd, @ptrFromInt(RecInfo.pdTableAddr(pidx.pml4_idx, pidx.pdpt_idx)))[pidx.pd_idx];
+    if (!pde.present) return res;
+
+    if (pde.hudge) {
+        return .{ .entry_ptr = @ptrCast(pde), .lvl = .pd, .ps = .ps2m };
+    }
+
+    const pte = @as(*Pt, @ptrFromInt(RecInfo.ptTableAddr(pidx.pml4_idx, pidx.pdpt_idx, pidx.pd_idx)))[pidx.pt_idx];
+    if (!pte.present) return res;
+
+    return .{ .entry_ptr = @ptrCast(pte), .lvl = .pt, .ps = .ps4k };
 }
 
 /// Get virtual address from paging indexes using Higher Half Direct Mapping offset
@@ -396,32 +529,27 @@ pub fn print_tlb() void {
     for (pml4t, 0..) |e, i| {
         if (e.present) {
             log.err("tlb_pml4[{d:0>3}]@{*}: 0x{x} -> {*} of {}", .{ i, &e, e.aligned_address_4kbytes, e.retrieve_table(), e });
-             for (e.retrieve_table()) |pdpte| {
-                 if (pdpte.present) {
-                     log.err("pdpte: {}", .{ pdpte  });
-                     for (pdpte.retrieve_table()) |pde| {
-                         if (pde.present) {
-                             log.err("pde: {}", .{ pde });
-            //                 for (pde.retrieve_table()) |pte| {
-            //                     if (pte.present) {
-            //                         log.warn("pte: 0x{x} -> {*}", .{ pte.aligned_address_4kbytes, pte.retrieve_frame_address() });
-            //                     }
-            //                 }
-                         }
-                     }
-                 }
-             }
+            for (e.retrieve_table()) |pdpte| {
+                if (pdpte.present) {
+                    log.err("pdpte: {}", .{pdpte});
+                    for (pdpte.retrieve_table()) |pde| {
+                        if (pde.present) {
+                            log.err("pde: {}", .{pde});
+                            //                 for (pde.retrieve_table()) |pte| {
+                            //                     if (pte.present) {
+                            //                         log.warn("pte: 0x{x} -> {*}", .{ pte.aligned_address_4kbytes, pte.retrieve_frame_address() });
+                            //                     }
+                            //                 }
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
-pub fn init() void {
+pub fn init() !void {
     log.debug("Initializing...", .{});
-
-    // if (page_size != 4096) {
-    //     @panic("Unsupported page size");
-    // }
-
     defer log.debug("Initialized", .{});
 
     if (hhdm_request.response) |hhdm_response| {
@@ -437,95 +565,128 @@ pub fn init() void {
             },
             .five_level => {
                 log.info("5-level paging enabled", .{});
+                @panic("5-level paging not supported yet");
             },
         }
     } else @panic("No paging mode bootloader response available");
 
     pml4t, const cr3_formatted = Pml4TableFromCr3();
+    log.debug("PML4 table: {*}, cr3_formated: {}", .{ pml4t.ptr, cr3_formatted });
 
-    //const lvl4e = retrieveEntryFromVaddr(PagingStructureEntry(page_size, .lvl4), .four_level, page_size, .lvl4, 0xffff_8000_fe80_0000);
+
+    // Get ready for recursive paging
+    pml4t[510] = .{ .present = true, .writable = true, .aligned_address_4kbytes = @truncate(cr3_formatted.aligned_address_4kbytes) };
+
+
+    //const lvl4e = retrieveEntryFromVaddr(Pml4e, .four_level, default_page_size, .lvl4, 0xffff_8000_fe80_0000);
     log.warn("cr3 -> 0x{x}", .{cpu.cr3()});
-    log.warn("pml4 ptr -> {*}", .{pml4t.ptr});
+    log.warn("pml4 ptr -> {*}\n\n", .{pml4t.ptr});
     const vaddr_test = 0xffff_8000_fe80_0000;
     const pidx = indexFromVaddr(vaddr_test);
-    log.warn("pidx: -> {}", .{pidx});
-    const pml4e = entryFromVaddr(.pml4, vaddr_test);
-    log.warn("pml4e: -> {}, ptr={*}", .{ pml4e.*, pml4e });
-    const pdpte = entryFromVaddr(.pdpt, vaddr_test);
-    log.warn("pdpte:  -> {}", .{pdpte.*});
-    const pde = entryFromVaddr(.pd, vaddr_test);
-    log.warn("pde:  -> {}, pfn={*}", .{ pde.*, pde.retrieve_table() });
-    const pte = entryFromVaddr(.pt, vaddr_test);
-    log.warn("pte: -> {}, pfn= {*}", .{ pte.*, pte.retrieve_frame_address() });
+    log.warn("pidx: 0x{x} -> {}", .{ vaddr_test, pidx });
+    const vaddr_test_info = try lowestEntryFromVirtInfo(vaddr_test);
+    log.warn("pde:  0x{x} -> {any}", .{ vaddr_test, vaddr_test_info });
+    if (vaddr_test_info.entry_ptr == null) {
+        log.err("Entry not found for vaddr: 0x{x}", .{vaddr_test});
+    }
+    const spec_entry: *Pde2MByte = @ptrCast(vaddr_test_info.entry_ptr);
+    log.warn("entry of {any}, val={!}\n\n", .{ @TypeOf(spec_entry), spec_entry });
+    // const pte = entryFromVaddr(.pt, vaddr_test);
+    // log.warn("pte: -> {any}, pfn= {*}\n\n", .{ pte.*, pte.retrieveFrame().?.ptr });
 
-    const pidx511: Index = .{ .pml4_idx = 511, .pdpt_idx = 511, .pd_idx = 0, .pt_idx = 0, .offset = 0 };
-    //const vaddr511 = 0xffff_ffff_ffff_f000;
-    const vaddr511 = vaddrFromIndex(pidx511);
-    //const pidx511 = pagingIndexFromVaddr(vaddr511);
-    log.warn("pidx511 -> {}", .{pidx511});
-    const pml4e511 = entryFromVaddr(.pml4, vaddr511);
-    log.warn("pml4e511: -> {}, vaddr=0x{x}, ptr={*}, ptr.table={*}, aligned_addres=0x{x}", .{ pml4e511.*, vaddr511, pml4e511, pml4e511.retrieve_table(), pml4e511.aligned_address_4kbytes });
 
+    const phys_pci = try physFromVirtInfo(0xffff_8000_fe80_0000);
+    log.warn("phys_pci: 0x{any}", .{phys_pci});
+    log.warn("phys_pci_virt: 0x{x}", .{phys_pci.phys});
+
+    const phys_buddy = try physFromVirtInfo(0xffff80001010a000);
+    log.warn("phys_buddy: 0x{any}", .{phys_buddy});
+    log.warn("phys_buddy_virt: 0x{x}", .{phys_buddy.phys});
+
+    //wite loop to iterate over each element of address in the table
+    const vt = [_]usize{ 0xffff80001010a000, 0, vaddrFromPaddr(0x4d00), vaddrFromPaddr(0xfd000000), vaddrFromPaddr(0x7fa61000), vaddrFromPaddr(0x100000), vaddrFromPaddr(0x7f7b5000) };
+    for (vt) |vaddr| {
+        log.warn("------: 0x{x}", .{vaddr});
+        const phys = physFromVirt(vaddr) catch |err| {
+            log.err("physFromVirt: virt: 0x{x} -> error: {}", .{ vaddr, err });
+            continue;
+        };
+        log.warn("phyFromVirt: vaddr: 0x{x} -> 0x{x}", .{ vaddr, phys });
+
+        const phys_by_rec = recPhysFromVirt(vaddr) catch |err| {
+            log.err("recPhysFromVirtvirt: 0x{x} -> error: {}", .{ vaddr, err });
+            continue;
+        };
+
+        log.warn("recPhyFromVirt: vaddr: 0x{x} -> 0x{x}", .{ vaddr, phys_by_rec });
+    }
+
+    // const pidx511: Index = .{ .pml4_idx = 511, .pdpt_idx = 511, .pd_idx = 0, .pt_idx = 0, .offset = 0 };
+    // //const vaddr511 = 0xffff_ffff_ffff_f000;
+    // const vaddr511 = vaddrFromIndex(pidx511);
+    // //const pidx511 = pagingIndexFromVaddr(vaddr511);
+    // log.warn("pidx511 -> {}", .{pidx511});
+    // const pml4e511 = entryFromVaddr(.pml4, vaddr511);
+    // log.warn("pml4e511: -> {}, vaddr=0x{x}, ptr={*}, ptr.table={*}, aligned_addres=0x{x}", .{ pml4e511.*, vaddr511, pml4e511, pml4e511.retrieveTable().?, pml4e511.aligned_address_4kbytes });
+    //
     // const pidx510: Index = .{ .pml4_idx = 510, .pdpt_idx = 510, .pd_idx = 510, .pt_idx = 510, .offset = 0 };
     // const vaddr510 = vaddrFromIndex(pidx510);
     // log.warn("pidx510 -> {}", .{pidx510});
     // const pml4e510 = entryFromVaddr(.pml4, vaddr510);
     // log.warn("pml4e510: -> {}, ptr={*}", .{ pml4e510.*, pml4e510 });
-
-    log.warn("cr4: 0b{b:0>64}", .{@as(u64, cpu.cr4())});
-    log.warn("cr3: 0b{b:0>64}", .{@as(u64, cpu.cr3())});
-
-    log.warn("pt:     0xFFFFFF00_00000000->0xFFFFFF7F_FFFFFFFF: {}->{}, diff: 0x{x}", .{ indexFromVaddr(0xFFFFFF00_00000000), indexFromVaddr(0xFFFFFF7F_FFFFFFFF), (0xFFFFFF7F_FFFFFFFF - 0xFFFFFF00_00000000) });
-    const x = indexFromVaddr(0xFFFFFF7F_8000000);
-    _ = &x;
-    log.warn("\n\npd:    0xFFFF_FF7F8_000_0000->0xFFFFFF7F_BFFFFFFF : {}->{}, diff: 0x{x}", .{ indexFromVaddr(0xffff_ff7f_8000_0000), indexFromVaddr(0xFFFFFF7F_BFFFFFFF), (0xFFFFFF7F_BFFFFFFF - 0xFFFFFF7F_8000000) });
-    log.warn("pdpt: 0xFFFFFF7F_BFC00000->0xFFFFFF7F_BFDFFFFF  : {}->{}, diff: 0x{x}", .{ indexFromVaddr(0xFFFFFF7F_BFC00000), indexFromVaddr(0xFFFFFF7F_BFDFFFFF), (0xFFFFFF7F_BFDFFFFF - 0xFFFFFF7F_BFC00000) });
-    log.warn("pml4: 0xFFFFFF7F_BFDFE000 ->0xFFFFFF7F_BFDFEFFF   : {}->{}, diff:0x{x}", .{ indexFromVaddr(0xFFFFFF7F_BFDFE000), indexFromVaddr(0xFFFFFF7F_BFDFEFFF), (0xFFFFFF7F_BFDFEFFF - 0xFFFFFF7F_BFDFE000) });
-    log.warn("pml4: 0xFFFFFF7F_BFDFE000 ->0xFFFFFF7F_BFDFEFFF   : {}->{}, diff:0x{x}", .{ indexFromVaddr(0xFFFFFF7F_BFDFE000), indexFromVaddr(0xFFFFFF7F_BFDFEFFF), (0xFFFFFF7F_BFDFEFFF - 0xFFFFFF7F_BFDFE000) });
-
-    log.warn("\n\nkernel: {}->{}", .{ indexFromVaddr(0xffffff7f80000000), indexFromVaddr(0xffffff7f8009cb88) });
-
-    const vmm_pml4 = tableFromVaddr(.pml4, 0xFFFFFF7F_BFDFE000);
-    log.warn("vmm_pml4: 0xFFFFFF7F_BFDFE000 : {*}, len={d}, [0]={}@{*}, [511]={}@{*}", .{ vmm_pml4.ptr, vmm_pml4.len, vmm_pml4[0], &vmm_pml4[0], vmm_pml4[511], &vmm_pml4[511] });
-
-    const vmm_pml4_2 = tableFromVaddr(.pml4, 0xFFFFFF7F_BFDFFFFF);
-    log.warn("vmm_pml4_2: 0xFFFFFF7F_BFDFE008 : {*}, len={d}, [0]={}@{*}, [511]={}@{*}", .{ vmm_pml4_2.ptr, vmm_pml4_2.len, vmm_pml4_2[0], &vmm_pml4_2[0], vmm_pml4_2[511], &vmm_pml4_2[511] });
-
-    const vmm_pdpt = tableFromVaddr(.pdpt, 0xFFFFFF7F_BFC00000);
-    log.warn("vmm_pdpt: 0xFFFFFF7F_BFC00000 : {*}, len={d}, [0]={}@{*}, [511]={}@{*}", .{ vmm_pdpt.ptr, vmm_pdpt.len, vmm_pdpt[0], &vmm_pdpt[0], vmm_pdpt[511], &vmm_pdpt[511] });
-
-    // recursive in 510, not 511 cause limine occupies it
-    log.warn("cr3_formatted: {0}, {0b:0>40}, 0x{0x}", .{cr3_formatted.aligned_address_4kbytes});
-    pml4t[510] = .{ .present = true, .writable = true, .aligned_address_4kbytes = @truncate(cr3_formatted.aligned_address_4kbytes) }; //we ignore the last bit
-    cpu.invlpg(@intFromPtr(&pml4t[510]));
-    log.err("&pml4[510]={*}", .{&pml4t[510]});
-
-    // Dla PDPT
-    // const pdpt_pidx = .{ .pml4_idx = 510, .pdpt_idx = 511, .pd_idx = 0, .pt_idx = 0, .offset = 0 };
-    //  const pdpt511 = entryFromVaddr(.pdpt, vaddrFromIndex(pdpt_pidx));
-    //  pdpt511.* = .{ .present = true, .writable = true, .aligned_address_4kbytes = @truncate(cr3_formatted.aligned_address_4kbytes) };
-
-    // Dla PD
-    // const pd_pidx = .{ .pml4_idx = 510, .pdpt_idx = 511, .pd_idx = 511, .pt_idx = 0, .offset = 0 };
-    // const pd511 = entryFromVaddr(.pd, vaddrFromIndex(pd_pidx));
-    // pd511.* = .{ .present = true, .writable = true, .aligned_address_4kbytes = @truncate(pdpt511.aligned_address_4kbytes) };
-
-    // Dla PT
-    // const pt_pidx = .{ .pml4_idx = 510, .pdpt_idx = 511, .pd_idx = 511, .pt_idx = 511, .offset = 0 };
-    // const pt511 = entryFromVaddr(.pt, vaddrFromIndex(pt_pidx));
-    // pt511.* = .{ .present = true, .writable = true, .aligned_address_4kbytes = @truncate(pd511.aligned_address_4kbytes) };
-
-
-    // const pidx510: Index = .{ .pml4_idx = 510, .pdpt_idx = 0, .pd_idx = 0, .pt_idx = 0 , .offset = 0 };
-    // const vaddr510 = vaddrFromIndex(pidx510);
-    // log.warn("pidx510 -> {}", .{pidx510});
-    // const pml4e510 = entryFromVaddr(.pml4, vaddr510);
-    // log.warn("pml4e510: -> {}, ptr={*}", .{ pml4e510.*, pml4e510 });
-
-
-    //print_tlb();
-
-    // const tphys = physFromVirt(0xFFFFFF7F_8000000);
-    // log.warn("tphys: 0x{x}", .{tphys});
+    //
+    // log.warn("cr4: 0b{b:0>64}", .{@as(u64, cpu.cr4())});
+    // log.warn("cr3: 0b{b:0>64}", .{@as(u64, cpu.cr3())});
+    //
+    // log.warn("pt:     0xFFFFFF00_00000000->0xFFFFFF7F_FFFFFFFF: {}->{}, diff: 0x{x}", .{ indexFromVaddr(0xFFFFFF00_00000000), indexFromVaddr(0xFFFFFF7F_FFFFFFFF), (0xFFFFFF7F_FFFFFFFF - 0xFFFFFF00_00000000) });
+    // const x = indexFromVaddr(0xFFFFFF7F_8000000);
+    // _ = &x;
+    // log.warn("\n\npt:    0xFFFF_FF7F8_000_0000->0xFFFFFF7F_BFFFFFFF : {}->{}, diff: 0x{x}", .{ indexFromVaddr(0xffff_ff7f_8000_0000), indexFromVaddr(0xFFFFFF7F_BFFFFFFF), (0xFFFFFF7F_BFFFFFFF - 0xFFFFFF7F_8000000) });
+    // log.warn("pdpt: 0xFFFFFF7F_BFC00000->0xFFFFFF7F_BFDFFFFF  : {}->{}, diff: 0x{x}", .{ indexFromVaddr(0xFFFFFF7F_BFC00000), indexFromVaddr(0xFFFFFF7F_BFDFFFFF), (0xFFFFFF7F_BFDFFFFF - 0xFFFFFF7F_BFC00000) });
+    // log.warn("pml4: 0xFFFFFF7F_BFDFE000 ->0xFFFFFF7F_BFDFEFFF   : {}->{}, diff:0x{x}", .{ indexFromVaddr(0xFFFFFF7F_BFDFE000), indexFromVaddr(0xFFFFFF7F_BFDFEFFF), (0xFFFFFF7F_BFDFEFFF - 0xFFFFFF7F_BFDFE000) });
+    // log.warn("pml4: 0xFFFFFF7F_BFDFE000 ->0xFFFFFF7F_BFDFEFFF   : {}->{}, diff:0x{x}", .{ indexFromVaddr(0xFFFFFF7F_BFDFE000), indexFromVaddr(0xFFFFFF7F_BFDFEFFF), (0xFFFFFF7F_BFDFEFFF - 0xFFFFFF7F_BFDFE000) });
+    //
+    // log.warn("\n\nkernel: {}->{}", .{ indexFromVaddr(0xffffff7f80000000), indexFromVaddr(0xffffff7f8009cb88) });
+    //
+    // const vmm_pml4_2 = tableFromVaddr(.pml4, 0xFFFFFF7F_BFDFFFFF) orelse @panic("Table not found");
+    // log.warn("vmm_pml4_2: 0xFFFFFF7F_BFDFE008 : {*}, len={d}, [0]={}@{*}, [511]={}@{*}", .{ vmm_pml4_2.ptr, vmm_pml4_2.len, vmm_pml4_2[0], &vmm_pml4_2[0], vmm_pml4_2[511], &vmm_pml4_2[511] });
+    //
+    // const vmm_pml4 = tableFromVaddr(.pml4, 0xFFFFFF7F_BFC00000) orelse @panic("Table not found [2a]");
+    // log.warn("vmm_pml4: 0xFFFFFF7F_BFC00000 : {*}, len={d}, [0]={}@{*}, [511]={}@{*}", .{ vmm_pml4.ptr, vmm_pml4.len, vmm_pml4[0], &vmm_pml4[0], vmm_pml4[511], &vmm_pml4[511] });
+    //
+    // const vmm_pdpt = tableFromVaddr(.pdpt, 0xFFFFFF7F_BFC00000) orelse @panic("Table not found [2b]");
+    // log.warn("vmm_pdpt: 0xFFFFFF7F_BFC00000 : {*}, len={d}, [0]={}@{*}, [511]={}@{*}", .{ vmm_pdpt.ptr, vmm_pdpt.len, vmm_pdpt[0], &vmm_pdpt[0], vmm_pdpt[511], &vmm_pdpt[511] });
+    //
+    // // recursive in 510, not 511 cause limine occupies it
+    // log.warn("cr3_formatted: {0}, {0b:0>40}, 0x{0x}", .{cr3_formatted.aligned_address_4kbytes});
+    // pml4t[510] = .{ .present = true, .writable = true, .aligned_address_4kbytes = @truncate(cr3_formatted.aligned_address_4kbytes) }; //we ignore the last bit
+    // cpu.invlpg(@intFromPtr(&pml4t[510]));
+    // log.err("&pml4[510]={*}", .{&pml4t[510]});
+    //
+    // //Dla PDPT
+    // // const pdpt_pidx = .{ .pml4_idx = 510, .pdpt_idx = 510, .pd_idx = 0, .pt_idx = 0, .offset = 0 };
+    // //  const pdpt510 = entryFromVaddr(.pdpt, vaddrFromIndex(pdpt_pidx));
+    // //  pdpt510.* = .{ .present = true, .writable = true, .aligned_address_4kbytes = @truncate(cr3_formatted.aligned_address_4kbytes) };
+    //
+    // //Dla PD
+    // // const pd_pidx = .{ .pml4_idx = 510, .pdpt_idx = 510, .pd_idx = 510, .pt_idx = 0, .offset = 0 };
+    // // const pd510 = entryFromVaddr(.pd, vaddrFromIndex(pd_pidx));
+    // // pd510.* = .{ .present = true, .writable = true, .aligned_address_4kbytes = @truncate(pdpt510.aligned_address_4kbytes) };
+    //
+    // // Dla PT
+    // // const pt_pidx = .{ .pml4_idx = 510, .pdpt_idx = 0, .pd_idx = 0, .pt_idx = 0, .offset = 0 };
+    // // const pt510 = entryFromVaddr(.pt, vaddrFromIndex(pt_pidx));
+    // // pt510.* = .{ .present = true, .writable = true, .aligned_address_4kbytes = @truncate(pd510.aligned_address_4kbytes) };
+    //
+    // // const pidx510: Index = .{ .pml4_idx = 510, .pdpt_idx = 0, .pd_idx = 0, .pt_idx = 0 , .offset = 0 };
+    // // const vaddr510 = vaddrFromIndex(pidx510);
+    // // log.warn("pidx510 -> {}", .{pidx510});
+    // // const pml4e510 = entryFromVaddr(.pml4, vaddr510);
+    // // log.warn("pml4e510: -> {}, ptr={*}", .{ pml4e510.*, pml4e510 });
+    //
+    // //print_tlb();
+    //
+    // // const tphys = physFromVirt(0xFFFFFF7F_8000000);
+    // // log.warn("tphys: 0x{x}", .{tphys});
 
 }
