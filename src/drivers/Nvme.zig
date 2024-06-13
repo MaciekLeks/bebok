@@ -98,13 +98,13 @@ const RegisterSet = packed struct {
 
 fn readRegister(T: type, bar: pci.BAR, register_set_field: @TypeOf(.enum_literal)) T {
     return  switch (bar.address) {
-        inline else  => |addr|  @as(* volatile T, @ptrFromInt(paging.vaddrFromPaddr(addr) + @offsetOf(RegisterSet, @tagName(register_set_field)))).*
+        inline else  => |addr|  @as(* volatile T, @ptrFromInt(paging.virtFromMME(addr) + @offsetOf(RegisterSet, @tagName(register_set_field)))).*
     };
 }
 
 fn writeRegister(T: type, bar: pci.BAR, register_set_field: @TypeOf(.enum_literal), value: T) void {
     switch (bar.address) {
-        inline else  => |addr| @as(* volatile T, @ptrFromInt(paging.vaddrFromPaddr(addr) + @offsetOf(RegisterSet, @tagName(register_set_field)))).* = value,
+        inline else  => |addr| @as(* volatile T, @ptrFromInt(paging.virtFromMME(addr) + @offsetOf(RegisterSet, @tagName(register_set_field)))).* = value,
     }
 }
 
@@ -119,20 +119,44 @@ pub fn update(_: Self,  function: u3, slot: u5, bus: u8) void {
     const command = pci.readRegisterWithArgs(u16, .command, function, slot, bus);
     pci.writeRegisterWithArgs(u16, .command, function, slot, bus, command | 0b110);
 
-   const vaddr = switch (bar.address) {
-        inline else  => |addr| paging.vaddrFromPaddr(addr),
+   const virt = switch (bar.address) {
+        inline else  => |addr| paging.virtFromMME(addr),
     };
-    const cap_reg_ptr : *volatile u64 = @ptrFromInt(vaddr);
-    const vs_reg_ptr : *volatile u32 = @ptrFromInt(vaddr + 0x08);
-    const intmc_reg_ptr : *volatile u32 = @ptrFromInt(vaddr + 0x04);
-    const intms_reg_ptr : *volatile u32 = @ptrFromInt(vaddr + 0x0c);
-    const cc_reg_ptr : *volatile u32 = @ptrFromInt(vaddr + 0x14);
-    const csts_reg_ptr : *volatile u32 = @ptrFromInt(vaddr + 0x1c);
-    const aqa_reg_ptr : *volatile u32 = @ptrFromInt(vaddr + 0x24);
-    const asq_reg_ptr : *volatile u64 = @ptrFromInt(vaddr + 0x28);
-    const acq_reg_ptr : *volatile u64 = @ptrFromInt(vaddr + 0x30);
+    const cap_reg_ptr : *volatile u64 = @ptrFromInt(virt);
+    const vs_reg_ptr : *volatile u32 = @ptrFromInt(virt + 0x08);
+    const intmc_reg_ptr : *volatile u32 = @ptrFromInt(virt + 0x04);
+    const intms_reg_ptr : *volatile u32 = @ptrFromInt(virt + 0x0c);
+    const cc_reg_ptr : *volatile u32 = @ptrFromInt(virt + 0x14);
+    const csts_reg_ptr : *volatile u32 = @ptrFromInt(virt + 0x1c);
+    const aqa_reg_ptr : *volatile u32 = @ptrFromInt(virt + 0x24);
+    const asq_reg_ptr : *volatile u64 = @ptrFromInt(virt + 0x28);
+    const acq_reg_ptr : *volatile u64 = @ptrFromInt(virt + 0x30);
 
-    const register_set_ptr : *volatile RegisterSet  = @ptrFromInt(vaddr);
+    const register_set_ptr : *volatile RegisterSet  = @ptrFromInt(virt);
+
+    // Check Page Attributes Table for the memory region
+    const page_entry_info = paging.recLowestEntryFromVirtInfo(virt) catch @panic("Failed to get page entry info for NVMe BAR");
+
+    log.debug("NVMe BAR Page Entry Info: {any}", .{page_entry_info});
+    if (page_entry_info.entry_ptr == null) {
+        @panic("NVMe BAR is not mapped");
+    }
+    switch (page_entry_info.ps) {
+        .ps1g => {
+            const spec_entry: *paging.Pdpte1Gbyte = @ptrCast(page_entry_info.entry_ptr);
+            log.warn(".ps1g spec_entry: {any}", .{spec_entry});
+        },
+        .ps2m => {
+            const spec_entry: *paging.Pde2MByte = @ptrCast(page_entry_info.entry_ptr);
+            log.warn(".ps2m spec_entry: {any}", .{spec_entry});
+        },
+        .ps4k => {
+            const spec_entry: *paging.Pte = @ptrCast(page_entry_info.entry_ptr);
+            log.warn(".ps4k spec_entry: {any}", .{spec_entry});
+        },
+    }
+
+
 
     //log register_set_ptr content
     log.warn("NVMe register set at address {}:", .{register_set_ptr.*});
@@ -146,7 +170,7 @@ pub fn update(_: Self,  function: u3, slot: u5, bus: u8) void {
         ,
         .{
             bar,
-            vaddr,
+            virt,
             cap_reg_ptr.*,
             vs_reg_ptr.*,
             intms_reg_ptr.*,

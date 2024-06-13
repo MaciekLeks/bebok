@@ -184,7 +184,7 @@ pub fn readBAR(bar_addr: ConfigAddress) BAR {
             bar.address = .{ .a32 = bar_value & 0xFFFF_FFF0 };
         } else {
             next_bar_addr = .{
-                .register_offset = @enumFromInt(@intFromEnum(bar_addr.register_offset) + @sizeOf(u32)),
+                .register_offset = @enumFromInt(@intFromEnum(bar_addr.register_offset) + @sizeOf(u32)), //BAR[x + 1]
                 .function_no = bar_addr.function_no,
                 .slot_no = bar_addr.slot_no,
                 .bus_no = bar_addr.bus_no,

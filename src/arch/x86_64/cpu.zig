@@ -114,6 +114,27 @@ pub inline fn invlpg(addr: usize) void {
     );
 }
 
+pub inline fn rdmsr(msr: u32) usize {
+    var low : u32 = undefined;
+    var high : u32 = undefined;
+    asm volatile ("rdmsr"
+        : [low] "={eax}" (low), [high] "={edx}" (high)
+        : [msr] "{ecx}" (msr)
+        : "eax", "edx"
+    );
+    return (@as(u64, high) << 32) | low;
+}
+
+pub inline fn wrmsr(msr: u32, value: usize) void {
+    const low : u32 = @intCast(value & 0xFFFFFFFF);
+    const high : u32 = @intCast(value >> 32);
+    asm volatile ("wrmsr"
+        :
+        : [msr] "{ecx}" (msr), [low] "eax" (low), [high] "{edx}" (high)
+        : "memory", "eax", "edx"
+    );
+}
+
 pub inline fn cli() void {
     asm volatile ("cli");
 }
