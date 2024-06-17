@@ -23,7 +23,7 @@ const config = @import("config");
 const log = std.log.scoped(.paging);
 const assert = std.debug.assert;
 
-pub const PatType = enum(u8) {
+pub const PATType = enum(u8) {
     uncacheable = 0x00, //UC
     write_combining = 0x01, //WC
     write_through = 0x04, //WT
@@ -32,12 +32,12 @@ pub const PatType = enum(u8) {
     uncached = 0x07, //(UC-)
 };
 
-const Pat = struct {
+const PAT = struct {
     const Self = @This();
 
-    pat: [8]PatType = .{ PatType.write_back, PatType.write_through, PatType.uncached, PatType.uncacheable, PatType.write_back, PatType.write_through, PatType.uncached, PatType.uncacheable },
+    pat: [8]PATType = .{ PATType.write_back, PATType.write_through, PATType.uncached, PATType.uncacheable, PATType.write_back, PATType.write_through, PATType.uncached, PATType.uncacheable },
 
-    fn set(self: *Self, idx: u3, pt: PatType) void {
+    fn set(self: *Self, idx: u3, pt: PATType) void {
         assert(idx < 8, "Invalid PAT index");
         self.pat[idx] = pt;
     }
@@ -47,7 +47,7 @@ const Pat = struct {
         const val = cpu.rdmsr(0x277);
         var i: u4 = 0; //we need u3 but we need to iterate 8 times (0,1,2,...7 and 8)
         while (i < 8) : (i += 1) {
-            const pt: PatType = @enumFromInt(@as(u8, @truncate(val >> @as(u6, i) * 8)));
+            const pt: PATType = @enumFromInt(@as(u8, @truncate(val >> @as(u6, i) * 8)));
             log.debug("PAT[{d}] : {}", .{ i, pt });
             self.pat[i] = pt;
         }
@@ -57,12 +57,12 @@ const Pat = struct {
         cpu.wrmsr(0x277, @bitCast(self.pat));
     }
 
-    fn patFromPageFlags(self: Self, page_pat: u1, page_pcd: bool, page_pwt: bool) PatType {
+    fn patFromPageFlags(self: Self, page_pat: u1, page_pcd: bool, page_pwt: bool) PATType {
         const pat_idx = @as(u3, @as(u3, page_pat) << 2 | @as(u2, @intFromBool(page_pcd)) << 1 | @intFromBool(page_pwt));
         return self.pat[pat_idx];
     }
 
-    fn pageFlagsFromPat(self: Self, req_pat: PatType) struct { page_pat: u1, page_pcd: bool, page_pwt: bool} {
+    fn pageFlagsFromPat(self: Self, req_pat: PATType) struct { page_pat: u1, page_pcd: bool, page_pwt: bool} {
         var pat_idx: u3 = undefined;
         for (self.pat, 0..) |pt, idx| {
             if (pt == req_pat) {
@@ -77,13 +77,13 @@ const Pat = struct {
     }
 };
 
-pub fn adjustPagePat(virt: usize, page_entry_info: GenericEntryInfo, req_pat: PatType) void {
+pub fn adjustPagePAT(virt: usize, page_entry_info: GenericEntryInfo, req_pat: PATType) void {
     log.debug("NVMe BAR Page Entry Info: {any}", .{page_entry_info});
     if (page_entry_info.entry_ptr == null) {
         @panic("NVMe BAR is not mapped");
     }
 
-    var current_page_pat: PatType =undefined;
+    var current_page_pat: PATType =undefined;
     switch (page_entry_info.ps) {
         .ps1g => {
             const spec_entry: *Pdpte1Gbyte = @ptrCast(page_entry_info.entry_ptr);
@@ -139,17 +139,17 @@ pub fn adjustPagePat(virt: usize, page_entry_info: GenericEntryInfo, req_pat: Pa
 }
 
 // TODO: test for 4kb page sizes
-pub fn adjustPageAreaPat(virt: usize, size: usize, req_pat: PatType) !void {
+pub fn adjustPageAreaPAT(virt: usize, size: usize, req_pat: PATType) !void {
     if (size == 0) return;
     const page_entry_info = try recLowestEntryFromVirtInfo(virt);
     const page_size = @intFromEnum(page_entry_info.ps);
     const page_mask: usize =page_size - 1;
     const size_adjusted = if (size % page_size != 0)  (size + page_mask) & ~page_mask else size;
 
-    adjustPagePat(virt, page_entry_info, req_pat);
+    adjustPagePAT(virt, page_entry_info, req_pat);
     var sz = size_adjusted;
     while (sz > page_size) {
-        try adjustPageAreaPat(virt + size_adjusted,  size_adjusted - page_size, req_pat);
+        try adjustPageAreaPAT(virt + size_adjusted,  size_adjusted - page_size, req_pat);
         sz += size_adjusted;
     }
 }
@@ -684,7 +684,7 @@ pub fn debugLowestEntryFromVirt(virt: usize) void {
 }
 
 var pml4t: []Pml4e = undefined;
-var pat: Pat = undefined;
+var pat: PAT = undefined;
 
 pub fn print_tlb() void {
     for (pml4t, 0..) |e, i| {
@@ -732,7 +732,7 @@ pub fn init() !void {
     } else @panic("No paging mode bootloader response available");
 
     // setup PAT
-    pat = Pat{};
+    pat = PAT{};
     pat.write(); //set default values
     pat.read(); //read values to be sure we set it right
     log.debug("The 0x277 MSR register value after the change: 0x{}", .{pat});

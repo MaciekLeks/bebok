@@ -139,16 +139,12 @@ pub fn update(_: Self,  function: u3, slot: u5, bus: u8) void {
         .as32 => bar.size.as32,
         .as64 => bar.size.as64,
     };
-    paging.adjustPageAreaPat(virt, size, .write_through) catch |err| {
+    paging.adjustPageAreaPAT(virt, size, .write_through) catch |err| {
         log.err("Failed to adjust page area PAT for NVMe BAR: {}", .{err});
         return;
     };
     paging.debugLowestEntryFromVirt(virt);
     // End of adjustment
-
-
-
-
 
 
 
