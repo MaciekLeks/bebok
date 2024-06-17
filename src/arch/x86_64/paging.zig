@@ -62,7 +62,7 @@ const PAT = struct {
         return self.pat[pat_idx];
     }
 
-    fn pageFlagsFromPat(self: Self, req_pat: PATType) struct { page_pat: u1, page_pcd: bool, page_pwt: bool} {
+    fn pageFlagsFromPat(self: Self, req_pat: PATType) struct { page_pat: u1, page_pcd: bool, page_pwt: bool } {
         var pat_idx: u3 = undefined;
         for (self.pat, 0..) |pt, idx| {
             if (pt == req_pat) {
@@ -73,9 +73,30 @@ const PAT = struct {
         if (pat_idx == undefined) {
             @panic("Invalid PAT type");
         }
-        return .{ .page_pat  = @truncate(pat_idx >> 2), .page_pcd = (pat_idx & 0b010) >> 1 == 1, .page_pwt = pat_idx & 0b001 == 1};
+        return .{ .page_pat = @truncate(pat_idx >> 2), .page_pcd = (pat_idx & 0b010) >> 1 == 1, .page_pwt = pat_idx & 0b001 == 1 };
     }
 };
+
+fn retrievePagePAT(page_entry_info: GenericEntryInfo) PATType {
+    switch (page_entry_info.ps) {
+        inline else => |ps| {
+            const entry: *PageEntry(ps) = @ptrCast(page_entry_info.entry_ptr);
+            return pat.patFromPageFlags(entry.pat, entry.cache_disabled, entry.write_through);
+        }
+    }
+}
+
+fn setPagePAT(page_entry_info: GenericEntryInfo, req_pat: PATType) void {
+    const page_req_pat_flags = pat.pageFlagsFromPat(req_pat);
+    switch (page_entry_info.ps) {
+        inline else => |ps| {
+            const entry: *PageEntry(ps) = @ptrCast(page_entry_info.entry_ptr);
+            entry.pat = page_req_pat_flags.page_pat;
+            entry.cache_disabled = page_req_pat_flags.page_pcd;
+            entry.write_through = page_req_pat_flags.page_pwt;
+        }
+    }
+}
 
 pub fn adjustPagePAT(virt: usize, page_entry_info: GenericEntryInfo, req_pat: PATType) void {
     log.debug("NVMe BAR Page Entry Info: {any}", .{page_entry_info});
@@ -83,53 +104,12 @@ pub fn adjustPagePAT(virt: usize, page_entry_info: GenericEntryInfo, req_pat: PA
         @panic("NVMe BAR is not mapped");
     }
 
-    var current_page_pat: PATType =undefined;
-    switch (page_entry_info.ps) {
-        .ps1g => {
-            const spec_entry: *Pdpte1Gbyte = @ptrCast(page_entry_info.entry_ptr);
-            current_page_pat = pat.patFromPageFlags(spec_entry.pat, spec_entry.cache_disabled, spec_entry.write_through);
-            log.warn(".ps1g spec_entry: {any}", .{spec_entry});
-        },
-        .ps2m => {
-            const spec_entry: *Pde2MByte = @ptrCast(page_entry_info.entry_ptr);
-            current_page_pat = pat.patFromPageFlags(spec_entry.pat, spec_entry.cache_disabled, spec_entry.write_through);
-            log.warn(".ps2m spec_entry: {any}", .{spec_entry});
-        },
-        .ps4k => {
-            const spec_entry: *Pte = @ptrCast(page_entry_info.entry_ptr);
-            current_page_pat = pat.patFromPageFlags(spec_entry.pat, spec_entry.cache_disabled, spec_entry.write_through);
-            log.warn(".ps4k spec_entry: {any}", .{spec_entry});
-        },
-    }
+    const current_page_pat = retrievePagePAT(page_entry_info);
 
     if (current_page_pat != req_pat) {
-        log.warn("Adjusting NVMe BAR Page Attributes: current {} -> {}", .{current_page_pat, req_pat});
+        log.warn("Adjusting NVMe BAR Page Attributes: current {} -> {}", .{ current_page_pat, req_pat });
 
-        const page_req_pat_flags = pat.pageFlagsFromPat(req_pat);
-        log.warn("Page Request PAT Flags: {any}", .{page_req_pat_flags});
-        switch (page_entry_info.ps) {
-            .ps1g => {
-                const spec_entry: *Pdpte1Gbyte = @ptrCast(page_entry_info.entry_ptr);
-                spec_entry.pat = page_req_pat_flags.page_pat;
-                spec_entry.cache_disabled = page_req_pat_flags.page_pcd;
-                spec_entry.write_through = page_req_pat_flags.page_pwt;
-                log.warn(".ps1g spec_entry: {any}", .{spec_entry});
-            },
-            .ps2m => {
-                const spec_entry: *Pde2MByte = @ptrCast(page_entry_info.entry_ptr);
-                spec_entry.pat = page_req_pat_flags.page_pat;
-                spec_entry.cache_disabled = page_req_pat_flags.page_pcd;
-                spec_entry.write_through = page_req_pat_flags.page_pwt;
-                log.warn(".ps2m spec_entry: {any}", .{spec_entry});
-            },
-            .ps4k => {
-                const spec_entry: *Pte = @ptrCast(page_entry_info.entry_ptr);
-                spec_entry.pat = page_req_pat_flags.page_pat;
-                spec_entry.cache_disabled = page_req_pat_flags.page_pcd;
-                spec_entry.write_through = page_req_pat_flags.page_pwt;
-                log.warn(".ps4k spec_entry: {any}", .{spec_entry});
-            },
-        }
+        setPagePAT(page_entry_info, req_pat);
         // page entries indicates frames so we need to flush them, as Intel Programmer's Guidesays
         // "If software modifies a paging-structure entry that maps a page (rather than referencing another paging
         // structure), it should execute INVLPG for any linear address with a page number whose translation uses that
@@ -143,17 +123,16 @@ pub fn adjustPageAreaPAT(virt: usize, size: usize, req_pat: PATType) !void {
     if (size == 0) return;
     const page_entry_info = try recLowestEntryFromVirtInfo(virt);
     const page_size = @intFromEnum(page_entry_info.ps);
-    const page_mask: usize =page_size - 1;
-    const size_adjusted = if (size % page_size != 0)  (size + page_mask) & ~page_mask else size;
+    const page_mask: usize = page_size - 1;
+    const size_adjusted = if (size % page_size != 0) (size + page_mask) & ~page_mask else size;
 
     adjustPagePAT(virt, page_entry_info, req_pat);
     var sz = size_adjusted;
     while (sz > page_size) {
-        try adjustPageAreaPAT(virt + size_adjusted,  size_adjusted - page_size, req_pat);
+        try adjustPageAreaPAT(virt + size_adjusted, size_adjusted - page_size, req_pat);
         sz += size_adjusted;
     }
 }
-
 
 fn flushTlb(virt: usize) void {
     cpu.invlpg(virt);
@@ -236,6 +215,15 @@ pub const Pml4 = [512]Pml4e;
 pub const Pdpt = [512]Pdpte;
 pub const Pd = [512]Pde;
 pub const Pt = [512]Pte;
+
+// the lowest level entry stoing the frame address
+fn PageEntry(comptime ps: PageSize) type {
+    return switch (ps) {
+        .ps4k => Pte,
+        .ps2m => Pde2MByte,
+        .ps1g => Pdpte1Gbyte,
+    };
+}
 
 // TODO: usngnamespace does not work in case of the fields
 pub fn PagingStructureEntry(comptime ps: PageSize, comptime lvl: Level) type {
@@ -420,7 +408,6 @@ const Level = enum(u3) {
 pub export var hhdm_request: limine.HhdmRequest = .{};
 pub export var paging_mode_request: limine.PagingModeRequest = .{ .mode = .four_level, .flags = 0 }; //default L4 paging
 var hhdm_offset: usize = undefined;
-
 
 /// Get paging indexes from virtual address
 /// It maps 48-bit virtual address to 9-bit indexes of all 52 physical address bits
