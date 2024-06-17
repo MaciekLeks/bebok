@@ -20,6 +20,130 @@ const std = @import("std");
 const cpu = @import("cpu.zig");
 const config = @import("config");
 
+const log = std.log.scoped(.paging);
+const assert = std.debug.assert;
+
+pub const PatType = enum(u8) {
+    uncacheable = 0x00, //UC
+    write_combining = 0x01, //WC
+    write_through = 0x04, //WT
+    write_protected = 0x05, //WP
+    write_back = 0x06, //WB
+    uncached = 0x07, //(UC-)
+};
+
+const Pat = struct {
+    const Self = @This();
+
+    pat: [8]PatType = .{ PatType.write_back, PatType.write_through, PatType.uncached, PatType.uncacheable, PatType.write_back, PatType.write_through, PatType.uncached, PatType.uncacheable },
+
+    fn set(self: *Self, idx: u3, pt: PatType) void {
+        assert(idx < 8, "Invalid PAT index");
+        self.pat[idx] = pt;
+    }
+
+    // read MSR and mutate the state of the struct
+    fn read(self: *Self) void {
+        const val = cpu.rdmsr(0x277);
+        var i: u4 = 0; //we need u3 but we need to iterate 8 times (0,1,2,...7 and 8)
+        while (i < 8) : (i += 1) {
+            const pt: PatType = @enumFromInt(@as(u8, @truncate(val >> @as(u6, i) * 8)));
+            log.debug("PAT[{d}] : {}", .{ i, pt });
+            self.pat[i] = pt;
+        }
+    }
+
+    fn write(self: Self) void {
+        cpu.wrmsr(0x277, @bitCast(self.pat));
+    }
+
+    fn patFromPageFlags(self: Self, page_pat: u1, page_pcd: bool, page_pwt: bool) PatType {
+        const pat_idx = @as(u3, @as(u3, page_pat) << 2 | @as(u2, @intFromBool(page_pcd)) << 1 | @intFromBool(page_pwt));
+        return self.pat[pat_idx];
+    }
+
+    fn pageFlagsFromPat(self: Self, req_pat: PatType) struct { page_pat: u1, page_pcd: bool, page_pwt: bool} {
+        var pat_idx: u3 = undefined;
+        for (self.pat, 0..) |pt, idx| {
+            if (pt == req_pat) {
+                pat_idx = @intCast(idx);
+                break;
+            }
+        }
+        if (pat_idx == undefined) {
+            @panic("Invalid PAT type");
+        }
+        return .{ .page_pat  = @truncate(pat_idx >> 2), .page_pcd = (pat_idx & 0b010) >> 1 == 1, .page_pwt = pat_idx & 0b001 == 1};
+    }
+};
+
+pub fn adjustPagePat(virt: usize, req_pat: PatType) void {
+    const page_entry_info = recLowestEntryFromVirtInfo(virt) catch @panic("Failed to get page entry info for NVMe BAR");
+
+    log.debug("NVMe BAR Page Entry Info: {any}", .{page_entry_info});
+    if (page_entry_info.entry_ptr == null) {
+        @panic("NVMe BAR is not mapped");
+    }
+
+    var current_page_pat: PatType =undefined;
+    switch (page_entry_info.ps) {
+        .ps1g => {
+            const spec_entry: *Pdpte1Gbyte = @ptrCast(page_entry_info.entry_ptr);
+            current_page_pat = pat.patFromPageFlags(spec_entry.pat, spec_entry.cache_disabled, spec_entry.write_through);
+            log.warn(".ps1g spec_entry: {any}", .{spec_entry});
+        },
+        .ps2m => {
+            const spec_entry: *Pde2MByte = @ptrCast(page_entry_info.entry_ptr);
+            current_page_pat = pat.patFromPageFlags(spec_entry.pat, spec_entry.cache_disabled, spec_entry.write_through);
+            log.warn(".ps2m spec_entry: {any}", .{spec_entry});
+        },
+        .ps4k => {
+            const spec_entry: *Pte = @ptrCast(page_entry_info.entry_ptr);
+            current_page_pat = pat.patFromPageFlags(spec_entry.pat, spec_entry.cache_disabled, spec_entry.write_through);
+            log.warn(".ps4k spec_entry: {any}", .{spec_entry});
+        },
+    }
+
+    if (current_page_pat != req_pat) {
+        log.warn("Adjusting NVMe BAR Page Attributes: current {} -> {}", .{current_page_pat, req_pat});
+
+        const page_req_pat_flags = pat.pageFlagsFromPat(req_pat);
+        log.warn("Page Request PAT Flags: {any}", .{page_req_pat_flags});
+        switch (page_entry_info.ps) {
+            .ps1g => {
+                const spec_entry: *Pdpte1Gbyte = @ptrCast(page_entry_info.entry_ptr);
+                spec_entry.pat = page_req_pat_flags.page_pat;
+                spec_entry.cache_disabled = page_req_pat_flags.page_pcd;
+                spec_entry.write_through = page_req_pat_flags.page_pwt;
+                log.warn(".ps1g spec_entry: {any}", .{spec_entry});
+            },
+            .ps2m => {
+                const spec_entry: *Pde2MByte = @ptrCast(page_entry_info.entry_ptr);
+                spec_entry.pat = page_req_pat_flags.page_pat;
+                spec_entry.cache_disabled = page_req_pat_flags.page_pcd;
+                spec_entry.write_through = page_req_pat_flags.page_pwt;
+                log.warn(".ps2m spec_entry: {any}", .{spec_entry});
+            },
+            .ps4k => {
+                const spec_entry: *Pte = @ptrCast(page_entry_info.entry_ptr);
+                spec_entry.pat = page_req_pat_flags.page_pat;
+                spec_entry.cache_disabled = page_req_pat_flags.page_pcd;
+                spec_entry.write_through = page_req_pat_flags.page_pwt;
+                log.warn(".ps4k spec_entry: {any}", .{spec_entry});
+            },
+        }
+        // page entries indicates frames so we need to flush them, as Intel Programmer's Guidesays
+        // "If software modifies a paging-structure entry that maps a page (rather than referencing another paging
+        // structure), it should execute INVLPG for any linear address with a page number whose translation uses that
+        // paging-structure entry."
+        flushTlb(virt);
+    }
+}
+
+fn flushTlb(virt: usize) void {
+    cpu.invlpg(virt);
+}
+
 fn RecursiveInfo(comptime recursive_index: u9) type {
     return struct {
         const rec_idx: usize = recursive_index; //510
@@ -95,7 +219,7 @@ pub const Pde2MByte = PagingStructureEntry(.ps2m, .pd);
 pub const Pte = PagingStructureEntry(default_page_size, .pt);
 pub const Pml4 = [512]Pml4e;
 pub const Pdpt = [512]Pdpte;
-pub  const Pd = [512]Pde;
+pub const Pd = [512]Pde;
 pub const Pt = [512]Pte;
 
 // TODO: usngnamespace does not work in case of the fields
@@ -282,7 +406,6 @@ pub export var hhdm_request: limine.HhdmRequest = .{};
 pub export var paging_mode_request: limine.PagingModeRequest = .{ .mode = .four_level, .flags = 0 }; //default L4 paging
 var hhdm_offset: usize = undefined;
 
-const log = std.log.scoped(.paging);
 
 /// Get paging indexes from virtual address
 /// It maps 48-bit virtual address to 9-bit indexes of all 52 physical address bits
@@ -317,7 +440,6 @@ test virtFromIndex {
     try std.testing.expect(0x2001, virtFromIndex(.{ .lvl4 = 0, .lvl3 = 0, .lvl2 = 0, .lvl1 = 2, .offset = 1 }));
     try std.testing.expect(0xffff800000100000, virtFromIndex(.{ .lvl4 = 0x100, .lvl3 = 0x0, .lvl2 = 0x0, .lvl1 = 0x100, .offset = 0x0 }));
 }
-
 
 pub fn physFromVirtInfo(vaddr: usize) !struct { phys: usize, lvl: Level, ps: PageSize } {
     const pidx = indexFromVaddr(vaddr);
@@ -523,6 +645,7 @@ fn Pml4TableFromCr3() struct { []Pml4e, Cr3Structure(false) } {
 }
 
 var pml4t: []Pml4e = undefined;
+var pat: Pat = undefined;
 
 pub fn print_tlb() void {
     for (pml4t, 0..) |e, i| {
@@ -570,18 +693,16 @@ pub fn init() !void {
     } else @panic("No paging mode bootloader response available");
 
     // setup PAT
-    log.debug("The 0x277 MSR register value before the change: 0x{x}", .{cpu.rdmsr(0x277)});
-    cpu.wrmsr(0x277,0x0007040600070406);
-    log.debug("The 0x277 MSR register value after the change: 0x{x}", .{cpu.rdmsr(0x277)});
-
+    pat = Pat{};
+    pat.write(); //set default values
+    pat.read(); //read values to be sure we set it right
+    log.debug("The 0x277 MSR register value after the change: 0x{}", .{pat});
 
     pml4t, const cr3_formatted = Pml4TableFromCr3();
     log.debug("PML4 table: {*}, cr3_formated: {}", .{ pml4t.ptr, cr3_formatted });
 
-
     // Get ready for recursive paging
     pml4t[510] = .{ .present = true, .writable = true, .aligned_address_4kbytes = @truncate(cr3_formatted.aligned_address_4kbytes) };
-
 
     // //const lvl4e = retrieveEntryFromVaddr(Pml4e, .four_level, default_page_size, .lvl4, 0xffff_8000_fe80_0000);
     // log.warn("cr3 -> 0x{x}", .{cpu.cr3()});

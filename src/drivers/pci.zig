@@ -280,6 +280,7 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
     const interrupt_line = readRegisterWithArgs(u8, .interrupt_line, function, slot, bus);
     const interrupt_pin = readRegisterWithArgs(u8, .interrupt_pin, function, slot, bus);
     const command = readRegisterWithArgs(u16, .command, function, slot, bus);
+    const status = readRegisterWithArgs(u16, .status, function, slot, bus);
 
     const bar = readBAR(.{ .register_offset = .bar0, .function_no = function, .slot_no = slot, .bus_no = bus });
 
@@ -298,7 +299,7 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
             .a32 => bar.address.a32,
             .a64 => bar.address.a64,
         };
-        log.debug("PCI device: bus: {d}, slot: {d}, function: {d}, class: {d}, subclass: {d}, prog_id: {d}, header_type: 0x{x}, vendor_id: 0x{x}, device_id=0x{x}, interrupt_no: 0x{x}, interrupt_pin: 0x{x}, bar: {}, bar.addr: 0x{x}, size: {d}GB, {d}MB, {d}KB, command: 0b{b:0>16}", .{
+        log.debug("PCI device: bus: {d}, slot: {d}, function: {d}, class: {d}, subclass: {d}, prog_id: {d}, header_type: 0x{x}, vendor_id: 0x{x}, device_id=0x{x}, interrupt_no: 0x{x}, interrupt_pin: 0x{x}, bar: {}, bar.addr: 0x{x}, size: {d}GB, {d}MB, {d}KB, command: 0b{b:0>16}, status: 0b{b:0>16}", .{
             bus,
             slot,
             function,
@@ -315,7 +316,8 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
             size_GB,
             size_MB,
             size_KB,
-            command
+            command,
+            status //bit 3 - Interrupt Status
         });
     }
 

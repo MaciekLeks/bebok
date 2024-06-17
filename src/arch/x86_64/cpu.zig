@@ -119,8 +119,8 @@ pub inline fn rdmsr(msr: u32) usize {
     var high : u32 = undefined;
     asm volatile ("rdmsr"
         : [low] "={eax}" (low), [high] "={edx}" (high)
-        : [msr] "{ecx}" (msr)
-        : "eax", "edx"
+        : [msr] "N{ecx}" (msr)
+        : "ecx", "eax", "edx"
     );
     return (@as(u64, high) << 32) | low;
 }
@@ -128,10 +128,11 @@ pub inline fn rdmsr(msr: u32) usize {
 pub inline fn wrmsr(msr: u32, value: usize) void {
     const low : u32 = @intCast(value & 0xFFFFFFFF);
     const high : u32 = @intCast(value >> 32);
-    asm volatile ("wrmsr"
+    asm volatile (
+        \\ wrmsr
         :
-        : [msr] "{ecx}" (msr), [low] "eax" (low), [high] "{edx}" (high)
-        : "memory", "eax", "edx"
+        : [msr] "N{ecx}" (msr), [low] "{eax}" (low), [high] "{edx}" (high)
+        : "eax", "ecx" ,"edx"
     );
 }
 

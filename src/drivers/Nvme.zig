@@ -134,27 +134,29 @@ pub fn update(_: Self,  function: u3, slot: u5, bus: u8) void {
 
     const register_set_ptr : *volatile RegisterSet  = @ptrFromInt(virt);
 
-    // Check Page Attributes Table for the memory region
-    const page_entry_info = paging.recLowestEntryFromVirtInfo(virt) catch @panic("Failed to get page entry info for NVMe BAR");
-
-    log.debug("NVMe BAR Page Entry Info: {any}", .{page_entry_info});
-    if (page_entry_info.entry_ptr == null) {
-        @panic("NVMe BAR is not mapped");
-    }
-    switch (page_entry_info.ps) {
-        .ps1g => {
-            const spec_entry: *paging.Pdpte1Gbyte = @ptrCast(page_entry_info.entry_ptr);
-            log.warn(".ps1g spec_entry: {any}", .{spec_entry});
-        },
-        .ps2m => {
-            const spec_entry: *paging.Pde2MByte = @ptrCast(page_entry_info.entry_ptr);
-            log.warn(".ps2m spec_entry: {any}", .{spec_entry});
-        },
-        .ps4k => {
-            const spec_entry: *paging.Pte = @ptrCast(page_entry_info.entry_ptr);
-            log.warn(".ps4k spec_entry: {any}", .{spec_entry});
-        },
-    }
+    // Adjust if needed page PAT to write-through
+    paging.adjustPagePat(virt, paging.PatType.write_through);
+    // const page_entry_info = paging.recLowestEntryFromVirtInfo(virt) catch @panic("Failed to get page entry info for NVMe BAR");
+    //
+    // log.debug("NVMe BAR Page Entry Info: {any}", .{page_entry_info});
+    // if (page_entry_info.entry_ptr == null) {
+    //     @panic("NVMe BAR is not mapped");
+    // }
+    // switch (page_entry_info.ps) {
+    //     .ps1g => {
+    //         const spec_entry: *paging.Pdpte1Gbyte = @ptrCast(page_entry_info.entry_ptr);
+    //         paging.ajdustPagePat(spec_entry, paging.PatType.write_through);
+    //         log.warn(".ps1g spec_entry: {any}", .{spec_entry});
+    //     },
+    //     .ps2m => {
+    //         const spec_entry: *paging.Pde2MByte = @ptrCast(page_entry_info.entry_ptr);
+    //         log.warn(".ps2m spec_entry: {any}", .{spec_entry});
+    //     },
+    //     .ps4k => {
+    //         const spec_entry: *paging.Pte = @ptrCast(page_entry_info.entry_ptr);
+    //         log.warn(".ps4k spec_entry: {any}", .{spec_entry});
+    //     },
+    // }
 
 
 
