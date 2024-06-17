@@ -77,9 +77,7 @@ const Pat = struct {
     }
 };
 
-pub fn adjustPagePat(virt: usize, req_pat: PatType) void {
-    const page_entry_info = recLowestEntryFromVirtInfo(virt) catch @panic("Failed to get page entry info for NVMe BAR");
-
+pub fn adjustPagePat(virt: usize, page_entry_info: GenericEntryInfo, req_pat: PatType) void {
     log.debug("NVMe BAR Page Entry Info: {any}", .{page_entry_info});
     if (page_entry_info.entry_ptr == null) {
         @panic("NVMe BAR is not mapped");
@@ -139,6 +137,23 @@ pub fn adjustPagePat(virt: usize, req_pat: PatType) void {
         flushTlb(virt);
     }
 }
+
+// TODO: test for 4kb page sizes
+pub fn adjustPageAreaPat(virt: usize, size: usize, req_pat: PatType) !void {
+    if (size == 0) return;
+    const page_entry_info = try recLowestEntryFromVirtInfo(virt);
+    const page_size = @intFromEnum(page_entry_info.ps);
+    const page_mask: usize =page_size - 1;
+    const size_adjusted = if (size % page_size != 0)  (size + page_mask) & ~page_mask else size;
+
+    adjustPagePat(virt, page_entry_info, req_pat);
+    var sz = size_adjusted;
+    while (sz > page_size) {
+        try adjustPageAreaPat(virt + size_adjusted,  size_adjusted - page_size, req_pat);
+        sz += size_adjusted;
+    }
+}
+
 
 fn flushTlb(virt: usize) void {
     cpu.invlpg(virt);
@@ -642,6 +657,30 @@ pub inline fn virtFromMME(paddr: usize) usize {
 fn Pml4TableFromCr3() struct { []Pml4e, Cr3Structure(false) } {
     const cr3_formatted: Cr3Structure(false) = @bitCast(cpu.cr3());
     return .{ cr3_formatted.retrieve_table(Pml4), cr3_formatted };
+}
+
+pub fn debugLowestEntryFromVirt(virt: usize) void {
+    const page_entry_info = recLowestEntryFromVirtInfo(virt) catch @panic("Failed to get page entry info for NVMe BAR");
+    log.debug("page entry info: {} ", .{page_entry_info});
+
+    if (page_entry_info.entry_ptr == null) {
+        log.err("Entry not found for vaddr: 0x{x}", .{virt});
+        return;
+    }
+    switch (page_entry_info.ps) {
+        .ps1g => {
+            const entry: *Pdpte1Gbyte = @ptrCast(page_entry_info.entry_ptr);
+            log.debug(".ps1g entry: {any}", .{entry});
+        },
+        .ps2m => {
+            const entry: *Pde2MByte = @ptrCast(page_entry_info.entry_ptr);
+            log.debug(".ps2m entry: {any}", .{entry});
+        },
+        .ps4k => {
+            const entry: *Pte = @ptrCast(page_entry_info.entry_ptr);
+            log.debug(".ps4k entry: {any}", .{entry});
+        },
+    }
 }
 
 var pml4t: []Pml4e = undefined;
