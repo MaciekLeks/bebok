@@ -25,9 +25,9 @@ pub const Driver = union(enum) {
         };
     }
 
-    pub fn update(self: Self, function_no: u3, slot_no: u5, bus_no: u8) void {
+    pub fn update(self: Self, function_no: u3, slot_no: u5, bus_no: u8, interrupt_no: u8) void {
         return switch (self) {
-            inline else => |it| it.update(function_no, slot_no, bus_no),
+            inline else => |it| it.update(function_no, slot_no, bus_no, interrupt_no),
         };
     }
 };
@@ -121,12 +121,7 @@ test "PCI register addresses" {
     };
     try t.expect(registerAddress(u32, config_addr) == 0x80_00_08_00);
 
-    config_addr = ConfigAddress{
-        .register_offset = .vendor_id,
-        .function_no = 1,
-        .slot_no = 0,
-        .bus_no = 0
-    };
+    config_addr = ConfigAddress{ .register_offset = .vendor_id, .function_no = 1, .slot_no = 0, .bus_no = 0 };
     try t.expect(registerAddress(u32, config_addr) == 0x80000100);
 }
 
@@ -317,11 +312,11 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
             size_MB,
             size_KB,
             command,
-            status //bit 3 - Interrupt Status
+            status, //bit 3 - Interrupt Status
         });
     }
 
-    notifyDriver(function, slot, bus, class_code, subclass, prog_if);
+    notifyDriver(function, slot, bus, class_code, subclass, prog_if, interrupt_line);
 }
 
 var device_list: ?DeviceList = null;
@@ -331,12 +326,12 @@ pub fn registerDriver(driver: *const Driver) !void {
     try device_list.?.append(driver);
 }
 
-fn notifyDriver(function: u3, slot: u5, bus: u8, class_code: u8, subclass: u8, prog_if: u8) void {
+fn notifyDriver(function: u3, slot: u5, bus: u8, class_code: u8, subclass: u8, prog_if: u8, interrupt_line: u8) void {
     assert(device_list != null);
     for (device_list.?.items) |d| {
         if (d.interested(class_code, subclass, prog_if)) {
             log.info("interested", .{});
-            d.update(function, slot, bus);
+            d.update(function, slot, bus, interrupt_line);
         }
     }
 }

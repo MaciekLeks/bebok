@@ -9,10 +9,10 @@ const nvme_prog_if = 0x02;
 
 const Self = @This();
 
-const CSSField = packed struct(u8){
+const CSSField = packed struct(u8) {
     nvmcs: u1, //0 NVM Command Set or Discovery Controller
     rsrvd: u5, //1-5
-    iocs : u1, //6 I/O Command Set
+    iocs: u1, //6 I/O Command Set
     acs: u1, //7 Admin Command Set only
 };
 
@@ -95,16 +95,15 @@ const RegisterSet = packed struct {
     acq: ACQEntry,
 };
 
-
 fn readRegister(T: type, bar: pci.BAR, register_set_field: @TypeOf(.enum_literal)) T {
-    return  switch (bar.address) {
-        inline else  => |addr|  @as(* volatile T, @ptrFromInt(paging.virtFromMME(addr) + @offsetOf(RegisterSet, @tagName(register_set_field)))).*
+    return switch (bar.address) {
+        inline else => |addr| @as(*volatile T, @ptrFromInt(paging.virtFromMME(addr) + @offsetOf(RegisterSet, @tagName(register_set_field)))).*,
     };
 }
 
 fn writeRegister(T: type, bar: pci.BAR, register_set_field: @TypeOf(.enum_literal), value: T) void {
     switch (bar.address) {
-        inline else  => |addr| @as(* volatile T, @ptrFromInt(paging.virtFromMME(addr) + @offsetOf(RegisterSet, @tagName(register_set_field)))).* = value,
+        inline else => |addr| @as(*volatile T, @ptrFromInt(paging.virtFromMME(addr) + @offsetOf(RegisterSet, @tagName(register_set_field)))).* = value,
     }
 }
 
@@ -112,30 +111,31 @@ pub fn interested(_: Self, class_code: u8, subclass: u8, prog_if: u8) bool {
     return class_code == nvme_class_code and subclass == nvme_subclass and prog_if == nvme_prog_if;
 }
 
-pub fn update(_: Self,  function: u3, slot: u5, bus: u8) void {
+pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void {
     const bar = pci.readBARWithArgs(.bar0, function, slot, bus);
 
     //  bus-mastering DMA, and memory space access in the PCI configuration space
     const command = pci.readRegisterWithArgs(u16, .command, function, slot, bus);
     pci.writeRegisterWithArgs(u16, .command, function, slot, bus, command | 0b110);
 
-   const virt = switch (bar.address) {
-        inline else  => |addr| paging.virtFromMME(addr),
+    const virt = switch (bar.address) {
+        inline else => |addr| paging.virtFromMME(addr),
     };
-    const cap_reg_ptr : *volatile u64 = @ptrFromInt(virt);
-    const vs_reg_ptr : *volatile u32 = @ptrFromInt(virt + 0x08);
-    const intmc_reg_ptr : *volatile u32 = @ptrFromInt(virt + 0x04);
-    const intms_reg_ptr : *volatile u32 = @ptrFromInt(virt + 0x0c);
-    const cc_reg_ptr : *volatile u32 = @ptrFromInt(virt + 0x14);
-    const csts_reg_ptr : *volatile u32 = @ptrFromInt(virt + 0x1c);
-    const aqa_reg_ptr : *volatile u32 = @ptrFromInt(virt + 0x24);
-    const asq_reg_ptr : *volatile u64 = @ptrFromInt(virt + 0x28);
-    const acq_reg_ptr : *volatile u64 = @ptrFromInt(virt + 0x30);
 
-    const register_set_ptr : *volatile RegisterSet  = @ptrFromInt(virt);
+    const cap_reg_ptr: *volatile u64 = @ptrFromInt(virt);
+    const vs_reg_ptr: *volatile u32 = @ptrFromInt(virt + 0x08);
+    const intmc_reg_ptr: *volatile u32 = @ptrFromInt(virt + 0x04);
+    const intms_reg_ptr: *volatile u32 = @ptrFromInt(virt + 0x0c);
+    const cc_reg_ptr: *volatile u32 = @ptrFromInt(virt + 0x14);
+    const csts_reg_ptr: *volatile u32 = @ptrFromInt(virt + 0x1c);
+    const aqa_reg_ptr: *volatile u32 = @ptrFromInt(virt + 0x24);
+    const asq_reg_ptr: *volatile u64 = @ptrFromInt(virt + 0x28);
+    const acq_reg_ptr: *volatile u64 = @ptrFromInt(virt + 0x30);
+
+    const register_set_ptr: *volatile RegisterSet = @ptrFromInt(virt);
 
     // Adjust if needed page PAT to write-through
-    const size : usize = switch (bar.size) {
+    const size: usize = switch (bar.size) {
         .as32 => bar.size.as32,
         .as64 => bar.size.as64,
     };
@@ -143,35 +143,31 @@ pub fn update(_: Self,  function: u3, slot: u5, bus: u8) void {
         log.err("Failed to adjust page area PAT for NVMe BAR: {}", .{err});
         return;
     };
-    paging.debugLowestEntryFromVirt(virt);
+    paging.debugLowestEntryFromVirt(virt); //to be commented out
     // End of adjustment
-
-
 
     //log register_set_ptr content
     log.warn("NVMe register set at address {}:", .{register_set_ptr.*});
 
-
-    log.warn(\\bar:{}, addr:0x{x},
-            \\cap: 0b{b:0>64}, vs: 0b{b:0>32}
-            \\intms: 0b{b:0>32}, intmc: 0b{b:0>32}
-            \\cc: 0b{b:0>32}, csts: 0b{b:0>32}
-            \\aqa: 0b{b:0>32}, asq: 0b{b:0>64}, acq: 0b{b:0>64}
-        ,
-        .{
-            bar,
-            virt,
-            cap_reg_ptr.*,
-            vs_reg_ptr.*,
-            intms_reg_ptr.*,
-            intmc_reg_ptr.*,
-            cc_reg_ptr.*,
-            csts_reg_ptr.*,
-            aqa_reg_ptr.*,
-            asq_reg_ptr.*,
-            acq_reg_ptr.*,
-        }
-    );
+    log.warn(
+        \\bar:{}, addr:0x{x},
+        \\cap: 0b{b:0>64}, vs: 0b{b:0>32}
+        \\intms: 0b{b:0>32}, intmc: 0b{b:0>32}
+        \\cc: 0b{b:0>32}, csts: 0b{b:0>32}
+        \\aqa: 0b{b:0>32}, asq: 0b{b:0>64}, acq: 0b{b:0>64}
+    , .{
+        bar,
+        virt,
+        cap_reg_ptr.*,
+        vs_reg_ptr.*,
+        intms_reg_ptr.*,
+        intmc_reg_ptr.*,
+        cc_reg_ptr.*,
+        csts_reg_ptr.*,
+        aqa_reg_ptr.*,
+        asq_reg_ptr.*,
+        acq_reg_ptr.*,
+    });
 
     // Reset the controller
     var cc = readRegister(CCRegister, bar, .cc);
@@ -195,7 +191,8 @@ pub fn update(_: Self,  function: u3, slot: u5, bus: u8) void {
         return;
     }
 
-
+    // TODO: remove this
+    log.warn("NVMe interrupt line: {}", .{interrupt_line});
 }
 
 var driver = &pci.Driver{ .nvme = &Self{} };

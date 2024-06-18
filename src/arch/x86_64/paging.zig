@@ -114,7 +114,7 @@ pub fn adjustPagePAT(virt: usize, page_entry_info: GenericEntryInfo, req_pat: PA
         // "If software modifies a paging-structure entry that maps a page (rather than referencing another paging
         // structure), it should execute INVLPG for any linear address with a page number whose translation uses that
         // paging-structure entry."
-        flushTlb(virt);
+        flushTLB(virt);
     }
 }
 
@@ -134,7 +134,7 @@ pub fn adjustPageAreaPAT(virt: usize, size: usize, req_pat: PATType) !void {
     }
 }
 
-fn flushTlb(virt: usize) void {
+fn flushTLB(virt: usize) void {
     cpu.invlpg(virt);
 }
 
@@ -414,13 +414,13 @@ var hhdm_offset: usize = undefined;
 /// src osdev: "Virtual addresses in 64-bit mode must be canonical, that is,
 /// the upper bits of the address must either be all 0s or all 1s.
 // For systems supporting 48-bit virtual address spaces, the upper 16 bits must be the same"
-pub inline fn indexFromVaddr(vaddr: usize) Index {
+pub inline fn indexFromVaddr(virt: usize) Index {
     return .{
-        .pml4_idx = @truncate(vaddr >> 39), //47->39
-        .pdpt_idx = @truncate(vaddr >> 30), //39->30
-        .pd_idx = @truncate(vaddr >> 21), //30->21
-        .pt_idx = @truncate(vaddr >> 12), //21->12
-        .offset = @truncate(vaddr), //12 bites
+        .pml4_idx = @truncate(virt >> 39), //47->39
+        .pdpt_idx = @truncate(virt >> 30), //39->30
+        .pd_idx = @truncate(virt >> 21), //30->21
+        .pt_idx = @truncate(virt >> 12), //21->12
+        .offset = @truncate(virt), //12 bites
     };
 }
 
@@ -443,8 +443,8 @@ test virtFromIndex {
     try std.testing.expect(0xffff800000100000, virtFromIndex(.{ .lvl4 = 0x100, .lvl3 = 0x0, .lvl2 = 0x0, .lvl1 = 0x100, .offset = 0x0 }));
 }
 
-pub fn physFromVirtInfo(vaddr: usize) !struct { phys: usize, lvl: Level, ps: PageSize } {
-    const pidx = indexFromVaddr(vaddr);
+pub fn physFromVirtInfo(virt: usize) !struct { phys: usize, lvl: Level, ps: PageSize } {
+    const pidx = indexFromVaddr(virt);
 
     const pml4_table: ?[]Pml4e = tableFromIndex(.pml4, pidx) orelse return error.PageFault;
     const pdpt_table: ?[]Pdpte = pml4_table.?[pidx.pml4_idx].retrieveTable() orelse return error.PageFault;
@@ -472,8 +472,8 @@ pub fn physFromVirtInfo(vaddr: usize) !struct { phys: usize, lvl: Level, ps: Pag
 }
 
 // Recursive get physical address from virtual address
-pub fn recPhysFromVirtInfo(vaddr: usize) !struct { phys: usize, lvl: Level, ps: PageSize } {
-    const pidx = indexFromVaddr(vaddr);
+pub fn recPhysFromVirtInfo(virt: usize) !struct { phys: usize, lvl: Level, ps: PageSize } {
+    const pidx = indexFromVaddr(virt);
 
     // check if pml4 entry is present
     const pml4e = @as(*Pml4, @ptrFromInt(RecInfo.pml4TableAddr()))[pidx.pml4_idx];
@@ -502,13 +502,13 @@ pub fn recPhysFromVirtInfo(vaddr: usize) !struct { phys: usize, lvl: Level, ps: 
     return .{ .phys = @as(PagingStructureEntry(.ps4k, .pt), pte).retrieveFrameVirt().? + pidx.offset, .lvl = .pt, .ps = .ps4k };
 }
 
-pub inline fn physFromVirt(vaddr: usize) !usize {
-    const info = try physFromVirtInfo(vaddr);
+pub inline fn physFromVirt(virt: usize) !usize {
+    const info = try physFromVirtInfo(virt);
     return info.phys;
 }
 
-pub inline fn recPhysFromVirt(vaddr: usize) !usize {
-    const info = try recPhysFromVirtInfo(vaddr);
+pub inline fn recPhysFromVirt(virt: usize) !usize {
+    const info = try recPhysFromVirtInfo(virt);
     return info.phys;
 }
 
@@ -539,19 +539,19 @@ inline fn tableFromIndex(comptime lvl: Level, pidx: Index) switch (lvl) {
 }
 
 //fn tableFromVaddr(EntryType: type, comptime lvl: Level, vaddr: usize) []EntryType {
-fn tableFromVaddr(comptime lvl: Level, vaddr: usize) switch (lvl) {
+fn tableFromVaddr(comptime lvl: Level, virt: usize) switch (lvl) {
     .pml4 => ?[]Pml4e,
     .pdpt => ?[]Pdpte,
     .pd => ?[]Pde,
     .pt => ?[]Pte,
 } {
-    const pidx = indexFromVaddr(vaddr);
+    const pidx = indexFromVaddr(virt);
     return tableFromIndex(lvl, pidx);
 }
 
 // Search for the lowest level entry in the paging table which is present
-pub fn lowestEntryFromVirtInfo(vaddr: usize) !GenericEntryInfo {
-    const pidx = indexFromVaddr(vaddr);
+pub fn lowestEntryFromVirtInfo(virt: usize) !GenericEntryInfo {
+    const pidx = indexFromVaddr(virt);
 
     var res: GenericEntryInfo = .{ .entry_ptr = null, .lvl = .pt, .ps = .ps4k };
     inline for ([_]Level{ Level.pml4, Level.pdpt, Level.pd, Level.pt }) |lvl_idx| {
@@ -601,8 +601,8 @@ pub fn lowestEntryFromVirtInfo(vaddr: usize) !GenericEntryInfo {
     }
 }
 
-pub fn recLowestEntryFromVirtInfo(vaddr: usize) !GenericEntryInfo {
-    const pidx = indexFromVaddr(vaddr);
+pub fn recLowestEntryFromVirtInfo(virt: usize) !GenericEntryInfo {
+    const pidx = indexFromVaddr(virt);
 
     var res: GenericEntryInfo = .{ .entry_ptr = null, .lvl = .pml4, .ps = .ps4k };
 
@@ -651,7 +651,7 @@ pub fn debugLowestEntryFromVirt(virt: usize) void {
     log.debug("page entry info: {} ", .{page_entry_info});
 
     if (page_entry_info.entry_ptr == null) {
-        log.err("Entry not found for vaddr: 0x{x}", .{virt});
+        log.err("Entry not found for virt: 0x{x}", .{virt});
         return;
     }
     switch (page_entry_info.ps) {
