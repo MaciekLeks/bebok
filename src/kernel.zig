@@ -9,6 +9,7 @@ const heap = @import("mem/heap.zig").heap;
 const term = @import("terminal");
 const pci = @import("drivers/pci.zig");
 const Nvme = @import("drivers/Nvme.zig");
+const int = @import("int.zig");
 
 const log = std.log.scoped(.kernel);
 
@@ -53,8 +54,6 @@ pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     cpu.halt();
 }
 
-
-
 export fn _start() callconv(.C) noreturn {
     start.init() catch |err| {
         log.err("Startup error: {}", .{err});
@@ -77,10 +76,14 @@ export fn _start() callconv(.C) noreturn {
     log.warn("Allocated memory at {*}", .{memory});
     allocator.free(memory);
 
-
-
     var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");
     pty.printf("Bebok version: {any}\n", .{config.kernel_version});
+
+    //{  init handler list
+    var arena_allocator = std.heap.ArenaAllocator.init(heap.page_allocator);
+    int.initHandlerList(arena_allocator.allocator());
+    defer int.deinitHandlerList();
+    //} init handler list
 
     //cpu.div0();
     //pci test start
@@ -89,7 +92,6 @@ export fn _start() callconv(.C) noreturn {
     pci.scan();
     defer Nvme.deinit();
     defer pci.deinit(); //TODO: na pewno?
-
 
     //pci test end
 

@@ -6,6 +6,7 @@ const testing = @import("testing");
 
 const log = std.log.scoped(.int);
 
+pub const VectorIndex = u9;
 const total_interrupts = 512;
 const total_exceptions = 0x1F;
 const total_irqs = 0x10;
@@ -140,14 +141,63 @@ fn interruptFnBind(comptime idx: u5) HandleFn {
     }.handle;
 }
 
-fn interruptWithAckowledgeFnBind(comptime irq: u5, comptime logging: bool ) HandleFn {
+fn interruptWithAckowledgeFnBind(comptime vec_no: VectorIndex, comptime logging: bool) HandleFn {
     return struct {
         fn handle() callconv(.Interrupt) void {
-            if (logging) log.debug(std.fmt.comptimePrint("Interrupt: IRQ {d}", .{irq}), .{});
-            if (irq >= pic_slave_irq_start) cpu.out(u8, pic_slave_cmd_port, pic_eoi) else cpu.out(u8, pic_master_cmd_port, pic_eoi);
+            if (logging) log.debug(std.fmt.comptimePrint("Interrupt: IRQ {d}", .{vec_no}), .{});
+            if (isr_map) |map| {
+                if (map.get(vec_no)) |lst| {
+                    for (lst.items) |handler| {
+                        handler.handle_fn();
+                    }
+                }
+            }
+            if (vec_no >= pic_slave_irq_start) cpu.out(u8, pic_slave_cmd_port, pic_eoi) else cpu.out(u8, pic_master_cmd_port, pic_eoi);
         }
     }.handle;
 }
+
+//{ ISR handlers
+pub const ISRHandler = struct {
+    unique_id: u32, //unique id for the handler
+    handle_fn: *const fn () void,
+};
+const ISRHandlerList = std.AutoArrayHashMap(VectorIndex, *std.ArrayList(ISRHandler));
+var isr_map: ?ISRHandlerList = null;
+var isr_alloc: std.mem.Allocator = undefined;
+
+pub fn initHandlerList(allocator: std.mem.Allocator) void {
+    isr_alloc = allocator;
+    isr_map = ISRHandlerList.init(isr_alloc);
+}
+
+pub fn deinitHandlerList() void {
+    if (isr_map == null) return;
+
+    // we use arena so we need to free the memory once
+    isr_map.deinit();
+}
+
+pub fn addHandler(vec_no: VectorIndex, isr_handler: ISRHandler) !void {
+    if (isr_map == null) @panic("Interrupts ISR Handler List not initialized");
+
+    if (isr_map.?.get(vec_no)) |lst_ptr| {
+        lst_ptr.append(isr_handler) catch |err| {
+            log.err("Interrupts ISR Handler List error", .{});
+            return err;
+        };
+    } else {
+        const new_list_ptr = try isr_alloc.create(std.ArrayList(ISRHandler));
+        new_list_ptr.* = std.ArrayList(ISRHandler).init(isr_alloc);
+
+        isr_map.?.put(vec_no, new_list_ptr) catch |err| {
+            log.err("Interrupts ISR Handler List error", .{});
+            return err;
+        };
+    }
+}
+
+//} ISR handlers
 
 pub fn init() void {
     log.info("Initializing interrupts handling", .{});
@@ -160,7 +210,7 @@ pub fn init() void {
     // Update the IDT with the exceptions: 0x0->0x1F
     inline for (0..total_exceptions) |i| {
         switch (i) {
-           0x02, 0x09, 0x15, 0x16...0x1B, 0x1F => |ei| {
+            0x02, 0x09, 0x15, 0x16...0x1B, 0x1F => |ei| {
                 idt[ei].setOffset(@intFromPtr(&interruptFnBind(ei)));
                 idt[ei].segment_selector = gdt.segment_selectors.kernel_code_x64;
                 idt[ei].interrupt_stack_table = 0;
@@ -171,7 +221,7 @@ pub fn init() void {
             else => {},
         }
     }
-     inline for (et, 0..) |e, i| {
+    inline for (et, 0..) |e, i| {
         idt[e.vec_no].setOffset(@intFromPtr(&exceptionFnBind(i)));
         idt[e.vec_no].segment_selector = gdt.segment_selectors.kernel_code_x64;
         idt[e.vec_no].interrupt_stack_table = 0;
@@ -197,7 +247,7 @@ pub fn init() void {
         }
 
         // Softwares interrupts
-       //TODO: add
+        //TODO: add
 
     }
 

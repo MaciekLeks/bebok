@@ -2,6 +2,7 @@ const std = @import("std");
 const log = std.log.scoped(.nvme);
 const pci = @import("pci.zig");
 const paging = @import("../paging.zig");
+const int = @import("../int.zig");
 
 const nvme_class_code = 0x01;
 const nvme_subclass = 0x08;
@@ -193,6 +194,14 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
 
     // TODO: remove this
     log.warn("NVMe interrupt line: {}", .{interrupt_line});
+    const unique_id = pci.uniqueId(bus, slot, function);
+    int.addHandler(interrupt_line, .{ .unique_id = unique_id, .handle_fn = handleInterrupt}) catch |err| {
+        log.err("Failed to add NVMe interrupt handler: {}", .{err});
+    };
+}
+
+fn handleInterrupt() void{
+    log.warn("We've got it: NVMe interrupt", .{});
 }
 
 var driver = &pci.Driver{ .nvme = &Self{} };

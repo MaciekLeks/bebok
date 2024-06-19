@@ -265,6 +265,11 @@ fn checkSlot(bus: u8, slot: u5) void {
     }
 }
 
+// Unique ID for a PCI device
+pub fn uniqueId(bus: u8, slot: u5, function: u3) u32 {
+    return (@as(u32, bus) << 16) | (@as(u32, slot) << 8) | function;
+}
+
 fn checkFunction(bus: u8, slot: u5, function: u3) void {
     const class_code = readRegisterWithArgs(u8, .class_code, function, slot, bus);
     const subclass = readRegisterWithArgs(u8, .subclass, function, slot, bus);
