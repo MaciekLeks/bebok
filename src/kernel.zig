@@ -108,12 +108,19 @@ export fn _start() callconv(.C) noreturn {
     pci.scan();
     defer Nvme.deinit();
     defer pci.deinit(); //TODO: na pewno?
-
     //pci test end
+
+    int.addHandler(0x21, .{ .unique_id = 1234, .func = &ttt }) catch |err| {
+        log.err("Failed to add NVMe interrupt handler: {}", .{err});
+    };
 
     var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");
     pty.printf("Bebok version: {any}\n", .{config.kernel_version});
 
     //start.done(); //only now we can hlt - do not use defer after start.init();
     cpu.halt();
+}
+
+fn ttt() !void {
+    log.warn("----->>>>!!!!", .{});
 }

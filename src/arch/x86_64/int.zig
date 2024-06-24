@@ -152,9 +152,9 @@ fn interruptFnBind(comptime idx: u5) HandleFn {
 fn interruptWithAckowledgeFnBind(comptime vec_no: VectorIndex,  comptime  isr_handle_loop_fn: ?ISRHandleLoopFn, comptime logging: bool) HandleFn {
     return struct {
         fn handle() callconv(.Interrupt) void {
-            if (logging) log.debug(std.fmt.comptimePrint("Interrupt: IRQ {d}", .{vec_no}), .{});
+            if (logging) log.debug(std.fmt.comptimePrint("Interrupt: IRQ 0x{x}", .{vec_no}), .{});
             if (isr_handle_loop_fn) |isr| isr(vec_no) catch |err| {
-                log.err("Error handling interrupt: vec_no={d}, error={}", .{vec_no, err});
+                log.err("Error handling interrupt: vec_no=0x{x}, error={}", .{vec_no, err});
             };
             if (vec_no >= pic_slave_irq_start) cpu.out(u8, pic_slave_cmd_port, pic_eoi) else cpu.out(u8, pic_master_cmd_port, pic_eoi);
         }
