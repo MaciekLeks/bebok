@@ -200,7 +200,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
     };
 }
 
-fn handleInterrupt() void{
+fn handleInterrupt() !void{
     log.warn("We've got it: NVMe interrupt", .{});
 }
 

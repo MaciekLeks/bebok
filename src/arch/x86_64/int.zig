@@ -4,9 +4,9 @@ const cpu = @import("cpu.zig");
 const gdt = @import("gdt.zig");
 const testing = @import("testing");
 
-const log = std.log.scoped(.int);
+const log = std.log.scoped(.init_x86_64);
 
-pub const VectorIndex = u9;
+//pub const VectorIndex = u9;
 const total_interrupts = 512;
 const total_exceptions = 0x1F;
 const total_irqs = 0x10;
@@ -21,6 +21,15 @@ const pic_init_command = 0b0001_0001;
 const pic_end_of_init = 0b0000_0001;
 const pic_master_irq_start = 0x20; //0-0x1F for the exceptions
 const pic_slave_irq_start = 0x28;
+
+pub const ISRError = error {
+    UnknownError,
+};
+
+pub const VectorIndex = u9;
+const HandleFn = fn () callconv(.Interrupt) void;
+const ISRHandleLoopFn = * const fn (vec_no: VectorIndex) ISRError!void;
+pub const IH =fn (vec_no: VectorIndex) void;
 
 fn remapPIC(cmd_port: u16, data_port: u16, irq_start: u8) void {
     cpu.outb(cmd_port, pic_init_command); //send the init command
@@ -123,14 +132,13 @@ var idtd: Idtd = .{
     .offset = undefined,
 };
 
-const HandleFn = fn () callconv(.Interrupt) void;
 fn exceptionFnBind(comptime idx: u5) HandleFn {
     return struct {
         fn handle() callconv(.Interrupt) void {
             log.err(std.fmt.comptimePrint("Exception: vec_no={d}, mnemonic={s}, description={s}", .{ et[idx].vec_no, et[idx].mnemonic, et[idx].description }), .{});
             cpu.halt();
         }
-    }.handle;
+        }.handle;
 }
 
 fn interruptFnBind(comptime idx: u5) HandleFn {
@@ -138,68 +146,44 @@ fn interruptFnBind(comptime idx: u5) HandleFn {
         fn handle() callconv(.Interrupt) void {
             log.debug(std.fmt.comptimePrint("Interrupt: idx={d}", .{idx}), .{});
         }
-    }.handle;
+        }.handle;
 }
 
-fn interruptWithAckowledgeFnBind(comptime vec_no: VectorIndex, comptime logging: bool) HandleFn {
+fn interruptWithAckowledgeFnBind(comptime vec_no: VectorIndex,  comptime  isr_handle_loop_fn: ?ISRHandleLoopFn, comptime logging: bool) HandleFn {
     return struct {
         fn handle() callconv(.Interrupt) void {
             if (logging) log.debug(std.fmt.comptimePrint("Interrupt: IRQ {d}", .{vec_no}), .{});
-            if (isr_map) |map| {
-                if (map.get(vec_no)) |lst| {
-                    for (lst.items) |handler| {
-                        handler.handle_fn();
-                    }
-                }
-            }
+            if (isr_handle_loop_fn) |isr| isr(vec_no) catch |err| {
+                log.err("Error handling interrupt: vec_no={d}, error={}", .{vec_no, err});
+            };
             if (vec_no >= pic_slave_irq_start) cpu.out(u8, pic_slave_cmd_port, pic_eoi) else cpu.out(u8, pic_master_cmd_port, pic_eoi);
         }
-    }.handle;
+        }.handle;
 }
 
-//{ ISR handlers
-pub const ISRHandler = struct {
-    unique_id: u32, //unique id for the handler
-    handle_fn: *const fn () void,
-};
-const ISRHandlerList = std.AutoArrayHashMap(VectorIndex, *std.ArrayList(ISRHandler));
-var isr_map: ?ISRHandlerList = null;
-var isr_alloc: std.mem.Allocator = undefined;
-
-pub fn initHandlerList(allocator: std.mem.Allocator) void {
-    isr_alloc = allocator;
-    isr_map = ISRHandlerList.init(isr_alloc);
+fn setIdtEntry(comptime idx: VectorIndex, handle: HandleFn, gate_type: IdtEntry.GateType, privilege: dpl.PrivilegeLevel, present: bool) void {
+    idt[idx].setOffset(@intFromPtr(&handle));
+    idt[idx].segment_selector = gdt.segment_selectors.kernel_code_x64;
+    idt[idx].interrupt_stack_table = 0;
+    idt[idx].gate_type = gate_type;
+    idt[idx].privilege = privilege;
+    idt[idx].present = present;
 }
 
-pub fn deinitHandlerList() void {
-    if (isr_map == null) return;
-
-    // we use arena so we need to free the memory once
-    isr_map.deinit();
+fn setDefaultInterruptEntry(comptime vec_no: VectorIndex, comptime isr_handle_loop_fn: ISRHandleLoopFn, comptime logging:bool ) void {
+    setIdtEntry(vec_no, interruptWithAckowledgeFnBind(vec_no, isr_handle_loop_fn, logging), IdtEntry.GateType.interrupt_gate, dpl.PrivilegeLevel.ring0, true);
 }
 
-pub fn addHandler(vec_no: VectorIndex, isr_handler: ISRHandler) !void {
-    if (isr_map == null) @panic("Interrupts ISR Handler List not initialized");
-
-    if (isr_map.?.get(vec_no)) |lst_ptr| {
-        lst_ptr.append(isr_handler) catch |err| {
-            log.err("Interrupts ISR Handler List error", .{});
-            return err;
-        };
-    } else {
-        const new_list_ptr = try isr_alloc.create(std.ArrayList(ISRHandler));
-        new_list_ptr.* = std.ArrayList(ISRHandler).init(isr_alloc);
-
-        isr_map.?.put(vec_no, new_list_ptr) catch |err| {
-            log.err("Interrupts ISR Handler List error", .{});
-            return err;
-        };
-    }
+fn setDefaultExceptionEntry(comptime idx: u5, comptime gate_type: IdtEntry.GateType) void {
+    setIdtEntry(idx, exceptionFnBind(idx), gate_type , dpl.PrivilegeLevel.ring0, true);
 }
 
-//} ISR handlers
+fn setEmptyInterruptEntry(comptime idx: VectorIndex) void {
+    setIdtEntry(idx, 0, IdtEntry.GateType.interrupt_gate, dpl.PrivilegeLevel.ring0, false);
+}
 
-pub fn init() void {
+
+pub fn init(comptime isr_handle_loop_fn: ISRHandleLoopFn) void {
     log.info("Initializing interrupts handling", .{});
     defer log.info("Interrupts handling initialized", .{});
 
@@ -211,40 +195,50 @@ pub fn init() void {
     inline for (0..total_exceptions) |i| {
         switch (i) {
             0x02, 0x09, 0x15, 0x16...0x1B, 0x1F => |ei| {
-                idt[ei].setOffset(@intFromPtr(&interruptFnBind(ei)));
-                idt[ei].segment_selector = gdt.segment_selectors.kernel_code_x64;
-                idt[ei].interrupt_stack_table = 0;
-                idt[ei].gate_type = IdtEntry.GateType.interrupt_gate;
-                idt[ei].privilege = dpl.PrivilegeLevel.ring0;
-                idt[ei].present = true;
+                setDefaultInterruptEntry(ei,  isr_handle_loop_fn, true);
+
+                // idt[ei].setOffset(@intFromPtr(&interruptFnBind(ei)));
+                // idt[ei].segment_selector = gdt.segment_selectors.kernel_code_x64;
+                // idt[ei].interrupt_stack_table = 0;
+                // idt[ei].gate_type = IdtEntry.GateType.interrupt_gate;
+                // idt[ei].privilege = dpl.PrivilegeLevel.ring0;
+                // idt[ei].present = true;
             },
             else => {},
         }
     }
-    inline for (et, 0..) |e, i| {
-        idt[e.vec_no].setOffset(@intFromPtr(&exceptionFnBind(i)));
-        idt[e.vec_no].segment_selector = gdt.segment_selectors.kernel_code_x64;
-        idt[e.vec_no].interrupt_stack_table = 0;
-        idt[e.vec_no].gate_type = if (e.type == Exception.Type.fault) IdtEntry.GateType.interrupt_gate else IdtEntry.GateType.trap_gate; //TODO ?
-        idt[e.vec_no].privilege = dpl.PrivilegeLevel.ring0;
-        idt[e.vec_no].present = true;
+    inline for (et, 0..) |e, idx| {
+        setDefaultExceptionEntry(idx, if (e.type == Exception.Type.fault) IdtEntry.GateType.interrupt_gate else IdtEntry.GateType.trap_gate);
+
+
+        // idt[e.vec_no].setOffset(@intFromPtr(&exceptionFnBind(i)));
+        // idt[e.vec_no].segment_selector = gdt.segment_selectors.kernel_code_x64;
+        // idt[e.vec_no].interrupt_stack_table = 0;
+        // idt[e.vec_no].gate_type = if (e.type == Exception.Type.fault) IdtEntry.GateType.interrupt_gate else IdtEntry.GateType.trap_gate; //TODO ?
+        // idt[e.vec_no].privilege = dpl.PrivilegeLevel.ring0;
+        // idt[e.vec_no].present = true;
     }
 
     // PIC IRQs
     inline for (0..total_irqs) |i| {
-        idt[pic_master_irq_start + i].segment_selector = gdt.segment_selectors.kernel_code_x64;
-        idt[pic_master_irq_start + i].interrupt_stack_table = 0;
-        idt[pic_master_irq_start + i].gate_type = IdtEntry.GateType.interrupt_gate;
-        idt[pic_master_irq_start + i].privilege = dpl.PrivilegeLevel.ring3;
-        idt[pic_master_irq_start + i].present = true;
-        switch (i) {
-            1, 0xa => { //TODO: 0xa -> PCI - write function to set handler from outside this file
-                idt[pic_master_irq_start + i].setOffset(@intFromPtr(&interruptWithAckowledgeFnBind(i, true)));
-            },
-            else => {
-                idt[pic_master_irq_start + i].setOffset(@intFromPtr(&interruptWithAckowledgeFnBind(i, false)));
-            },
-        }
+        //change code to use set
+        setDefaultInterruptEntry(pic_master_irq_start + i, isr_handle_loop_fn, false);
+        
+        // idt[pic_master_irq_start + i].segment_selector = gdt.segment_selectors.kernel_code_x64;
+        // idt[pic_master_irq_start + i].interrupt_stack_table = 0;
+        // idt[pic_master_irq_start + i].gate_type = IdtEntry.GateType.interrupt_gate;
+        // idt[pic_master_irq_start + i].privilege = dpl.PrivilegeLevel.ring3;
+        // idt[pic_master_irq_start + i].present = true;
+        // switch (i) {
+        //     1, 0xa => { //TODO: 0xa -> PCI - write function to set handler from outside this file
+        //         idt[pic_master_irq_start + i].setOffset(@intFromPtr(&interruptWithAckowledgeFnBind(i, null, true)));
+        //     },
+        //     else => {
+        //         idt[pic_master_irq_start + i].setOffset(@intFromPtr(&interruptWithAckowledgeFnBind(i, null,false)));
+        //     },
+        // }
+
+        // change above code to use set
 
         // Softwares interrupts
         //TODO: add

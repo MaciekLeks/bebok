@@ -1,8 +1,10 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const limine = @import("limine");
 const config = @import("config");
 const cpu = @import("cpu.zig");
-const start = @import("start.zig");
+//const start = @import("start.zig");
+const segmentation = @import("segmentation.zig");
 const paging = @import("paging.zig");
 const pmm = @import("mem/pmm.zig");
 const heap = @import("mem/heap.zig").heap;
@@ -12,6 +14,8 @@ const Nvme = @import("drivers/Nvme.zig");
 const int = @import("int.zig");
 
 const log = std.log.scoped(.kernel);
+
+pub export var base_revision: limine.BaseRevision = .{ .revision = 1 };
 
 pub const std_options = .{
     .logFn = logFn,
@@ -55,10 +59,23 @@ pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
 }
 
 export fn _start() callconv(.C) noreturn {
-    start.init() catch |err| {
-        log.err("Startup error: {}", .{err});
-        @panic("Startup error");
+    // Ensure the bootloader actually understands our base revision (see spec).
+    if (!base_revision.is_supported()) {
+        cpu.halt();
+    }
+
+    cpu.cli();
+    segmentation.init();
+
+    paging.init() catch |err| {
+        log.err("Paging initialization error: {}", .{err});
+        @panic("Paging initialization error");
     };
+
+    // start.init() catch |err| {
+    //     log.err("Startup error: {}", .{err});
+    //     @panic("Startup error");
+    // };
 
     log.debug("Hello, world!", .{});
 
@@ -76,13 +93,12 @@ export fn _start() callconv(.C) noreturn {
     log.warn("Allocated memory at {*}", .{memory});
     allocator.free(memory);
 
-    var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");
-    pty.printf("Bebok version: {any}\n", .{config.kernel_version});
-
     //{  init handler list
+    int.init(int.ISRHandleLoop);
     var arena_allocator = std.heap.ArenaAllocator.init(heap.page_allocator);
     int.initHandlerList(arena_allocator.allocator());
     defer int.deinitHandlerList();
+    cpu.sti();
     //} init handler list
 
     //cpu.div0();
@@ -95,6 +111,9 @@ export fn _start() callconv(.C) noreturn {
 
     //pci test end
 
-    start.done(); //only now we can hlt - do not use defer after start.init();
+    var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");
+    pty.printf("Bebok version: {any}\n", .{config.kernel_version});
 
+    //start.done(); //only now we can hlt - do not use defer after start.init();
+    cpu.halt();
 }
