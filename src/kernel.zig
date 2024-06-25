@@ -72,11 +72,6 @@ export fn _start() callconv(.C) noreturn {
         @panic("Paging initialization error");
     };
 
-    // start.init() catch |err| {
-    //     log.err("Startup error: {}", .{err});
-    //     @panic("Startup error");
-    // };
-
     log.debug("Hello, world!", .{});
 
     pmm.init() catch |err| {
@@ -101,7 +96,6 @@ export fn _start() callconv(.C) noreturn {
     cpu.sti();
     //} init handler list
 
-    //cpu.div0();
     //pci test start
     pci.init();
     Nvme.init();
