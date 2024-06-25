@@ -110,7 +110,7 @@ export fn _start() callconv(.C) noreturn {
     defer pci.deinit(); //TODO: na pewno?
     //pci test end
 
-    int.addISR(0x21, .{ .unique_id = 1234, .func = &ttt }) catch |err| {
+    int.addISR(0x21, .{ .unique_id = 1234, .func = &testISR }) catch |err| {
         log.err("Failed to add NVMe interrupt handler: {}", .{err});
     };
 
@@ -121,6 +121,8 @@ export fn _start() callconv(.C) noreturn {
     cpu.halt();
 }
 
-fn ttt() !void {
+
+//TODO tbd
+fn testISR() !void {
     log.warn("----->>>>!!!!", .{});
 }
