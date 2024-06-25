@@ -94,10 +94,10 @@ export fn _start() callconv(.C) noreturn {
     allocator.free(memory);
 
     //{  init handler list
-    int.init(int.ISRHandleLoop);
+    int.init(int.processISRList);
     var arena_allocator = std.heap.ArenaAllocator.init(heap.page_allocator);
-    int.initHandlerList(arena_allocator.allocator());
-    defer int.deinitHandlerList();
+    int.initISRMap(arena_allocator.allocator());
+    defer int.deinitISRMap();
     cpu.sti();
     //} init handler list
 
@@ -110,7 +110,7 @@ export fn _start() callconv(.C) noreturn {
     defer pci.deinit(); //TODO: na pewno?
     //pci test end
 
-    int.addHandler(0x21, .{ .unique_id = 1234, .func = &ttt }) catch |err| {
+    int.addISR(0x21, .{ .unique_id = 1234, .func = &ttt }) catch |err| {
         log.err("Failed to add NVMe interrupt handler: {}", .{err});
     };
 

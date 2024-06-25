@@ -132,7 +132,7 @@ var idtd: Idtd = .{
     .offset = undefined,
 };
 
-fn exceptionFnBind(comptime idx: u5) HandleFn {
+fn bindExceptionHandler(comptime idx: u5) HandleFn {
     return struct {
         fn handle() callconv(.Interrupt) void {
             log.err(std.fmt.comptimePrint("Exception: vec_no={d}, mnemonic={s}, description={s}", .{ et[idx].vec_no, et[idx].mnemonic, et[idx].description }), .{});
@@ -141,15 +141,11 @@ fn exceptionFnBind(comptime idx: u5) HandleFn {
         }.handle;
 }
 
-fn interruptFnBind(comptime idx: u5) HandleFn {
-    return struct {
-        fn handle() callconv(.Interrupt) void {
-            log.debug(std.fmt.comptimePrint("Interrupt: idx={d}", .{idx}), .{});
-        }
-        }.handle;
+fn bindIRQHandler(comptime _: u5,  comptime  _: ?ISRHandleLoopFn, comptime _: bool) HandleFn {
+    @compileError("Not implemented");
 }
 
-fn interruptWithAckowledgeFnBind(comptime vec_no: VectorIndex,  comptime  isr_handle_loop_fn: ?ISRHandleLoopFn, comptime logging: bool) HandleFn {
+fn bindIRQHandlerWithAck(comptime vec_no: VectorIndex,  comptime  isr_handle_loop_fn: ?ISRHandleLoopFn, comptime logging: bool) HandleFn {
     return struct {
         fn handle() callconv(.Interrupt) void {
             if (logging) log.debug(std.fmt.comptimePrint("Interrupt: IRQ 0x{x}", .{vec_no}), .{});
@@ -171,11 +167,11 @@ fn setIdtEntry(comptime idx: VectorIndex, handle: HandleFn, gate_type: IdtEntry.
 }
 
 fn setDefaultInterruptEntry(comptime vec_no: VectorIndex, comptime isr_handle_loop_fn: ISRHandleLoopFn, comptime logging:bool ) void {
-    setIdtEntry(vec_no, interruptWithAckowledgeFnBind(vec_no, isr_handle_loop_fn, logging), IdtEntry.GateType.interrupt_gate, dpl.PrivilegeLevel.ring0, true);
+    setIdtEntry(vec_no, bindIRQHandlerWithAck(vec_no, isr_handle_loop_fn, logging), IdtEntry.GateType.interrupt_gate, dpl.PrivilegeLevel.ring0, true);
 }
 
 fn setDefaultExceptionEntry(comptime idx: u5, comptime gate_type: IdtEntry.GateType) void {
-    setIdtEntry(idx, exceptionFnBind(idx), gate_type , dpl.PrivilegeLevel.ring0, true);
+    setIdtEntry(idx, bindExceptionHandler(idx), gate_type , dpl.PrivilegeLevel.ring0, true);
 }
 
 fn setEmptyInterruptEntry(comptime idx: VectorIndex) void {
@@ -196,7 +192,6 @@ pub fn init(comptime isr_handle_loop_fn: ISRHandleLoopFn) void {
         switch (i) {
             0x02, 0x09, 0x15, 0x16...0x1B, 0x1F => |ei| {
                 setDefaultInterruptEntry(ei,  isr_handle_loop_fn, true);
-
                 // idt[ei].setOffset(@intFromPtr(&interruptFnBind(ei)));
                 // idt[ei].segment_selector = gdt.segment_selectors.kernel_code_x64;
                 // idt[ei].interrupt_stack_table = 0;

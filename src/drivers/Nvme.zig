@@ -195,7 +195,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
     // TODO: remove this
     log.warn("NVMe interrupt line: {}", .{interrupt_line});
     const unique_id = pci.uniqueId(bus, slot, function);
-    int.addHandler(interrupt_line, .{ .unique_id = unique_id, .func = handleInterrupt}) catch |err| {
+    int.addISR(interrupt_line, .{ .unique_id = unique_id, .func = handleInterrupt}) catch |err| {
         log.err("Failed to add NVMe interrupt handler: {}", .{err});
     };
 }
