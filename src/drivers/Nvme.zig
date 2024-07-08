@@ -94,6 +94,8 @@ const RegisterSet = packed struct {
     aqa: AQARegister,
     asq: ASQEntry,
     acq: ACQEntry,
+    //sugesset the rest of the registers
+
 };
 
 fn readRegister(T: type, bar: pci.BAR, register_set_field: @TypeOf(.enum_literal)) T {
@@ -117,6 +119,8 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
 
     //  bus-mastering DMA, and memory space access in the PCI configuration space
     const command = pci.readRegisterWithArgs(u16, .command, function, slot, bus);
+    log.warn("PCI command register: 0b{b:0>16}", .{command});
+    // Enable interrupts, bus-mastering DMA, and memory space access in the PCI configuration space for the function.
     pci.writeRegisterWithArgs(u16, .command, function, slot, bus, command | 0b110);
 
     const virt = switch (bar.address) {
@@ -148,9 +152,9 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
     // End of adjustment
 
     //log register_set_ptr content
-    log.warn("NVMe register set at address {}:", .{register_set_ptr.*});
+    log.debug("NVMe register set at address {}:", .{register_set_ptr.*});
 
-    log.warn(
+    log.debug(
         \\bar:{}, addr:0x{x},
         \\cap: 0b{b:0>64}, vs: 0b{b:0>32}
         \\intms: 0b{b:0>32}, intmc: 0b{b:0>32}
@@ -170,15 +174,15 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
         acq_reg_ptr.*,
     });
 
-    // Reset the controller
-    var cc = readRegister(CCRegister, bar, .cc);
-    cc.en = 0;
-    writeRegister(CCRegister, bar, .cc, cc);
+    // Check the controller version
+    const vs = readRegister(VSRegister, bar, .vs);
+    log.info("NVMe controller version: {}.{}.{}", .{ vs.mjn, vs.mnr, vs.tet });
 
-    // Wait the controller to be disabled
-    while (readRegister(CSTSRegister, bar, .csts).rdy != 0) {}
-
-    log.info("NVMe controller is disabled", .{});
+    // support only NVMe 1.4 and 2.0
+    if (vs.mjn == 1 and vs.mnr < 4) {
+        log.err("Unsupported NVMe controller major version:  {}.{}.{}", .{ vs.mjn, vs.mnr, vs.tet });
+        return;
+    }
 
     // Check if the controller supports NVM Command Set and Admin Command Set
     const cap = readRegister(CAPRegister, bar, .cap);
@@ -192,15 +196,42 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
         return;
     }
 
+    log.info("NVMe controller supports min/max memory page size: 2^(12 + cap.mpdmin:{d}) -> 2^(12 + cap.mpdmssx: {d}), 2^(12 + cc.mps: {d})", .{ cap.mpsmin, cap.mpsmax, @as(*CCRegister, @ptrCast(@volatileCast(cc_reg_ptr))).*.mps });
+    // const mpsmin =  std.math.powi(u64, 2,  12 + cap.mpsmin) catch |err| {
+    //     log.err("Failed to calculate min memory page size: {}", .{err});
+    //     return;
+    // };
+    // const mpsmax =  std.math.powi(u64, 2, @as(u64, 12 + cap.mpsmax) ) catch |err| {
+    //     log.err("Failed to calculate max memory page size: {}", .{err});
+    //     return;
+    // };
+    // log.info("NVMe controller supports min/max memory page size: {d}/{d}", .{mpsmin, mpsmax});
+
+    // Check the capabilities for support of the host's memory page size
+    if (cap.mpsmin > 0) {
+        log.err("NVMe controller does not support the host's memory page size", .{});
+        return;
+    }
+
+    // Reset the controller
+    var cc = readRegister(CCRegister, bar, .cc);
+    cc.en = 0;
+    writeRegister(CCRegister, bar, .cc, cc);
+
+    // Wait the controller to be disabled
+    while (readRegister(CSTSRegister, bar, .csts).rdy != 0) {}
+
+    log.info("NVMe controller is disabled", .{});
+
     // TODO: remove this
-    log.warn("NVMe interrupt line: {}", .{interrupt_line});
+    log.info("NVMe interrupt line: {}", .{interrupt_line});
     const unique_id = pci.uniqueId(bus, slot, function);
-    int.addISR(interrupt_line, .{ .unique_id = unique_id, .func = handleInterrupt}) catch |err| {
+    int.addISR(interrupt_line, .{ .unique_id = unique_id, .func = handleInterrupt }) catch |err| {
         log.err("Failed to add NVMe interrupt handler: {}", .{err});
     };
 }
 
-fn handleInterrupt() !void{
+fn handleInterrupt() !void {
     log.warn("We've got it: NVMe interrupt", .{});
 }
 
