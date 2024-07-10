@@ -69,9 +69,9 @@ const CSTSRegister = packed struct(u32) {
 
 const AQARegister = packed struct(u32) {
     asqs: u12, //0-11
-    rsrvd_a: u4, //12-15
+    rsrvd_a: u4 = 0x0, //12-15
     acqs: u12, //16-27
-    rsrvd_b: u4, //28-31
+    rsrvd_b: u4 = 0x0, //28-31
 };
 
 const ASQEntry = packed struct(u64) {
@@ -85,12 +85,14 @@ const ACQEntry = packed struct(u64) {
 };
 
 const RegisterSet = packed struct {
-    cap: CAPRegister,
-    vs: VSRegister,
-    intms: u32,
-    intmc: u32,
+    cap: CAPRegister, //offset: 0x00
+    vs: VSRegister, // offset: 0x08
+    intms: u32, // offset: 0x0c
+    intmc: u32, // off  0x10
     cc: CCRegister,
+    rsrvd: u32 = 0,
     csts: CSTSRegister,
+    nssrm: u32,
     aqa: AQARegister,
     asq: ASQEntry,
     acq: ACQEntry,
@@ -108,6 +110,29 @@ fn writeRegister(T: type, bar: pci.BAR, register_set_field: @TypeOf(.enum_litera
     switch (bar.address) {
         inline else => |addr| @as(*volatile T, @ptrFromInt(paging.virtFromMME(addr) + @offsetOf(RegisterSet, @tagName(register_set_field)))).* = value,
     }
+
+    // switch (bar.address) {
+    //     inline else => |addr| {
+    //         const offset = @offsetOf(RegisterSet, @tagName(register_set_field));
+    //         const ptr: *volatile T = (@ptrFromInt(paging.virtFromMME(addr) + offset));
+    //         log.warn("Address: {}, Offset: {x}, Ptr: {}, fieldName:{s}\n", .{ addr, offset, ptr, @tagName(register_set_field) });
+    //         log.debug("Writing value: {}\n", .{value});
+    //         log.debug("Value before writing: {}\n", .{ptr.*});
+    //
+    //         //ptr.* = value;
+    //
+    //         //var x: u32 = 0;
+    //         //x = x + 0x01020304;
+    //         //_ = &x;
+    //         //ptr.* = @bitCast(x);
+    //         ptr.* = @bitCast(value);
+    //         //
+    //         //
+    //         // Odczytaj wartość po zapisie, aby sprawdzić, czy operacja się powiodła
+    //         const read_back = ptr.*;
+    //         log.debug("Read back value: {}\n", .{read_back});
+    //     },
+    // }
 }
 
 pub fn interested(_: Self, class_code: u8, subclass: u8, prog_if: u8) bool {
@@ -215,13 +240,39 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
 
     // Reset the controller
     var cc = readRegister(CCRegister, bar, .cc);
+    log.info("CC register before reset: {}", .{cc});
     cc.en = 0;
+    log.info("CC register before reset with enable flag disabled: {}", .{cc});
     writeRegister(CCRegister, bar, .cc, cc);
+    cc = readRegister(CCRegister, bar, .cc); // all fields should be 0
+    log.info("CC register after reset: {}", .{cc});
 
     // Wait the controller to be disabled
     while (readRegister(CSTSRegister, bar, .csts).rdy != 0) {}
 
     log.info("NVMe controller is disabled", .{});
+
+    //set AQA queue size
+    var aqa = readRegister(AQARegister, bar, .aqa);
+    log.info("NVMe AQA Register: {}/0x{x}", .{ aqa, aqa_reg_ptr.* });
+    aqa.asqs = 0xa;
+    aqa.acqs = 0xb;
+    writeRegister(AQARegister, bar, .aqa, aqa);
+    log.info("NVMe AQA value to write: {}", .{aqa});
+    //aqa_reg_ptr.* = @bitCast(aqa);
+    const aqa2 = readRegister(AQARegister, bar, .aqa);
+    log.info("NVMe AQA Register: {}", .{aqa2});
+
+    log.warn("offset of {s} is 0x{x}", .{ "cap", @offsetOf(RegisterSet, "cap") });
+    log.warn("offset of {s} is 0x{x}", .{ "vs", @offsetOf(RegisterSet, "vs") });
+    log.warn("offset of {s} is 0x{x}", .{ "intms", @offsetOf(RegisterSet, "intms") });
+    log.warn("offset of {s} is 0x{x}", .{ "intmc", @offsetOf(RegisterSet, "intmc") });
+    log.warn("offset of {s} is 0x{x}", .{ "cc", @offsetOf(RegisterSet, "cc") });
+    log.warn("offset of {s} is 0x{x}", .{ "csts", @offsetOf(RegisterSet, "csts") });
+    log.warn("offset of {s} is 0x{x}", .{ "nssrm", @offsetOf(RegisterSet, "nssrm") });
+    log.warn("offset of {s} is 0x{x}", .{ "aqa", @offsetOf(RegisterSet, "aqa") });
+    log.warn("offset of {s} is 0x{x}", .{ "asq", @offsetOf(RegisterSet, "asq") });
+    log.warn("offset of {s} is 0x{x}", .{ "acq", @offsetOf(RegisterSet, "acq") });
 
     // TODO: remove this
     log.info("NVMe interrupt line: {}", .{interrupt_line});
