@@ -1,0 +1,12 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+      {
+        "type": "qemu",
+        "name": "Attach to qemu",
+        "request": "attach",
+        "cwd": "${workspaceFolder}",
+        "target": "localhost:1234"
+      }
+    ]
+}

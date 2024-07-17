@@ -197,7 +197,9 @@ fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, debug: bool) !*Build.S
         .x86_64 => {
             qemu_iso_action.addArgs(&.{
                 "-M", "q35", //for PCIe and NVMe support
-                "-m", "2G",
+                "-m", "2G", //Memory size
+                //"-cpu", "486,-pse", // TODO: enable 1GB and 2MB pages, for now we turn them off
+                //"-enable-kvm", //to be able to use host cpu
             });
             qemu_iso_action.addArg("-no-reboot");
             qemu_iso_action.addArg("-cdrom");
@@ -239,7 +241,7 @@ pub fn build(b: *Build) !void {
 
     const build_options = .{
         .arch = b.option(std.Target.Cpu.Arch, "arch", "The architecture to build for") orelse b.host.result.cpu.arch,
-        .mem_page_size = b.option(enum(u32) { ps4k= 4096, ps2m = 512 * 4096, ps1g =  1024 * 1024 * 1024}, "page-size", "Choose the page size: 'ps4k' stands for 4096 bytes, 'ps1m' means 2MB pages, and 'ps1g' is a 1GB page. ") orelse .ps4k,
+        .mem_page_size = b.option(enum(u32) { ps4k = 4096, ps2m = 512 * 4096, ps1g = 1024 * 1024 * 1024 }, "page-size", "Choose the page size: 'ps4k' stands for 4096 bytes, 'ps1m' means 2MB pages, and 'ps1g' is a 1GB page. ") orelse .ps4k,
         .mem_bit_tree_max_levels = b.option(u8, "mem-bit-tree-max-levels", "Maximum number of the bit tree levels to manage memory, calculated as log2(total_memory_in_bytes/page_size_in_bytes)+ 1; defaults to 32") orelse 32,
     };
 

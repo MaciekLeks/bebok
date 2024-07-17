@@ -3,10 +3,18 @@ const log = std.log.scoped(.nvme);
 const pci = @import("pci.zig");
 const paging = @import("../paging.zig");
 const int = @import("../int.zig");
+const pmm = @import("../mem/pmm.zig");
+const heap = @import("../mem/heap.zig").heap;
+const math = std.math;
 
 const nvme_class_code = 0x01;
 const nvme_subclass = 0x08;
 const nvme_prog_if = 0x02;
+
+const nvme_iosqs = 0x2; //submisstion queue length
+const nvme_iocqs = 0x2; //completion queue length
+const nvme_ioasqs = 0x01; //admin submission queue length
+const nvme_ioacqs = 0x01; //admin completion queue length
 
 const Self = @This();
 
@@ -37,12 +45,18 @@ const CAPRegister = packed struct(u64) {
     rsrvd_b: u3, //61-63
 };
 
+const ArbitrationMechanism = enum(u3) {
+    round_robin = 0b0,
+    weighted_round_robin = 0b1,
+    vendor_specific = 0b111,
+};
+
 const CCRegister = packed struct(u32) {
     en: u1, //0 use to reset the controller
     rsrvd_a: u3, //1-3
     css: u3, //4-6
     mps: u4, //7-10
-    ams: u3, //11-13
+    ams: ArbitrationMechanism, //11-13
     shn: u2, //14-15
     iosqes: u4, //16-19
     iocqes: u4, //20-23
@@ -75,30 +89,45 @@ const AQARegister = packed struct(u32) {
 };
 
 const ASQEntry = packed struct(u64) {
-    asqb: u12, //0-11
-    rsrvd: u52, //12-63
+    rsrvd: u12 = 0, //0-11
+    asqb: u52, //0-11
 };
 
 const ACQEntry = packed struct(u64) {
-    acqb: u12, //0-11
-    rsrvd: u52, //12-63
+    rsrvd: u12, //12-63
+    acqb: u52, //0-11
 };
 
 const RegisterSet = packed struct {
-    cap: CAPRegister, //offset: 0x00
-    vs: VSRegister, // offset: 0x08
-    intms: u32, // offset: 0x0c
-    intmc: u32, // off  0x10
+    cap: CAPRegister,
+    vs: VSRegister,
+    intms: u32,
+    intmc: u32,
     cc: CCRegister,
     rsrvd: u32 = 0,
     csts: CSTSRegister,
-    nssrm: u32,
+    nssr: u32,
     aqa: AQARegister,
     asq: ASQEntry,
     acq: ACQEntry,
-    //sugesset the rest of the registers
-
 };
+
+const SQEntry = packed struct(u64) {
+    data: u64,
+};
+
+const CQEntry = packed struct(u128) {
+    cmd_res0: u32,
+    cmd_res1: u32,
+    sq_header_ptr: u16,
+    sq_id: u16,
+    cmd_id: u16,
+    phase: u1,
+    status: u15,
+};
+
+var sqa: []SQEntry = undefined;
+var cqa: []CQEntry = undefined;
 
 fn readRegister(T: type, bar: pci.BAR, register_set_field: @TypeOf(.enum_literal)) T {
     return switch (bar.address) {
@@ -110,29 +139,6 @@ fn writeRegister(T: type, bar: pci.BAR, register_set_field: @TypeOf(.enum_litera
     switch (bar.address) {
         inline else => |addr| @as(*volatile T, @ptrFromInt(paging.virtFromMME(addr) + @offsetOf(RegisterSet, @tagName(register_set_field)))).* = value,
     }
-
-    // switch (bar.address) {
-    //     inline else => |addr| {
-    //         const offset = @offsetOf(RegisterSet, @tagName(register_set_field));
-    //         const ptr: *volatile T = (@ptrFromInt(paging.virtFromMME(addr) + offset));
-    //         log.warn("Address: {}, Offset: {x}, Ptr: {}, fieldName:{s}\n", .{ addr, offset, ptr, @tagName(register_set_field) });
-    //         log.debug("Writing value: {}\n", .{value});
-    //         log.debug("Value before writing: {}\n", .{ptr.*});
-    //
-    //         //ptr.* = value;
-    //
-    //         //var x: u32 = 0;
-    //         //x = x + 0x01020304;
-    //         //_ = &x;
-    //         //ptr.* = @bitCast(x);
-    //         ptr.* = @bitCast(value);
-    //         //
-    //         //
-    //         // Odczytaj wartość po zapisie, aby sprawdzić, czy operacja się powiodła
-    //         const read_back = ptr.*;
-    //         log.debug("Read back value: {}\n", .{read_back});
-    //     },
-    // }
 }
 
 pub fn interested(_: Self, class_code: u8, subclass: u8, prog_if: u8) bool {
@@ -222,58 +228,82 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
     }
 
     log.info("NVMe controller supports min/max memory page size: 2^(12 + cap.mpdmin:{d}) -> 2^(12 + cap.mpdmssx: {d}), 2^(12 + cc.mps: {d})", .{ cap.mpsmin, cap.mpsmax, @as(*CCRegister, @ptrCast(@volatileCast(cc_reg_ptr))).*.mps });
-    // const mpsmin =  std.math.powi(u64, 2,  12 + cap.mpsmin) catch |err| {
-    //     log.err("Failed to calculate min memory page size: {}", .{err});
-    //     return;
-    // };
-    // const mpsmax =  std.math.powi(u64, 2, @as(u64, 12 + cap.mpsmax) ) catch |err| {
-    //     log.err("Failed to calculate max memory page size: {}", .{err});
-    //     return;
-    // };
-    // log.info("NVMe controller supports min/max memory page size: {d}/{d}", .{mpsmin, mpsmax});
 
-    // Check the capabilities for support of the host's memory page size
-    if (cap.mpsmin > 0) {
+    const sys_mps: u4 = @intCast(math.log2(pmm.page_size) - 12);
+    if (cap.mpsmin < sys_mps or sys_mps > cap.mpsmax) {
         log.err("NVMe controller does not support the host's memory page size", .{});
         return;
     }
 
     // Reset the controller
-    var cc = readRegister(CCRegister, bar, .cc);
-    log.info("CC register before reset: {}", .{cc});
-    cc.en = 0;
-    log.info("CC register before reset with enable flag disabled: {}", .{cc});
-    writeRegister(CCRegister, bar, .cc, cc);
-    cc = readRegister(CCRegister, bar, .cc); // all fields should be 0
-    log.info("CC register after reset: {}", .{cc});
+    disableController(bar);
 
-    // Wait the controller to be disabled
-    while (readRegister(CSTSRegister, bar, .csts).rdy != 0) {}
-
-    log.info("NVMe controller is disabled", .{});
-
-    //set AQA queue size
+    // The host configures the Admin Queue by setting the Admin Queue Attributes (AQA), Admin Submission Queue Base Address (ASQ), and Admin Completion Queue Base Address (ACQ) the appropriate values;
+    //set AQA queue sizes
     var aqa = readRegister(AQARegister, bar, .aqa);
-    log.info("NVMe AQA Register: {}/0x{x}", .{ aqa, aqa_reg_ptr.* });
-    aqa.asqs = 0xa;
-    aqa.acqs = 0xb;
+    log.info("NVMe AQA Register pre-modification: {}", .{aqa});
+    aqa.asqs = nvme_ioasqs;
+    aqa.acqs = nvme_ioacqs;
     writeRegister(AQARegister, bar, .aqa, aqa);
-    log.info("NVMe AQA value to write: {}", .{aqa});
-    //aqa_reg_ptr.* = @bitCast(aqa);
-    const aqa2 = readRegister(AQARegister, bar, .aqa);
-    log.info("NVMe AQA Register: {}", .{aqa2});
+    aqa = readRegister(AQARegister, bar, .aqa);
+    log.info("NVMe AQA Register post-modification: {}", .{aqa});
 
-    log.warn("offset of {s} is 0x{x}", .{ "cap", @offsetOf(RegisterSet, "cap") });
-    log.warn("offset of {s} is 0x{x}", .{ "vs", @offsetOf(RegisterSet, "vs") });
-    log.warn("offset of {s} is 0x{x}", .{ "intms", @offsetOf(RegisterSet, "intms") });
-    log.warn("offset of {s} is 0x{x}", .{ "intmc", @offsetOf(RegisterSet, "intmc") });
-    log.warn("offset of {s} is 0x{x}", .{ "cc", @offsetOf(RegisterSet, "cc") });
-    log.warn("offset of {s} is 0x{x}", .{ "csts", @offsetOf(RegisterSet, "csts") });
-    log.warn("offset of {s} is 0x{x}", .{ "nssrm", @offsetOf(RegisterSet, "nssrm") });
-    log.warn("offset of {s} is 0x{x}", .{ "aqa", @offsetOf(RegisterSet, "aqa") });
-    log.warn("offset of {s} is 0x{x}", .{ "asq", @offsetOf(RegisterSet, "asq") });
-    log.warn("offset of {s} is 0x{x}", .{ "acq", @offsetOf(RegisterSet, "acq") });
+    // ASQ and ACQ setup
+    sqa = heap.page_allocator.alloc(SQEntry, nvme_ioasqs) catch |err| {
+        log.err("Failed to allocate memory for admin submission queue entries: {}", .{err});
+        return;
+    };
+    cqa = heap.page_allocator.alloc(CQEntry, nvme_ioacqs) catch |err| {
+        log.err("Failed to allocate memory for admin completion queue entries: {}", .{err});
+        return;
+    };
 
+    const sqa_phys = paging.recPhysFromVirt(@intFromPtr(sqa.ptr)) catch |err| {
+        log.err("Failed to get physical address of admin submission queue: {}", .{err});
+        return;
+    };
+    const cqa_phys = paging.recPhysFromVirt(@intFromPtr(cqa.ptr)) catch |err| {
+        log.err("Failed to get physical address of admin completion queue: {}", .{err});
+        return;
+    };
+
+    log.err("ASQ: virt: {*}, phys:0x{x}; ACQ: virt:{*}, phys:0x{x}", .{ sqa, sqa_phys, cqa, cqa_phys });
+
+    var asq = readRegister(ASQEntry, bar, .asq);
+    log.info("ASQ Register pre-modification: 0x{x}", .{@shlExact(asq.asqb, 12)});
+    asq.asqb = @intCast(@shrExact(sqa_phys, 12)); // 4kB aligned
+    writeRegister(ASQEntry, bar, .asq, asq);
+    asq = readRegister(ASQEntry, bar, .asq);
+    log.info("ASQ Register post-modification: 0x{x}", .{@shlExact(asq.asqb, 12)});
+
+    var acq = readRegister(ACQEntry, bar, .acq);
+    log.info("ACQ Register pre-modification: 0x{x}", .{@shlExact(acq.acqb, 12)});
+    acq.acqb = @intCast(@shrExact(cqa_phys, 12)); // 4kB aligned
+    writeRegister(ACQEntry, bar, .acq, acq);
+    acq = readRegister(ACQEntry, bar, .acq);
+    log.info("ACQ Register post-modification: 0x{x}", .{@shlExact(acq.acqb, 12)});
+
+    var cc = readRegister(CCRegister, bar, .cc);
+    log.info("CC register pre-modification: {}", .{cc});
+    // Set page size as the host's memory page size
+    cc.mps = sys_mps;
+    // Set the arbitration mechanism to round-robin
+    cc.ams = .round_robin;
+    writeRegister(CCRegister, bar, .cc, cc);
+    log.info("CC register post-modification: {}", .{readRegister(CCRegister, bar, .cc)});
+
+    enableController(bar);
+
+    // log.warn("RegisterSet.cap offset: 0x{x}", .{@offsetOf(RegisterSet, "cap")});
+    // log.warn("RegisterSet.vs offset: 0x{x}", .{@offsetOf(RegisterSet, "vs")});
+    // log.warn("RegisterSet.intms offset: 0x{x}", .{@offsetOf(RegisterSet, "intms")});
+    // log.warn("RegisterSet.intmc offset: 0x{x}", .{@offsetOf(RegisterSet, "intmc")});
+    // log.warn("RegisterSet.cc offset: 0x{x}", .{@offsetOf(RegisterSet, "cc")});
+    // log.warn("RegisterSet.csts offset: 0x{x}", .{@offsetOf(RegisterSet, "csts")});
+    // log.warn("RegisterSet.aqa offset: 0x{x}", .{@offsetOf(RegisterSet, "aqa")});
+    // log.warn("RegisterSet.asq offset: 0x{x}", .{@offsetOf(RegisterSet, "asq")});
+    // log.warn("RegisterSet.acq offset: 0x{x}", .{@offsetOf(RegisterSet, "acq")});
+    //
     // TODO: remove this
     log.info("NVMe interrupt line: {}", .{interrupt_line});
     const unique_id = pci.uniqueId(bus, slot, function);
@@ -299,4 +329,31 @@ pub fn init() void {
 pub fn deinit() void {
     log.info("Deinitializing NVMe driver", .{});
     // TODO: for now we don't have a way to unregister the driver
+
+    heap.page_allocator.free(sqa.ptr);
+    heap.page_allocator.free(cqa.ptr);
+}
+
+// --- helper functions ---
+
+fn toggleController(bar: pci.BAR, enable: bool) void {
+    var cc = readRegister(CCRegister, bar, .cc);
+    log.info("CC register before toggle: {}", .{cc});
+    cc.en = if (enable) 1 else 0;
+    writeRegister(CCRegister, bar, .cc, cc);
+
+    cc = readRegister(CCRegister, bar, .cc);
+    log.info("CC register after toggle: {}", .{cc});
+
+    while (readRegister(CSTSRegister, bar, .csts).rdy != @intFromBool(enable)) {}
+
+    log.info("NVMe controller is {s}", .{if (enable) "enabled" else "disabled"});
+}
+
+fn disableController(bar: pci.BAR) void {
+    toggleController(bar, false);
+}
+
+fn enableController(bar: pci.BAR) void {
+    toggleController(bar, true);
 }

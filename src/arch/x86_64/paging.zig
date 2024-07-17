@@ -82,7 +82,7 @@ fn retrievePagePAT(page_entry_info: GenericEntryInfo) PATType {
         inline else => |ps| {
             const entry: *PageEntry(ps) = @ptrCast(page_entry_info.entry_ptr);
             return pat.patFromPageFlags(entry.pat, entry.cache_disabled, entry.write_through);
-        }
+        },
     }
 }
 
@@ -94,7 +94,7 @@ fn setPagePAT(page_entry_info: GenericEntryInfo, req_pat: PATType) void {
             entry.pat = page_req_pat_flags.page_pat;
             entry.cache_disabled = page_req_pat_flags.page_pcd;
             entry.write_through = page_req_pat_flags.page_pwt;
-        }
+        },
     }
 }
 
@@ -278,7 +278,7 @@ pub fn PagingStructureEntry(comptime ps: PageSize, comptime lvl: Level) type {
                 }
 
                 pub inline fn retrieveFrame(self: Self) ?[]usize {
-                    return if (self.present) @as(*[.ps1g]GenericEntry, @ptrFromInt(self.retrieve_frame_address().?)) else null;
+                    return if (self.present) @as(*[.ps1g]GenericEntry, @ptrFromInt(self.retrieveFrameVirt().?)) else null;
                 }
             },
             .ps4k, .ps2m => packed struct(GenericEntry) {
@@ -453,7 +453,7 @@ pub fn physFromVirtInfo(virt: usize) !struct { phys: usize, lvl: Level, ps: Page
     if (!pdpte.present) return error.PageFault;
 
     if (pdpte.hudge) {
-        return .{ .phys = @as(PagingStructureEntry(.ps1g, .pdpt), @bitCast(pdpte)).retrieveFrameVirt().? + pidx.offset, .lvl = .pdpt, .ps = .ps1g };
+        return .{ .phys = (@as(PagingStructureEntry(.ps1g, .pdpt), @bitCast(pdpte)).retrieveFrameVirt().? << @bitSizeOf(u30)) + pidx.offset, .lvl = .pdpt, .ps = .ps1g };
     }
 
     const pd_table: ?[]Pde = pdpte.retrieveTable() orelse return error.PageFault;
@@ -461,14 +461,14 @@ pub fn physFromVirtInfo(virt: usize) !struct { phys: usize, lvl: Level, ps: Page
     if (!pde.present) return error.PageFault;
 
     if (pde.hudge) {
-        return .{ .phys = @as(PagingStructureEntry(.ps2m, .pd), @bitCast(pde)).retrieveFrameVirt().? + pidx.offset, .lvl = .pd, .ps = .ps2m };
+        return .{ .phys = (@as(PagingStructureEntry(.ps2m, .pd), @bitCast(pde)).retrieveFrameVirt().? << @bitSizeOf(u21)) + pidx.offset, .lvl = .pd, .ps = .ps2m };
     }
 
     const pt_table: ?[]Pte = pde.retrieveTable() orelse return error.PageFault;
     const pte = pt_table.?[pidx.pt_idx];
     if (!pte.present) return error.PageFault;
 
-    return .{ .phys = @as(PagingStructureEntry(.ps4k, .pt), pte).retrieveFrameVirt().? + pidx.offset, .lvl = .pt, .ps = .ps4k };
+    return .{ .phys = (@as(PagingStructureEntry(.ps4k, .pt), pte).retrieveFrameVirt().? << @bitSizeOf(u12)) + pidx.offset, .lvl = .pt, .ps = .ps4k };
 }
 
 // Recursive get physical address from virtual address
@@ -484,7 +484,7 @@ pub fn recPhysFromVirtInfo(virt: usize) !struct { phys: usize, lvl: Level, ps: P
     if (!pdpte.present) return error.PageFault;
 
     if (pdpte.hudge) {
-        return .{ .phys = @as(PagingStructureEntry(.ps1g, .pdpt), @bitCast(pdpte)).retrieveFrameVirt().? + pidx.offset, .lvl = .pdpt, .ps = .ps1g };
+        return .{ .phys = (@as(PagingStructureEntry(.ps1g, .pdpt), @bitCast(pdpte)).retrieveFrameVirt().? << @bitSizeOf(u30)) + pidx.offset, .lvl = .pdpt, .ps = .ps1g };
     }
 
     // check if pd entry is present
@@ -492,14 +492,14 @@ pub fn recPhysFromVirtInfo(virt: usize) !struct { phys: usize, lvl: Level, ps: P
     if (!pde.present) return error.PageFault;
 
     if (pde.hudge) {
-        return .{ .phys = @as(PagingStructureEntry(.ps2m, .pd), @bitCast(pde)).retrieveFrameVirt().? + pidx.offset, .lvl = .pd, .ps = .ps2m };
+        return .{ .phys = (@as(PagingStructureEntry(.ps2m, .pd), @bitCast(pde)).retrieveFrameVirt().? << @bitSizeOf(u21)) + pidx.offset, .lvl = .pd, .ps = .ps2m };
     }
 
     // check if pt entry is present
     const pte = @as(*Pt, @ptrFromInt(RecInfo.ptTableAddr(pidx.pml4_idx, pidx.pdpt_idx, pidx.pd_idx)))[pidx.pt_idx];
     if (!pte.present) return error.PageFault;
 
-    return .{ .phys = @as(PagingStructureEntry(.ps4k, .pt), pte).retrieveFrameVirt().? + pidx.offset, .lvl = .pt, .ps = .ps4k };
+    return .{ .phys = (@as(PagingStructureEntry(.ps4k, .pt), pte).retrieveFrameVirt().? << @bitSizeOf(u12)) + pidx.offset, .lvl = .pt, .ps = .ps4k };
 }
 
 pub inline fn physFromVirt(virt: usize) !usize {
@@ -676,11 +676,11 @@ var pat: PAT = undefined;
 pub fn print_tlb() void {
     for (pml4t, 0..) |e, i| {
         if (e.present) {
-            log.err("tlb_pml4[{d:0>3}]@{*}: 0x{x} -> {*} of {}", .{ i, &e, e.aligned_address_4kbytes, e.retrieve_table(), e });
-            for (e.retrieve_table()) |pdpte| {
+            log.err("tlb_pml4[{d:0>3}]@{*}: 0x{x} -> {any} of {}", .{ i, &e, e.aligned_address_4kbytes, e.retrieveTable(), e });
+            for (e.retrieveTable().?) |pdpte| {
                 if (pdpte.present) {
                     log.err("pdpte: {}", .{pdpte});
-                    for (pdpte.retrieve_table()) |pde| {
+                    for (pdpte.retrieveTable().?) |pde| {
                         if (pde.present) {
                             log.err("pde: {}", .{pde});
                             //                 for (pde.retrieve_table()) |pte| {
@@ -730,11 +730,12 @@ pub fn init() !void {
     // Get ready for recursive paging
     pml4t[510] = .{ .present = true, .writable = true, .aligned_address_4kbytes = @truncate(cr3_formatted.aligned_address_4kbytes) };
 
-    // //const lvl4e = retrieveEntryFromVaddr(Pml4e, .four_level, default_page_size, .lvl4, 0xffff_8000_fe80_0000);
-    // log.warn("cr3 -> 0x{x}", .{cpu.cr3()});
-    // log.warn("pml4 ptr -> {*}\n\n", .{pml4t.ptr});
+    //const lvl4e = retrieveEntryFromVaddr(Pml4e, .four_level, default_page_size, .lvl4, 0xffff_8000_fe80_0000);
+    //log.warn("cr3 -> 0x{x}", .{cpu.cr3()});
+    //log.warn("pml4 ptr -> {*}\n\n", .{pml4t.ptr});
     //
-    // const vaddr_test = 0xffff_8000_fe80_0000;
+    //const vaddr_test = 0xffff_8000_fe80_0000;
+    // const vaddr_test = 0xffff800040132000;
     // const pidx = indexFromVaddr(vaddr_test);
     // log.warn("pidx: 0x{x} -> {}", .{ vaddr_test, pidx });
     // const vaddr_test_info = try recLowestEntryFromVirtInfo(vaddr_test);
@@ -757,22 +758,19 @@ pub fn init() !void {
     // log.warn("phys_buddy_virt: 0x{x}", .{phys_buddy.phys});
     //
     // //wite loop to iterate over each element of address in the table
-    // const vt = [_]usize{ 0xffff80001010a000, 0, virtFromMME(0x4d00), virtFromMME(0xfd000000), virtFromMME(0x7fa61000), virtFromMME(0x100000), virtFromMME(0x7f7b5000) };
-    // for (vt) |vaddr| {
-    //     log.warn("------: 0x{x}", .{vaddr});
-    //     const phys = physFromVirt(vaddr) catch |err| {
-    //         log.err("physFromVirt: virt: 0x{x} -> error: {}", .{ vaddr, err });
-    //         continue;
-    //     };
-    //     log.warn("phyFromVirt: vaddr: 0x{x} -> 0x{x}", .{ vaddr, phys });
-    //
-    //     const phys_by_rec = recPhysFromVirt(vaddr) catch |err| {
-    //         log.err("recPhysFromVirtvirt: 0x{x} -> error: {}", .{ vaddr, err });
-    //         continue;
-    //     };
-    //
-    //     log.warn("recPhyFromVirt: vaddr: 0x{x} -> 0x{x}", .{ vaddr, phys_by_rec });
-    // }
+    const vt = [_]usize{ virtFromMME(0x4d00), virtFromMME(0x10_0000), virtFromMME(0x7fa61000), virtFromMME(0x7fa63000) };
+    for (vt) |vaddr| {
+        log.err("------: 0x{x}", .{vaddr});
+
+        const vaddr_info = try recLowestEntryFromVirtInfo(vaddr);
+        log.err("TABLE:  0x{x} -> {any}", .{ vaddr, vaddr_info });
+        const phys_by_rec = recPhysFromVirt(vaddr) catch |err| {
+            log.err("recPhysFromVirtvirt: 0x{x} -> error: {}", .{ vaddr, err });
+            continue;
+        };
+
+        log.err("recPhyFromVirt: vaddr: 0x{x} -> 0x{x}", .{ vaddr, phys_by_rec });
+    }
     //
     //
     //
@@ -839,7 +837,7 @@ pub fn init() !void {
     // // // const pml4e510 = entryFromVaddr(.pml4, vaddr510);
     // // // log.warn("pml4e510: -> {}, ptr={*}", .{ pml4e510.*, pml4e510 });
     // //
-    // // //print_tlb();
+    //print_tlb();
     // //
     // // // const tphys = physFromVirt(0xFFFFFF7F_8000000);
     // // // log.warn("tphys: 0x{x}", .{tphys});
