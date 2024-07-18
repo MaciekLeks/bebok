@@ -112,8 +112,57 @@ const RegisterSet = packed struct {
     acq: ACQEntry,
 };
 
-const SQEntry = packed struct(u64) {
-    data: u64,
+const AdminOpcode = enum(u8) {
+    identify = 0x06,
+    abort = 0x0c,
+    set_features = 0x09,
+    get_features = 0x0a,
+    create_io_sq = 0x01,
+    delete_io_sq = 0x02,
+    create_io_cq = 0x05,
+    delete_io_cq = 0x07,
+};
+
+const CDW0 = packed struct(u32) {
+    opc: AdminOpcode,
+    fuse: u2 = 0, //0 for nromal operation
+    rsvd: u4 = 0,
+    psdt: u2 = 0, //0 for PRP tranfer
+    cid: u16,
+};
+
+const DataPointer = packed union {
+    prp: packed struct(u128) {
+        prp1: u64,
+        prp2: u64,
+    },
+    sgl: packed struct(u128) {
+        sgl1: u128,
+    },
+};
+
+const SQEntry = union(enum) {
+    identify: packed struct(u512) {
+        cdw0: CDW0,
+        ignrd_a: u32 = 0,
+        rsrvd_a: u32 = 0,
+        ignrd_b: u64 = 0,
+        dptr: DataPointer,
+        cns: u8, //00:07 id cdw10
+        rsrv_b: u8, //08:15 in cdw10
+        cntid: u16, //16-31 in cdw10
+        ignrd_c: u32 = 0,
+        ignrd_d: u32 = 0,
+        ignrd_e: u32 = 0,
+        ignrd_f: u32 = 0,
+        uuid: u7, //00-06 in cdw14
+        rsrvd_c: u25 = 0, //07-31 in cdw14
+        ignrd_g: u32 = 0,
+    },
+
+    fn is(self: SQEntry, tag: std.meta.Tag(SQEntry)) bool {
+        return self == tag;
+    }
 };
 
 const CQEntry = packed struct(u128) {
@@ -126,8 +175,20 @@ const CQEntry = packed struct(u128) {
     status: u15,
 };
 
-var sqa: []SQEntry = undefined;
-var cqa: []CQEntry = undefined;
+const Drive = struct {
+    sqa: []SQEntry = undefined,
+    cqa: []CQEntry = undefined,
+
+    sqa_tail_pos: u32 = 0, // private counter to keep track and update sqa_tail_dbl
+    sqa_tail_dbl: *volatile u32 = undefined, //each doorbell value is u32, minmal doorbell stride is 4 (2^(2+CAP.DSTRD))
+    cqa_head_dbl: *volatile u32 = undefined, //each doorbell value is u32, minmal doorbell stride is 4 (2^(2+CAP.DSTRD))
+
+    sq_tail_pos: u32 = 0, //private counter to keep track and update sq_tail_dbl
+    sq_tail_dbl: *volatile u32 = undefined,
+    cq_head_dbl: *volatile u23 = undefined,
+};
+
+var drive: Drive = undefined; //TODO only one drive now
 
 fn readRegister(T: type, bar: pci.BAR, register_set_field: @TypeOf(.enum_literal)) T {
     return switch (bar.address) {
@@ -146,6 +207,8 @@ pub fn interested(_: Self, class_code: u8, subclass: u8, prog_if: u8) bool {
 }
 
 pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void {
+    drive = .{}; //TODO replace it for more drives
+
     const bar = pci.readBARWithArgs(.bar0, function, slot, bus);
 
     //  bus-mastering DMA, and memory space access in the PCI configuration space
@@ -249,25 +312,25 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
     log.info("NVMe AQA Register post-modification: {}", .{aqa});
 
     // ASQ and ACQ setup
-    sqa = heap.page_allocator.alloc(SQEntry, nvme_ioasqs) catch |err| {
+    drive.sqa = heap.page_allocator.alloc(SQEntry, nvme_ioasqs) catch |err| {
         log.err("Failed to allocate memory for admin submission queue entries: {}", .{err});
         return;
     };
-    cqa = heap.page_allocator.alloc(CQEntry, nvme_ioacqs) catch |err| {
+    drive.cqa = heap.page_allocator.alloc(CQEntry, nvme_ioacqs) catch |err| {
         log.err("Failed to allocate memory for admin completion queue entries: {}", .{err});
         return;
     };
 
-    const sqa_phys = paging.recPhysFromVirt(@intFromPtr(sqa.ptr)) catch |err| {
+    const sqa_phys = paging.recPhysFromVirt(@intFromPtr(drive.sqa.ptr)) catch |err| {
         log.err("Failed to get physical address of admin submission queue: {}", .{err});
         return;
     };
-    const cqa_phys = paging.recPhysFromVirt(@intFromPtr(cqa.ptr)) catch |err| {
+    const cqa_phys = paging.recPhysFromVirt(@intFromPtr(drive.cqa.ptr)) catch |err| {
         log.err("Failed to get physical address of admin completion queue: {}", .{err});
         return;
     };
 
-    log.err("ASQ: virt: {*}, phys:0x{x}; ACQ: virt:{*}, phys:0x{x}", .{ sqa, sqa_phys, cqa, cqa_phys });
+    log.debug("ASQ: virt: {*}, phys:0x{x}; ACQ: virt:{*}, phys:0x{x}", .{ drive.sqa, sqa_phys, drive.cqa, cqa_phys });
 
     var asq = readRegister(ASQEntry, bar, .asq);
     log.info("ASQ Register pre-modification: 0x{x}", .{@shlExact(asq.asqb, 12)});
@@ -293,6 +356,38 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
     log.info("CC register post-modification: {}", .{readRegister(CCRegister, bar, .cc)});
 
     enableController(bar);
+
+    const doorbell_base: usize = virt + 0x1000;
+    const doorbell_size = math.pow(u32, 2, 2 + cap.dstrd);
+    drive.sqa_tail_dbl = @ptrFromInt(doorbell_base + doorbell_size * 0);
+    drive.cqa_head_dbl = @ptrFromInt(doorbell_base + doorbell_size * 1);
+    drive.sq_tail_dbl = @ptrFromInt(doorbell_base + doorbell_size * 2);
+    drive.cq_head_dbl = @ptrFromInt(doorbell_base + doorbell_size * 3);
+    //log the doorbell values
+    log.info("Doorbell values: sqa_tail_dbl: 0x{x}, cqa_head_dbl: 0x{x}, sq_tail_dbl: 0x{x}, cq_head_dbl: 0x{x}", .{ drive.sqa_tail_dbl.*, drive.cqa_head_dbl.*, drive.sq_tail_dbl.*, drive.cq_head_dbl.* });
+
+    const tt = u16;
+    const identify_prp1: []tt = heap.page_allocator.alloc(tt, 10) catch |err| {
+        log.err("Failed to allocate memory for identify command: {}", .{err});
+        return;
+    };
+    defer heap.page_allocator.free(identify_prp1);
+    _ = &identify_prp1;
+    const identify_cmd = .{
+        .cdw0 = .{
+            .opc = .identify,
+            .cid = 0x01, //our id
+        },
+        .dptr = .{
+            .prp = .{
+                .prp1 = @intFromPtr(identify_prp1.ptr),
+                .prp2 = 0, //we need only one page
+            },
+        },
+        .cns = 0x01,
+        .uuid = 0, //0 cause we do not use it
+    };
+    _ = identify_cmd;
 
     // log.warn("RegisterSet.cap offset: 0x{x}", .{@offsetOf(RegisterSet, "cap")});
     // log.warn("RegisterSet.vs offset: 0x{x}", .{@offsetOf(RegisterSet, "vs")});
@@ -330,8 +425,8 @@ pub fn deinit() void {
     log.info("Deinitializing NVMe driver", .{});
     // TODO: for now we don't have a way to unregister the driver
 
-    heap.page_allocator.free(sqa.ptr);
-    heap.page_allocator.free(cqa.ptr);
+    heap.page_allocator.free(drive.sqa);
+    heap.page_allocator.free(drive.cqa);
 }
 
 // --- helper functions ---
@@ -357,3 +452,5 @@ fn disableController(bar: pci.BAR) void {
 fn enableController(bar: pci.BAR) void {
     toggleController(bar, true);
 }
+
+fn executeAdminCommand(_: Drive) !void {}
