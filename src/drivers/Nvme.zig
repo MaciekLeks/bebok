@@ -186,7 +186,7 @@ const IdentifyInfo = extern struct {
     rab: u8, //1byte
     ieee: [3]u8, //3bytes
     cmic: u8, //1byte
-    mdts: u8, //1byte
+    mdts: u8, //1byte Maximum Data Transfer Size
     cntlid: u16, //2bytes
     ver: u32, //4bytes
     //fill gap to 111 bytes
@@ -232,6 +232,7 @@ const Drive = struct {
     cq_head_dbl: *volatile u32 = undefined,
 
     expected_phase: u1 = 1, //private counter to keep track of the expected phase
+    mdts_bytes: u32 = 0, // Maximum Data Transfer Size in bytes
 
 };
 
@@ -460,6 +461,9 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
         log.err("Unsupported NVMe controller type: {}", .{identify_info.cntrltype});
         return;
     }
+
+    drive.mdts_bytes = math.pow(u32, 2, 12 + cap.mpsmin + identify_info.mdts);
+    log.info("MDTS in kbytes: {}", .{drive.mdts_bytes / 1024});
 
     // log.warn("RegisterSet.cap offset: 0x{x}", .{@offsetOf(RegisterSet, "cap")});
     // log.warn("RegisterSet.vs offset: 0x{x}", .{@offsetOf(RegisterSet, "vs")});
