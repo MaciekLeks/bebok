@@ -13,16 +13,26 @@ const nvme_prog_if = 0x02;
 
 const nvme_iosqs = 0x2; //submisstion queue length
 const nvme_iocqs = 0x2; //completion queue length
-const nvme_ioasqs = 0x01; //admin submission queue length
-const nvme_ioacqs = 0x01; //admin completion queue length
+const nvme_ioasqs = 0x2; //admin submission queue length
+const nvme_ioacqs = 0x2; //admin completion queue length
 
 const Self = @This();
+
+const NVMeError = error{
+    InvalidCommand,
+};
 
 const CSSField = packed struct(u8) {
     nvmcs: u1, //0 NVM Command Set or Discovery Controller
     rsrvd: u5, //1-5
     iocs: u1, //6 I/O Command Set
     acs: u1, //7 Admin Command Set only
+};
+
+const ControllerType = enum(u8) {
+    io_controller = 1,
+    discovery_controller = 2,
+    admin_controller = 3,
 };
 
 const CAPRegister = packed struct(u64) {
@@ -141,51 +151,88 @@ const DataPointer = packed union {
     },
 };
 
-const SQEntry = union(enum) {
-    identify: packed struct(u512) {
-        cdw0: CDW0,
-        ignrd_a: u32 = 0,
-        rsrvd_a: u32 = 0,
-        ignrd_b: u64 = 0,
-        dptr: DataPointer,
-        cns: u8, //00:07 id cdw10
-        rsrv_b: u8, //08:15 in cdw10
-        cntid: u16, //16-31 in cdw10
-        ignrd_c: u32 = 0,
-        ignrd_d: u32 = 0,
-        ignrd_e: u32 = 0,
-        ignrd_f: u32 = 0,
-        uuid: u7, //00-06 in cdw14
-        rsrvd_c: u25 = 0, //07-31 in cdw14
-        ignrd_g: u32 = 0,
-    },
+// TODO: When packed tagged unions are supported, we can use the following definitions
+// const SQEntry = packed union(enum) {
+//    identify: IdentifyCommand, //or body of the command
+//    abort: AbortCommand,
+//    //...
+// };
 
-    fn is(self: SQEntry, tag: std.meta.Tag(SQEntry)) bool {
-        return self == tag;
-    }
+const SQEntry = u512;
+const IdentifyCommand = packed struct(u512) {
+    cdw0: CDW0, //00:03 byte
+    ignrd_a: u32 = 0, //04:07 byte - nsid
+    ignrd_b: u32 = 0, //08:11 byte - cdw2
+    ignrd_c: u32 = 0, //12:15 byte = cdw3
+    ignrd_e: u64 = 0, //16:23 byte = mptr
+    dptr: DataPointer, //24:39 byte = prp1, prp2
+    cns: u8, //00:07 id cdw10
+    rsrv_a: u8 = 0, //08:15 in cdw10
+    cntid: u16, //16-31 in cdw10
+    ignrd_f: u32 = 0, //44:47 in cdw11
+    ignrd_g: u32 = 0, //48-52 in cdw12
+    ignrd_h: u32 = 0, //52-55 in cdw13
+    uuid: u7, //00-06 in cdw14
+    rsrvd_b: u25 = 0, //07-31 in cdw14
+    ignrd_j: u32 = 0, //60-63 in cdw15
+};
+
+const IdentifyInfo = extern struct {
+    vid: u16, // 2bytes
+    ssvid: u16, //2bytes
+    sn: [20]u8, //20bytes
+    mn: [40]u8, //40bytes
+    fr: [8]u8, //8bytes
+    rab: u8, //1byte
+    ieee: [3]u8, //3bytes
+    cmic: u8, //1byte
+    mdts: u8, //1byte
+    cntlid: u16, //2bytes
+    ver: u32, //4bytes
+    //fill gap to 111 bytes
+    ignrd_a: [111 - 84]u8,
+    cntrltype: u8, //111 bajt
+};
+
+const CQEStatusField = packed struct(u15) {
+    // Staus Code
+    sc: u8 = 0, //0-7
+    // Status Code Type
+    sct: u3 = 0, //8-10
+    // Command Retry Delay
+    crd: u2 = 0, //11-12
+    // More
+    m: u1 = 0, //13
+    // Do Not Retry
+    dnr: u1 = 0, //14
+
 };
 
 const CQEntry = packed struct(u128) {
-    cmd_res0: u32,
-    cmd_res1: u32,
-    sq_header_ptr: u16,
-    sq_id: u16,
-    cmd_id: u16,
-    phase: u1,
-    status: u15,
+    cmd_res0: u32 = 0,
+    cmd_res1: u32 = 0,
+    sq_header_ptr: u16 = 0,
+    sq_id: u16 = 0,
+    cmd_id: u16 = 0,
+    phase: u1 = 0,
+    status: CQEStatusField = .{},
 };
 
 const Drive = struct {
-    sqa: []SQEntry = undefined,
-    cqa: []CQEntry = undefined,
+    sqa: []volatile SQEntry = undefined,
+    cqa: []volatile CQEntry = undefined,
 
     sqa_tail_pos: u32 = 0, // private counter to keep track and update sqa_tail_dbl
     sqa_tail_dbl: *volatile u32 = undefined, //each doorbell value is u32, minmal doorbell stride is 4 (2^(2+CAP.DSTRD))
+    cqa_head_pos: u32 = 0,
     cqa_head_dbl: *volatile u32 = undefined, //each doorbell value is u32, minmal doorbell stride is 4 (2^(2+CAP.DSTRD))
 
     sq_tail_pos: u32 = 0, //private counter to keep track and update sq_tail_dbl
     sq_tail_dbl: *volatile u32 = undefined,
-    cq_head_dbl: *volatile u23 = undefined,
+    cq_head_dbl: *volatile u32 = undefined,
+
+    expected_phase: u1 = 1, //private counter to keep track of the expected phase
+
 };
 
 var drive: Drive = undefined; //TODO only one drive now
@@ -316,6 +363,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
         log.err("Failed to allocate memory for admin submission queue entries: {}", .{err});
         return;
     };
+    @memset(drive.sqa, 0);
     drive.cqa = heap.page_allocator.alloc(CQEntry, nvme_ioacqs) catch |err| {
         log.err("Failed to allocate memory for admin completion queue entries: {}", .{err});
         return;
@@ -329,6 +377,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
         log.err("Failed to get physical address of admin completion queue: {}", .{err});
         return;
     };
+    @memset(drive.cqa, .{});
 
     log.debug("ASQ: virt: {*}, phys:0x{x}; ACQ: virt:{*}, phys:0x{x}", .{ drive.sqa, sqa_phys, drive.cqa, cqa_phys });
 
@@ -363,31 +412,54 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
     drive.cqa_head_dbl = @ptrFromInt(doorbell_base + doorbell_size * 1);
     drive.sq_tail_dbl = @ptrFromInt(doorbell_base + doorbell_size * 2);
     drive.cq_head_dbl = @ptrFromInt(doorbell_base + doorbell_size * 3);
-    //log the doorbell values
-    log.info("Doorbell values: sqa_tail_dbl: 0x{x}, cqa_head_dbl: 0x{x}, sq_tail_dbl: 0x{x}, cq_head_dbl: 0x{x}", .{ drive.sqa_tail_dbl.*, drive.cqa_head_dbl.*, drive.sq_tail_dbl.*, drive.cq_head_dbl.* });
 
-    const tt = u16;
-    const identify_prp1: []tt = heap.page_allocator.alloc(tt, 10) catch |err| {
+    log.info("NVMe interrupt line: {}", .{interrupt_line});
+    const unique_id = pci.uniqueId(bus, slot, function);
+    int.addISR(interrupt_line, .{ .unique_id = unique_id, .func = handleInterrupt }) catch |err| {
+        log.err("Failed to add NVMe interrupt handler: {}", .{err});
+    };
+
+    const identify_prp1 = heap.page_allocator.alloc(u8, pmm.page_size) catch |err| {
         log.err("Failed to allocate memory for identify command: {}", .{err});
         return;
     };
+    @memset(identify_prp1, 0);
     defer heap.page_allocator.free(identify_prp1);
-    _ = &identify_prp1;
-    const identify_cmd = .{
+    const identify_prp1_phys = paging.recPhysFromVirt(@intFromPtr(identify_prp1.ptr)) catch |err| {
+        log.err("Failed to get physical address of identify command: {}", .{err});
+        return;
+    };
+    const identify_cmd = IdentifyCommand{
         .cdw0 = .{
             .opc = .identify,
             .cid = 0x01, //our id
         },
         .dptr = .{
             .prp = .{
-                .prp1 = @intFromPtr(identify_prp1.ptr),
+                .prp1 = identify_prp1_phys,
                 .prp2 = 0, //we need only one page
             },
         },
         .cns = 0x01,
+        .cntid = 0, //0 cause we do not use it
         .uuid = 0, //0 cause we do not use it
     };
-    _ = identify_cmd;
+    const res_status = executeAdminCommand(bar, &drive, @bitCast(identify_cmd)) catch |err| {
+        log.err("Failed to execute identify command: {}", .{err});
+        return;
+    };
+
+    if (res_status.sc != 0) {
+        log.err("Identify command failed with status: {}", .{res_status});
+        return;
+    }
+
+    const identify_info: *const IdentifyInfo = @ptrCast(@alignCast(identify_prp1));
+    log.info("Identify info: {}", .{identify_info.*});
+    if (identify_info.cntrltype != @intFromEnum(ControllerType.io_controller)) {
+        log.err("Unsupported NVMe controller type: {}", .{identify_info.cntrltype});
+        return;
+    }
 
     // log.warn("RegisterSet.cap offset: 0x{x}", .{@offsetOf(RegisterSet, "cap")});
     // log.warn("RegisterSet.vs offset: 0x{x}", .{@offsetOf(RegisterSet, "vs")});
@@ -400,11 +472,6 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
     // log.warn("RegisterSet.acq offset: 0x{x}", .{@offsetOf(RegisterSet, "acq")});
     //
     // TODO: remove this
-    log.info("NVMe interrupt line: {}", .{interrupt_line});
-    const unique_id = pci.uniqueId(bus, slot, function);
-    int.addISR(interrupt_line, .{ .unique_id = unique_id, .func = handleInterrupt }) catch |err| {
-        log.err("Failed to add NVMe interrupt handler: {}", .{err});
-    };
 }
 
 fn handleInterrupt() !void {
@@ -453,4 +520,35 @@ fn enableController(bar: pci.BAR) void {
     toggleController(bar, true);
 }
 
-fn executeAdminCommand(_: Drive) !void {}
+fn executeAdminCommand(bar: pci.BAR, drv: *Drive, cmd: SQEntry) NVMeError!CQEStatusField {
+    drv.sqa[drv.sqa_tail_pos] = cmd;
+
+    drv.sqa_tail_pos += 1;
+    if (drv.sqa_tail_pos >= drv.sqa.len) drv.sqa_tail_pos = 0;
+
+    const cqa_entry_ptr = &drv.cqa[drv.cqa_head_pos];
+
+    // press the doorbell
+    drv.sqa_tail_dbl.* = drv.sqa_tail_pos;
+
+    while (cqa_entry_ptr.phase != drv.expected_phase) {
+        const csts = readRegister(CSTSRegister, bar, .csts);
+        if (csts.cfs == 1) {
+            log.err("Command failed", .{});
+            return NVMeError.InvalidCommand;
+        }
+    }
+
+    drv.cqa_head_pos += 1;
+    if (drv.cqa_head_pos >= drv.cqa.len) {
+        drv.cqa_head_pos = 0;
+        // every new cycle we need to toggle the phase
+        drv.expected_phase = ~drv.expected_phase;
+    }
+
+    //press the doorbell
+    drv.cq_head_dbl.* = drv.cqa_head_pos;
+
+    log.info("Admin command executed successfully: CQEntry = {}", .{cqa_entry_ptr.*});
+    return cqa_entry_ptr.status;
+}
