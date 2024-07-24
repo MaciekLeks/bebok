@@ -20,6 +20,7 @@ const Self = @This();
 
 const NVMeError = error{
     InvalidCommand,
+    InvalidCommandSequence,
 };
 
 const CSSField = packed struct(u8) {
@@ -177,7 +178,7 @@ const IdentifyCommand = packed struct(u512) {
     ignrd_j: u32 = 0, //60-63 in cdw15
 };
 
-const IdentifyInfo = extern struct {
+const Identify0x01Info = extern struct {
     vid: u16, // 2bytes
     ssvid: u16, //2bytes
     sn: [20]u8, //20bytes
@@ -192,6 +193,14 @@ const IdentifyInfo = extern struct {
     //fill gap to 111 bytes
     ignrd_a: [111 - 84]u8,
     cntrltype: u8, //111 bajt
+};
+
+const Identify0x1cCommandSeVector = packed struct(u64) {
+    nvmcs: u1, //0
+    kvcs: u1, //1
+    zncs: u1, //2
+    //fill gap to 64 bytes
+    rsrvd: u61,
 };
 
 const CQEStatusField = packed struct(u15) {
@@ -328,6 +337,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
 
     // Check if the controller supports NVM Command Set and Admin Command Set
     const cap = readRegister(CAPRegister, bar, .cap);
+    log.info("NVME CAP Register: {}", .{cap});
     if (cap.css.nvmcs == 0) {
         log.err("NVMe controller does not support NVM Command Set", .{});
         return;
@@ -398,6 +408,9 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
 
     var cc = readRegister(CCRegister, bar, .cc);
     log.info("CC register pre-modification: {}", .{cc});
+    //CC.css settings
+    if (cap.css.acs == 1) cc.css = 0b111;
+    if (cap.css.iocs == 1) cc.css = 0b110 else if (cap.css.nvmcs == 0) cc.css = 0b000;
     // Set page size as the host's memory page size
     cc.mps = sys_mps;
     // Set the arbitration mechanism to round-robin
@@ -420,24 +433,24 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
         log.err("Failed to add NVMe interrupt handler: {}", .{err});
     };
 
-    const identify_prp1 = heap.page_allocator.alloc(u8, pmm.page_size) catch |err| {
+    const identify_0x01_prp1 = heap.page_allocator.alloc(u8, pmm.page_size) catch |err| {
         log.err("Failed to allocate memory for identify command: {}", .{err});
         return;
     };
-    @memset(identify_prp1, 0);
-    defer heap.page_allocator.free(identify_prp1);
-    const identify_prp1_phys = paging.recPhysFromVirt(@intFromPtr(identify_prp1.ptr)) catch |err| {
+    @memset(identify_0x01_prp1, 0);
+    defer heap.page_allocator.free(identify_0x01_prp1);
+    const identify_0x01_prp1_phys = paging.recPhysFromVirt(@intFromPtr(identify_0x01_prp1.ptr)) catch |err| {
         log.err("Failed to get physical address of identify command: {}", .{err});
         return;
     };
-    const identify_cmd = IdentifyCommand{
+    const identify_0x01_cmd = IdentifyCommand{
         .cdw0 = .{
             .opc = .identify,
             .cid = 0x01, //our id
         },
         .dptr = .{
             .prp = .{
-                .prp1 = identify_prp1_phys,
+                .prp1 = identify_0x01_prp1_phys,
                 .prp2 = 0, //we need only one page
             },
         },
@@ -445,37 +458,66 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
         .cntid = 0, //0 cause we do not use it
         .uuid = 0, //0 cause we do not use it
     };
-    const res_status = executeAdminCommand(bar, &drive, @bitCast(identify_cmd)) catch |err| {
+    const identify_0x01_res_status = executeAdminCommand(bar, &drive, @bitCast(identify_0x01_cmd)) catch |err| {
         log.err("Failed to execute identify command: {}", .{err});
         return;
     };
 
-    if (res_status.sc != 0) {
-        log.err("Identify command failed with status: {}", .{res_status});
+    if (identify_0x01_res_status.sc != 0) {
+        log.err("Identify command failed with status: {}", .{identify_0x01_res_status});
         return;
     }
 
-    const identify_info: *const IdentifyInfo = @ptrCast(@alignCast(identify_prp1));
+    const identify_info: *const Identify0x01Info = @ptrCast(@alignCast(identify_0x01_prp1));
     log.info("Identify info: {}", .{identify_info.*});
     if (identify_info.cntrltype != @intFromEnum(ControllerType.io_controller)) {
         log.err("Unsupported NVMe controller type: {}", .{identify_info.cntrltype});
         return;
     }
 
-    drive.mdts_bytes = math.pow(u32, 2, 12 + cap.mpsmin + identify_info.mdts);
+    drive.mdts_bytes = math.pow(u32, 2, 12 + cc.mps + identify_info.mdts);
     log.info("MDTS in kbytes: {}", .{drive.mdts_bytes / 1024});
 
-    // log.warn("RegisterSet.cap offset: 0x{x}", .{@offsetOf(RegisterSet, "cap")});
-    // log.warn("RegisterSet.vs offset: 0x{x}", .{@offsetOf(RegisterSet, "vs")});
-    // log.warn("RegisterSet.intms offset: 0x{x}", .{@offsetOf(RegisterSet, "intms")});
-    // log.warn("RegisterSet.intmc offset: 0x{x}", .{@offsetOf(RegisterSet, "intmc")});
-    // log.warn("RegisterSet.cc offset: 0x{x}", .{@offsetOf(RegisterSet, "cc")});
-    // log.warn("RegisterSet.csts offset: 0x{x}", .{@offsetOf(RegisterSet, "csts")});
-    // log.warn("RegisterSet.aqa offset: 0x{x}", .{@offsetOf(RegisterSet, "aqa")});
-    // log.warn("RegisterSet.asq offset: 0x{x}", .{@offsetOf(RegisterSet, "asq")});
-    // log.warn("RegisterSet.acq offset: 0x{x}", .{@offsetOf(RegisterSet, "acq")});
-    //
-    // TODO: remove this
+    // I/O Command Set specific initialization
+    const identify_0x1c_prp1 = heap.page_allocator.alloc(u8, pmm.page_size) catch |err| {
+        log.err("Failed to allocate memory for identify command: {}", .{err});
+        return;
+    };
+    @memset(identify_0x1c_prp1, 0);
+    defer heap.page_allocator.free(identify_0x1c_prp1);
+    const identify_0x1c_prp1_phys = paging.recPhysFromVirt(@intFromPtr(identify_0x1c_prp1.ptr)) catch |err| {
+        log.err("Failed to get physical address of identify command: {}", .{err});
+        return;
+    };
+    const identify_0x1c_cmd = IdentifyCommand{
+        .cdw0 = .{
+            .opc = .identify,
+            .cid = 0x02, //our id
+        },
+        .dptr = .{
+            .prp = .{
+                .prp1 = identify_0x1c_prp1_phys,
+                .prp2 = 0, //we need only one page
+            },
+        },
+        .cns = 0x1c,
+        .cntid = 0, //0 cause we do not use it
+        .uuid = 0, //0 cause we do not use it
+    };
+    const identify_0x1c_res_status = executeAdminCommand(bar, &drive, @bitCast(identify_0x1c_cmd)) catch |err| {
+        log.err("Failed to execute identify command: {}", .{err});
+        return;
+    };
+
+    if (identify_0x1c_res_status.sc != 0) {
+        log.err("Identify command failed with status: {}", .{identify_0x1c_res_status});
+        return;
+    }
+
+    const io_command_set_combination: *const [512]Identify0x1cCommandSeVector = @ptrCast(@alignCast(identify_0x1c_prp1));
+    for (io_command_set_combination) |command_set| {
+        log.info("I/O Command Set combination: {}", .{command_set});
+    }
 }
 
 fn handleInterrupt() !void {
@@ -552,6 +594,9 @@ fn executeAdminCommand(bar: pci.BAR, drv: *Drive, cmd: SQEntry) NVMeError!CQESta
 
     //press the doorbell
     drv.cq_head_dbl.* = drv.cqa_head_pos;
+
+    const cdw0: *const CDW0 = @ptrCast(@alignCast(&cmd));
+    if (cdw0.cid == cqa_entry_ptr.sq_id) return NVMeError.InvalidCommandSequence;
 
     log.info("Admin command executed successfully: CQEntry = {}", .{cqa_entry_ptr.*});
     return cqa_entry_ptr.status;
