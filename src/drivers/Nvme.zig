@@ -178,6 +178,24 @@ const IdentifyCommand = packed struct(u512) {
     ignrd_j: u32 = 0, //60-63 in cdw15
 };
 
+const SetFeaturesCommand = packed struct(u512) {
+    cdw0: CDW0, //00:03 byte
+    ignrd_a: u32 = 0, //04:07 byte - nsid
+    ignrd_b: u32 = 0, //08:11 byte - cdw2
+    ignrd_c: u32 = 0, //12:15 byte = cdw3
+    ignrd_e: u64 = 0, //16:23 byte = mptr
+    dptr: DataPointer, //24:39 byte = prp1, prp2
+    fid: u8, //00:07 id cdw10 - Feature Identifier
+    rsrv_a: u23 = 0, //08:30 in cdw10
+    sv: u1, //16-31 in cdw10 - Save
+    ignrd_f: u32 = 0, //44:47 in cdw11
+    ignrd_g: u32 = 0, //48-52 in cdw12
+    ignrd_h: u32 = 0, //52-55 in cdw13
+    uuid: u7, //00-06 in cdw14 - UUID
+    rsrvd_b: u25 = 0, //07-31 in cdw14
+    ignrd_j: u32 = 0, //60-63 in cdw15
+};
+
 const Identify0x01Info = extern struct {
     vid: u16, // 2bytes
     ssvid: u16, //2bytes
@@ -195,7 +213,7 @@ const Identify0x01Info = extern struct {
     cntrltype: u8, //111 bajt
 };
 
-const Identify0x1cCommandSeVector = packed struct(u64) {
+const Identify0x1cCommandSetVector = packed struct(u64) {
     nvmcs: u1, //0
     kvcs: u1, //1
     zncs: u1, //2
@@ -380,11 +398,11 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
         return;
     };
 
-    const sqa_phys = paging.recPhysFromVirt(@intFromPtr(drive.sqa.ptr)) catch |err| {
+    const sqa_phys = paging.physFromPtr(drive.sqa.ptr) catch |err| {
         log.err("Failed to get physical address of admin submission queue: {}", .{err});
         return;
     };
-    const cqa_phys = paging.recPhysFromVirt(@intFromPtr(drive.cqa.ptr)) catch |err| {
+    const cqa_phys = paging.physFromPtr(drive.cqa.ptr) catch |err| {
         log.err("Failed to get physical address of admin completion queue: {}", .{err});
         return;
     };
@@ -439,7 +457,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
     };
     @memset(identify_0x01_prp1, 0);
     defer heap.page_allocator.free(identify_0x01_prp1);
-    const identify_0x01_prp1_phys = paging.recPhysFromVirt(@intFromPtr(identify_0x01_prp1.ptr)) catch |err| {
+    const identify_0x01_prp1_phys = paging.physFromPtr(identify_0x01_prp1.ptr) catch |err| {
         log.err("Failed to get physical address of identify command: {}", .{err});
         return;
     };
@@ -469,7 +487,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
     }
 
     const identify_info: *const Identify0x01Info = @ptrCast(@alignCast(identify_0x01_prp1));
-    log.info("Identify info: {}", .{identify_info.*});
+    log.info("Identify Controller Data Structure(0x01): {}", .{identify_info.*});
     if (identify_info.cntrltype != @intFromEnum(ControllerType.io_controller)) {
         log.err("Unsupported NVMe controller type: {}", .{identify_info.cntrltype});
         return;
@@ -485,10 +503,11 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
     };
     @memset(identify_0x1c_prp1, 0);
     defer heap.page_allocator.free(identify_0x1c_prp1);
-    const identify_0x1c_prp1_phys = paging.recPhysFromVirt(@intFromPtr(identify_0x1c_prp1.ptr)) catch |err| {
+    const identify_0x1c_prp1_phys = paging.physFromPtr(identify_0x1c_prp1.ptr) catch |err| {
         log.err("Failed to get physical address of identify command: {}", .{err});
         return;
     };
+
     const identify_0x1c_cmd = IdentifyCommand{
         .cdw0 = .{
             .opc = .identify,
@@ -514,10 +533,16 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
         return;
     }
 
-    const io_command_set_combination: *const [512]Identify0x1cCommandSeVector = @ptrCast(@alignCast(identify_0x1c_prp1));
-    for (io_command_set_combination) |command_set| {
-        log.info("I/O Command Set combination: {}", .{command_set});
-    }
+    const io_command_set_combination: *const [512]Identify0x1cCommandSetVector = @ptrCast(@alignCast(identify_0x1c_prp1));
+    const cs_idx = blk: for (io_command_set_combination, 0..) |command_set, i| {
+        //stop on first non-zero command set
+        log.info("Identify I/O Command Set combination(0x1c): {d}: {}", .{ i, command_set });
+        if (@as(u64, @bitCast(command_set)) != 0) break :blk;
+    } else {
+        log.err("No valid Identify I/O Command Set combination(0x1c) found", .{});
+        return;
+    };
+    _ = cs_idx;
 }
 
 fn handleInterrupt() !void {
