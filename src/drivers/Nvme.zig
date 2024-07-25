@@ -13,8 +13,8 @@ const nvme_prog_if = 0x02;
 
 const nvme_iosqs = 0x2; //submisstion queue length
 const nvme_iocqs = 0x2; //completion queue length
-const nvme_ioasqs = 0x2; //admin submission queue length
-const nvme_ioacqs = 0x2; //admin completion queue length
+const nvme_ioasqs = 0x5; //admin submission queue length
+const nvme_ioacqs = 0x5; //admin completion queue length
 
 const Self = @This();
 
@@ -135,6 +135,8 @@ const AdminOpcode = enum(u8) {
     delete_io_cq = 0x07,
 };
 
+const NSID = u32;
+
 const CDW0 = packed struct(u32) {
     opc: AdminOpcode,
     fuse: u2 = 0, //0 for nromal operation
@@ -171,11 +173,14 @@ const IdentifyCommand = packed struct(u512) {
     cns: u8, //00:07 id cdw10
     rsrv_a: u8 = 0, //08:15 in cdw10
     cntid: u16, //16-31 in cdw10
-    ignrd_f: u32 = 0, //44:47 in cdw11
+    // ignrd_f: u32 = 0, //44:47 in cdw11
+    cnssi: u16 = 0, //00:15 in cdw11 - SNS Specific Identifier
+    rsrvd_b: u8 = 0, //16:23 in cdw11
+    csi: u8 = 0, //24:31 in cdw11 - Command Specific Information
     ignrd_g: u32 = 0, //48-52 in cdw12
     ignrd_h: u32 = 0, //52-55 in cdw13
     uuid: u7, //00-06 in cdw14
-    rsrvd_b: u25 = 0, //07-31 in cdw14
+    rsrvd_c: u25 = 0, //07-31 in cdw14
     ignrd_j: u32 = 0, //60-63 in cdw15
 };
 
@@ -529,32 +534,22 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
     }
 
     const io_command_set_combination: *const [512]Identify0x1cCommandSetVector = @ptrCast(@alignCast(prp1));
-    // const cs_idx = blk: {
-    //     for (io_command_set_combination, 0..) |command_set, i| {
-    //         //stop on first non-zero command set
-    //         log.info("Identify I/O Command Set combination(0x1c): {d}: {}", .{ i, command_set });
-    //         if (@as(u64, @bitCast(command_set)) != 0) break :blk i;
-    //     }
-    //     break :blk null;
-    // };
-    //
-    // if (cs_idx == null) {
-    //     log.err("No valid Identify I/O Command Set combination(0x1c) found", .{});
-    //     return;
-    // }
-
-    const cs_idx = blk: {
-        for (io_command_set_combination, 0..) |command_set, i| {
+    //TODO: find only one command set, taht's not true cause there could be more than one
+    var cmd_set: Identify0x1cCommandSetVector = undefined;
+    const cs_idx: u9 = blk: {
+        for (io_command_set_combination, 0..) |cs, i| {
             //stop on first non-zero command set
-            log.info("Identify I/O Command Set Combination(0x1c): idx:{d}: val:{}", .{ i, command_set });
-            if (@as(u64, @bitCast(command_set)) != 0) break :blk i;
+            log.info("Identify I/O Command Set Combination(0x1c): idx:{d}: val:{}", .{ i, cs });
+            if (cs.nvmcs != 0 or cs.kvcs != 0 or cs.zncs != 0) {
+                cmd_set = cs;
+                break :blk @intCast(i);
+            }
         } else {
             log.err("No valid Identify I/O Command Set Combination(0x1c) found", .{});
             return;
         }
     };
 
-    //Reusing prp1
     // Set I/O Command Set Profile with Command Set Combination index
     @memset(prp1, 0);
     const set_features_0x19_cmd = SetFeatures0x19Command{
@@ -570,17 +565,59 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
         },
         .fid = 0x19, //I/O Command Set Profile
         .sv = 0, //do not save
-        .iosci = @intCast(cs_idx),
+        .iosci = cs_idx,
         .uuid = 0, //0 cause we do not use it
     };
     const set_features_0x19_res_status = executeAdminCommand(bar, &drive, @bitCast(set_features_0x19_cmd)) catch |err| {
         log.err("Failed to execute Set Features Command(fid: 0x19): {}", .{err});
         return;
     };
+    log.info("xx2", .{});
 
     if (set_features_0x19_res_status.sc != 0) {
         log.err("Set Features Command(fid: 0x19) failed with status: {}", .{set_features_0x19_res_status});
         return;
+    }
+
+    log.info("xx3", .{});
+
+    // I/O Command Set specific Active Namespace ID list (CNS 07h)
+    for ([_]u1{ cmd_set.nvmcs, cmd_set.kvcs, cmd_set.zncs }, 0..) |csi, i| {
+        log.info("---{d}/{}", .{ i, csi });
+        if (csi == 0) continue;
+        @memset(prp1, 0);
+        const identify_0x07_cmd = IdentifyCommand{
+            .cdw0 = .{
+                .opc = .identify,
+                .cid = 0x04, //our id
+            },
+            .dptr = .{
+                .prp = .{
+                    .prp1 = prp1_phys,
+                    .prp2 = 0, //we need only one page
+                },
+            },
+            .cns = 0x07,
+            .cntid = 0, //0 cause we do not use it
+            .csi = @intCast(i),
+            .uuid = 0, //0 cause we do not use it
+        };
+        const identify_0x07_res_status = executeAdminCommand(bar, &drive, @bitCast(identify_0x07_cmd)) catch |err| {
+            log.err("Failed to execute Identify Command(cns:0x07): {}", .{err});
+            return;
+        };
+
+        if (identify_0x07_res_status.sc != 0) {
+            log.err("Identify Command(cns:0x07) failed with status: {}", .{identify_0x07_res_status});
+            return;
+        }
+
+        const io_command_set_active_nsid_list: *const [1024]NSID = @ptrCast(@alignCast(prp1));
+        for (io_command_set_active_nsid_list, 0..) |nsid, j| {
+            //stop on first non-zero nsid
+            log.info("Identify I/O Command Set Active Namespace ID List(0x07): idx:{d}: val:{}", .{ j, nsid });
+            //if (@as(u32, @bitCast(nsid)) != 0) break;
+        }
     }
 }
 
