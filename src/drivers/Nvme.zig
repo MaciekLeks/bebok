@@ -21,6 +21,7 @@ const Self = @This();
 const NVMeError = error{
     InvalidCommand,
     InvalidCommandSequence,
+    AdminCommandNoData,
 };
 
 const CSSField = packed struct(u8) {
@@ -178,7 +179,7 @@ const IdentifyCommand = packed struct(u512) {
     ignrd_j: u32 = 0, //60-63 in cdw15
 };
 
-const SetFeaturesCommand = packed struct(u512) {
+const SetFeatures0x19Command = packed struct(u512) {
     cdw0: CDW0, //00:03 byte
     ignrd_a: u32 = 0, //04:07 byte - nsid
     ignrd_b: u32 = 0, //08:11 byte - cdw2
@@ -188,12 +189,13 @@ const SetFeaturesCommand = packed struct(u512) {
     fid: u8, //00:07 id cdw10 - Feature Identifier
     rsrv_a: u23 = 0, //08:30 in cdw10
     sv: u1, //16-31 in cdw10 - Save
-    ignrd_f: u32 = 0, //44:47 in cdw11
-    ignrd_g: u32 = 0, //48-52 in cdw12
-    ignrd_h: u32 = 0, //52-55 in cdw13
+    iosci: u9, //32-40 in cdw11 - I/O Command Set Combination Index
+    rsrvd_b: u23 = 0, //41-63 in cdw11
+    ignrd_f: u32 = 0, //48-52 in cdw12
+    ignrd_g: u32 = 0, //52-55 in cdw13
     uuid: u7, //00-06 in cdw14 - UUID
-    rsrvd_b: u25 = 0, //07-31 in cdw14
-    ignrd_j: u32 = 0, //60-63 in cdw15
+    rsrvd_c: u25 = 0, //07-31 in cdw14
+    ignrd_h: u32 = 0, //60-63 in cdw15
 };
 
 const Identify0x01Info = extern struct {
@@ -451,13 +453,14 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
         log.err("Failed to add NVMe interrupt handler: {}", .{err});
     };
 
-    const identify_0x01_prp1 = heap.page_allocator.alloc(u8, pmm.page_size) catch |err| {
+    // Allocate one prp1 for all commands
+    const prp1 = heap.page_allocator.alloc(u8, pmm.page_size) catch |err| {
         log.err("Failed to allocate memory for identify command: {}", .{err});
         return;
     };
-    @memset(identify_0x01_prp1, 0);
-    defer heap.page_allocator.free(identify_0x01_prp1);
-    const identify_0x01_prp1_phys = paging.physFromPtr(identify_0x01_prp1.ptr) catch |err| {
+    @memset(prp1, 0);
+    defer heap.page_allocator.free(prp1);
+    const prp1_phys = paging.physFromPtr(prp1.ptr) catch |err| {
         log.err("Failed to get physical address of identify command: {}", .{err});
         return;
     };
@@ -468,7 +471,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
         },
         .dptr = .{
             .prp = .{
-                .prp1 = identify_0x01_prp1_phys,
+                .prp1 = prp1_phys,
                 .prp2 = 0, //we need only one page
             },
         },
@@ -477,17 +480,17 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
         .uuid = 0, //0 cause we do not use it
     };
     const identify_0x01_res_status = executeAdminCommand(bar, &drive, @bitCast(identify_0x01_cmd)) catch |err| {
-        log.err("Failed to execute identify command: {}", .{err});
+        log.err("Failed to execute Identify Command(cns:0x01): {}", .{err});
         return;
     };
 
     if (identify_0x01_res_status.sc != 0) {
-        log.err("Identify command failed with status: {}", .{identify_0x01_res_status});
+        log.err("Identify Command(cns:0x01) failed with status: {}", .{identify_0x01_res_status});
         return;
     }
 
-    const identify_info: *const Identify0x01Info = @ptrCast(@alignCast(identify_0x01_prp1));
-    log.info("Identify Controller Data Structure(0x01): {}", .{identify_info.*});
+    const identify_info: *const Identify0x01Info = @ptrCast(@alignCast(prp1));
+    log.info("Identify Controller Data Structure(cns: 0x01): {}", .{identify_info.*});
     if (identify_info.cntrltype != @intFromEnum(ControllerType.io_controller)) {
         log.err("Unsupported NVMe controller type: {}", .{identify_info.cntrltype});
         return;
@@ -497,17 +500,9 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
     log.info("MDTS in kbytes: {}", .{drive.mdts_bytes / 1024});
 
     // I/O Command Set specific initialization
-    const identify_0x1c_prp1 = heap.page_allocator.alloc(u8, pmm.page_size) catch |err| {
-        log.err("Failed to allocate memory for identify command: {}", .{err});
-        return;
-    };
-    @memset(identify_0x1c_prp1, 0);
-    defer heap.page_allocator.free(identify_0x1c_prp1);
-    const identify_0x1c_prp1_phys = paging.physFromPtr(identify_0x1c_prp1.ptr) catch |err| {
-        log.err("Failed to get physical address of identify command: {}", .{err});
-        return;
-    };
 
+    //Reusing prp1
+    @memset(prp1, 0);
     const identify_0x1c_cmd = IdentifyCommand{
         .cdw0 = .{
             .opc = .identify,
@@ -515,7 +510,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
         },
         .dptr = .{
             .prp = .{
-                .prp1 = identify_0x1c_prp1_phys,
+                .prp1 = prp1_phys,
                 .prp2 = 0, //we need only one page
             },
         },
@@ -524,25 +519,69 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
         .uuid = 0, //0 cause we do not use it
     };
     const identify_0x1c_res_status = executeAdminCommand(bar, &drive, @bitCast(identify_0x1c_cmd)) catch |err| {
-        log.err("Failed to execute identify command: {}", .{err});
+        log.err("Failed to execute Identify Command(cns:0x1c): {}", .{err});
         return;
     };
 
     if (identify_0x1c_res_status.sc != 0) {
-        log.err("Identify command failed with status: {}", .{identify_0x1c_res_status});
+        log.err("Identify Command(cns:0x1c) failed with status: {}", .{identify_0x1c_res_status});
         return;
     }
 
-    const io_command_set_combination: *const [512]Identify0x1cCommandSetVector = @ptrCast(@alignCast(identify_0x1c_prp1));
-    const cs_idx = blk: for (io_command_set_combination, 0..) |command_set, i| {
-        //stop on first non-zero command set
-        log.info("Identify I/O Command Set combination(0x1c): {d}: {}", .{ i, command_set });
-        if (@as(u64, @bitCast(command_set)) != 0) break :blk;
-    } else {
-        log.err("No valid Identify I/O Command Set combination(0x1c) found", .{});
+    const io_command_set_combination: *const [512]Identify0x1cCommandSetVector = @ptrCast(@alignCast(prp1));
+    // const cs_idx = blk: {
+    //     for (io_command_set_combination, 0..) |command_set, i| {
+    //         //stop on first non-zero command set
+    //         log.info("Identify I/O Command Set combination(0x1c): {d}: {}", .{ i, command_set });
+    //         if (@as(u64, @bitCast(command_set)) != 0) break :blk i;
+    //     }
+    //     break :blk null;
+    // };
+    //
+    // if (cs_idx == null) {
+    //     log.err("No valid Identify I/O Command Set combination(0x1c) found", .{});
+    //     return;
+    // }
+
+    const cs_idx = blk: {
+        for (io_command_set_combination, 0..) |command_set, i| {
+            //stop on first non-zero command set
+            log.info("Identify I/O Command Set Combination(0x1c): idx:{d}: val:{}", .{ i, command_set });
+            if (@as(u64, @bitCast(command_set)) != 0) break :blk i;
+        } else {
+            log.err("No valid Identify I/O Command Set Combination(0x1c) found", .{});
+            return;
+        }
+    };
+
+    //Reusing prp1
+    // Set I/O Command Set Profile with Command Set Combination index
+    @memset(prp1, 0);
+    const set_features_0x19_cmd = SetFeatures0x19Command{
+        .cdw0 = .{
+            .opc = .set_features,
+            .cid = 0x03, //our id
+        },
+        .dptr = .{
+            .prp = .{
+                .prp1 = prp1_phys,
+                .prp2 = 0, //we need only one page
+            },
+        },
+        .fid = 0x19, //I/O Command Set Profile
+        .sv = 0, //do not save
+        .iosci = @intCast(cs_idx),
+        .uuid = 0, //0 cause we do not use it
+    };
+    const set_features_0x19_res_status = executeAdminCommand(bar, &drive, @bitCast(set_features_0x19_cmd)) catch |err| {
+        log.err("Failed to execute Set Features Command(fid: 0x19): {}", .{err});
         return;
     };
-    _ = cs_idx;
+
+    if (set_features_0x19_res_status.sc != 0) {
+        log.err("Set Features Command(fid: 0x19) failed with status: {}", .{set_features_0x19_res_status});
+        return;
+    }
 }
 
 fn handleInterrupt() !void {
