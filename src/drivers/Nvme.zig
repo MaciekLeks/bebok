@@ -13,8 +13,8 @@ const nvme_prog_if = 0x02;
 
 const nvme_iosqs = 0x2; //submisstion queue length
 const nvme_iocqs = 0x2; //completion queue length
-const nvme_ioasqs = 0x5; //admin submission queue length
-const nvme_ioacqs = 0x5; //admin completion queue length
+const nvme_ioasqs = 0x2; //admin submission queue length
+const nvme_ioacqs = 0x2; //admin completion queue length
 
 const Self = @This();
 
@@ -245,7 +245,7 @@ const CQEStatusField = packed struct(u15) {
 const CQEntry = packed struct(u128) {
     cmd_res0: u32 = 0,
     cmd_res1: u32 = 0,
-    sq_header_ptr: u16 = 0,
+    sq_header_pos: u16 = 0, //it's called pointer but it's not a pointer it's an index in fact
     sq_id: u16 = 0,
     cmd_id: u16 = 0,
     phase: u1 = 0,
@@ -257,6 +257,7 @@ const Drive = struct {
     cqa: []volatile CQEntry = undefined,
 
     sqa_tail_pos: u32 = 0, // private counter to keep track and update sqa_tail_dbl
+    sqa_header_pos: u32 = 0, //contoller position retuned in CQEntry as sq_header_pos
     sqa_tail_dbl: *volatile u32 = undefined, //each doorbell value is u32, minmal doorbell stride is 4 (2^(2+CAP.DSTRD))
     cqa_head_pos: u32 = 0,
     cqa_head_dbl: *volatile u32 = undefined, //each doorbell value is u32, minmal doorbell stride is 4 (2^(2+CAP.DSTRD))
@@ -684,7 +685,23 @@ fn executeAdminCommand(bar: pci.BAR, drv: *Drive, cmd: SQEntry) NVMeError!CQESta
             log.err("Command failed", .{});
             return NVMeError.InvalidCommand;
         }
+        if (csts.shst != 0) {
+            if (csts.st == 1) log.err("NVE Subsystem is in shutdown state", .{}) else log.err("Controller is in shutdown state", .{});
+
+            log.err("Controller is in shutdown state", .{});
+            return NVMeError.InvalidCommand;
+        }
+        if (csts.nssro == 1) {
+            log.err("Controller is not ready", .{});
+            return NVMeError.InvalidCommand;
+        }
+        if (csts.pp == 1) {
+            log.err("Controller is in paused state", .{});
+            return NVMeError.InvalidCommand;
+        }
     }
+
+    drv.sqa_header_pos = cqa_entry_ptr.sq_header_pos; //the controller position retuned in CQEntry as sq_header_pos
 
     drv.cqa_head_pos += 1;
     if (drv.cqa_head_pos >= drv.cqa.len) {
@@ -694,7 +711,7 @@ fn executeAdminCommand(bar: pci.BAR, drv: *Drive, cmd: SQEntry) NVMeError!CQESta
     }
 
     //press the doorbell
-    drv.cq_head_dbl.* = drv.cqa_head_pos;
+    drv.cqa_head_dbl.* = drv.cqa_head_pos;
 
     const cdw0: *const CDW0 = @ptrCast(@alignCast(&cmd));
     if (cdw0.cid == cqa_entry_ptr.sq_id) return NVMeError.InvalidCommandSequence;
