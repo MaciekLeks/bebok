@@ -148,7 +148,7 @@ const CDW0 = packed struct(u32) {
 const DataPointer = packed union {
     prp: packed struct(u128) {
         prp1: u64,
-        prp2: u64,
+        prp2: u64 = 0,
     },
     sgl: packed struct(u128) {
         sgl1: u128,
@@ -165,21 +165,21 @@ const DataPointer = packed union {
 const SQEntry = u512;
 const IdentifyCommand = packed struct(u512) {
     cdw0: CDW0, //00:03 byte
-    ignrd_a: u32 = 0, //04:07 byte - nsid
+    nsid: u32 = 0, //04:07 byte - nsid
     ignrd_b: u32 = 0, //08:11 byte - cdw2
     ignrd_c: u32 = 0, //12:15 byte = cdw3
     ignrd_e: u64 = 0, //16:23 byte = mptr
     dptr: DataPointer, //24:39 byte = prp1, prp2
     cns: u8, //00:07 id cdw10
     rsrv_a: u8 = 0, //08:15 in cdw10
-    cntid: u16, //16-31 in cdw10
+    cntid: u16 = 0, //16-31 in cdw10
     // ignrd_f: u32 = 0, //44:47 in cdw11
     cnssi: u16 = 0, //00:15 in cdw11 - SNS Specific Identifier
     rsrvd_b: u8 = 0, //16:23 in cdw11
     csi: u8 = 0, //24:31 in cdw11 - Command Specific Information
     ignrd_g: u32 = 0, //48-52 in cdw12
     ignrd_h: u32 = 0, //52-55 in cdw13
-    uuid: u7, //00-06 in cdw14
+    uuid: u7 = 0, //00-06 in cdw14
     rsrvd_c: u25 = 0, //07-31 in cdw14
     ignrd_j: u32 = 0, //60-63 in cdw15
 };
@@ -198,9 +198,36 @@ const SetFeatures0x19Command = packed struct(u512) {
     rsrvd_b: u23 = 0, //41-63 in cdw11
     ignrd_f: u32 = 0, //48-52 in cdw12
     ignrd_g: u32 = 0, //52-55 in cdw13
-    uuid: u7, //00-06 in cdw14 - UUID
+    uuid: u7 = 0, //00-06 in cdw14 - UUID
     rsrvd_c: u25 = 0, //07-31 in cdw14
     ignrd_h: u32 = 0, //60-63 in cdw15
+};
+
+const LBAFormatInfo = packed struct(u32) {
+    ms: u16, //0-15 - Metadata Size
+    lbads: u8, //4-7 - LBA Data Size
+    rp: u2, //8 - Relative Performance
+    rsvd: u6, //9-11
+};
+
+const Identify0x00Info = extern struct {
+    nsize: u64, //8bytes - Namespace Size
+    ncap: u64, //8bytes - Namespace Capacity
+    nuse: u64, //8bytes - Namespace Utilization
+    nsfeat: u8, //1byte - Namespace Features
+    nlbaf: u8, //1byte - Number of LBA Formats
+    flbas: u8, //1byte - Formatted LBA Size
+    mc: u8, //1byte - Metadata Capabilities
+    dpc: u8, //1byte - End-to-end Data Protection Capabilities
+    dps: u8, //1byte - End-to-end Data Protection Type Settings
+    nmic: u8, //1byte - Namespace Multi-path I/O and Namespace Sharing Capabilities
+    rescap: u8, //1byte - Reservation Capabilities
+    fpi: u8, //1byte - Format Progress Indicator
+    //fill gap to the.128 byte of the 4096 bytes
+    ignrd_a: [128 - 32]u8,
+    lbaf: [64]LBAFormatInfo, //16bytes - LBA Format
+    //fill gap to the 4096 bytes
+    // ignrd_b: [4096 - 384]u8,
 };
 
 const Identify0x01Info = extern struct {
@@ -220,10 +247,11 @@ const Identify0x01Info = extern struct {
     cntrltype: u8, //111 bajt
 };
 
+// Each vector consists of 0 to 3 command set indexes, each 1 byte long
 const Identify0x1cCommandSetVector = packed struct(u64) {
-    nvmcs: u1, //0
-    kvcs: u1, //1
-    zncs: u1, //2
+    nvmcs: u1, //0 - NVM Command Set
+    kvcs: u1, //1 - Key Value Command Set
+    zncs: u1, //2 - Zone Namespace Command Set
     //fill gap to 64 bytes
     rsrvd: u61,
 };
@@ -482,8 +510,6 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
             },
         },
         .cns = 0x01,
-        .cntid = 0, //0 cause we do not use it
-        .uuid = 0, //0 cause we do not use it
     };
     const identify_0x01_res_status = executeAdminCommand(bar, &drive, @bitCast(identify_0x01_cmd)) catch |err| {
         log.err("Failed to execute Identify Command(cns:0x01): {}", .{err});
@@ -517,12 +543,9 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
         .dptr = .{
             .prp = .{
                 .prp1 = prp1_phys,
-                .prp2 = 0, //we need only one page
             },
         },
         .cns = 0x1c,
-        .cntid = 0, //0 cause we do not use it
-        .uuid = 0, //0 cause we do not use it
     };
     const identify_0x1c_res_status = executeAdminCommand(bar, &drive, @bitCast(identify_0x1c_cmd)) catch |err| {
         log.err("Failed to execute Identify Command(cns:0x1c): {}", .{err});
@@ -534,15 +557,15 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
         return;
     }
 
-    const io_command_set_combination: *const [512]Identify0x1cCommandSetVector = @ptrCast(@alignCast(prp1));
-    //TODO: find only one command set, taht's not true cause there could be more than one
-    var cmd_set: Identify0x1cCommandSetVector = undefined;
+    const io_command_set_combination_lst: *const [512]Identify0x1cCommandSetVector = @ptrCast(@alignCast(prp1));
+    //TODO: find only one command set vector combination (comman set with specific ), that's not true cause there could be more than one
+    var cmd_set_cmb: Identify0x1cCommandSetVector = undefined; //we choose the first combination
     const cs_idx: u9 = blk: {
-        for (io_command_set_combination, 0..) |cs, i| {
+        for (io_command_set_combination_lst, 0..) |cs, i| {
             //stop on first non-zero command set
             log.info("Identify I/O Command Set Combination(0x1c): idx:{d}: val:{}", .{ i, cs });
-            if (cs.nvmcs != 0 or cs.kvcs != 0 or cs.zncs != 0) {
-                cmd_set = cs;
+            if (cs.nvmcs != 0 and (cs.kvcs != 0 or cs.zncs != 0)) {
+                cmd_set_cmb = cs;
                 break :blk @intCast(i);
             }
         } else {
@@ -561,31 +584,32 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
         .dptr = .{
             .prp = .{
                 .prp1 = prp1_phys,
-                .prp2 = 0, //we need only one page
             },
         },
         .fid = 0x19, //I/O Command Set Profile
         .sv = 0, //do not save
         .iosci = cs_idx,
-        .uuid = 0, //0 cause we do not use it
     };
     const set_features_0x19_res_status = executeAdminCommand(bar, &drive, @bitCast(set_features_0x19_cmd)) catch |err| {
         log.err("Failed to execute Set Features Command(fid: 0x19): {}", .{err});
         return;
     };
-    log.info("xx2", .{});
 
     if (set_features_0x19_res_status.sc != 0) {
         log.err("Set Features Command(fid: 0x19) failed with status: {}", .{set_features_0x19_res_status});
         return;
     }
 
-    log.info("xx3", .{});
+    const fields = @typeInfo(Identify0x1cCommandSetVector).Struct.fields;
+    inline for (fields, 0..) |field, i| {
+        log.info("Identify I/O Command Set Combination(0x1c): name:{s} idx:{d}, value:{}", .{ field.name, i, @field(cmd_set_cmb, field.name) });
+    }
 
     // I/O Command Set specific Active Namespace ID list (CNS 07h)
-    for ([_]u1{ cmd_set.nvmcs, cmd_set.kvcs, cmd_set.zncs }, 0..) |csi, i| {
-        log.info("---{d}/{}", .{ i, csi });
+    // Each Command Set may have a list of active Namespace IDs
+    for ([_]u1{ cmd_set_cmb.nvmcs, cmd_set_cmb.kvcs, cmd_set_cmb.zncs }, 0..) |csi, i| {
         if (csi == 0) continue;
+        log.info("I/O Command Set specific Active Namespace ID list(0x07): command set idx:{d} -> csi:{d}", .{ i, csi });
         @memset(prp1, 0);
         const identify_0x07_cmd = IdentifyCommand{
             .cdw0 = .{
@@ -595,13 +619,10 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
             .dptr = .{
                 .prp = .{
                     .prp1 = prp1_phys,
-                    .prp2 = 0, //we need only one page
                 },
             },
             .cns = 0x07,
-            .cntid = 0, //0 cause we do not use it
             .csi = @intCast(i),
-            .uuid = 0, //0 cause we do not use it
         };
         const identify_0x07_res_status = executeAdminCommand(bar, &drive, @bitCast(identify_0x07_cmd)) catch |err| {
             log.err("Failed to execute Identify Command(cns:0x07): {}", .{err});
@@ -613,11 +634,47 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
             return;
         }
 
-        const io_command_set_active_nsid_list: *const [1024]NSID = @ptrCast(@alignCast(prp1));
-        for (io_command_set_active_nsid_list, 0..) |nsid, j| {
+        const io_command_set_active_nsid_lst: *const [1024]NSID = @ptrCast(@alignCast(prp1));
+        for (io_command_set_active_nsid_lst, 0..) |nsid, j| {
             //stop on first non-zero nsid
-            log.info("Identify I/O Command Set Active Namespace ID List(0x07): idx:{d}: val:{}", .{ j, nsid });
-            //if (@as(u32, @bitCast(nsid)) != 0) break;
+            //log.info("Identify I/O Command Set Active Namespace ID List(0x07): command set idx:{d} nsid idx:{d}, nsid:{d}", .{ i, j, nsid });
+            if (nsid != 0) {
+                log.info("Identify I/O Command Set Active Namespace ID List(0x07): command set idx:{d} nsid idx:{d}, nsid:{d}", .{ i, j, nsid });
+
+                // Identify Namespace Data Structure (CNS 0x00)
+                @memset(prp1, 0);
+                const identify_0x00_cmd = IdentifyCommand{
+                    .cdw0 = .{
+                        .opc = .identify,
+                        .cid = 0x05, //our id
+                    },
+                    .nsid = nsid,
+                    .dptr = .{
+                        .prp = .{
+                            .prp1 = prp1_phys,
+                        },
+                    },
+                    .cns = 0x00,
+                };
+
+                const identify_0x00_res_status = executeAdminCommand(bar, &drive, @bitCast(identify_0x00_cmd)) catch |err| {
+                    log.err("Failed to execute Identify Command(cns:0x00): {}", .{err});
+                    return;
+                };
+
+                if (identify_0x00_res_status.sc != 0) {
+                    log.warn("Identify Command(cns:0x00) failed with status: {}", .{identify_0x00_res_status});
+                    continue; // we do not return as we want to continue with other namespaces
+                }
+
+                const ns_info: *const Identify0x00Info = @ptrCast(@alignCast(prp1));
+                log.info("Identify Namespace Data Structure(cns: 0x00): nsid:{d}, info:{}", .{ nsid, ns_info.* });
+
+                // CNS 05h: I/O Command Set specific Identify Namespace data structure
+                // CNS 06h: I/O Command Set specific Identify Controller data structure
+                // CNS 08h: I/O Command Set independent Identify Namespace data structure
+
+            }
         }
     }
 }
