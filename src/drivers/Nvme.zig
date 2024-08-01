@@ -247,6 +247,14 @@ const Identify0x01Info = extern struct {
     cntrltype: u8, //111 bajt
 };
 
+const Identify0x05Info = extern struct {
+    lbmstm: u64, //8bytes Logical Block Memory Storage Tag Mask
+    pic: u8, //1byte Protection Information Capabilities
+    rsrvd_a: u16 = 0, //2bytes
+    rsrvd_b: u8 = 0, //1byte
+    elbaf: [64]u32, //4bytes Extend LBA Format 0 Support
+};
+
 // Each vector consists of 0 to 3 command set indexes, each 1 byte long
 const Identify0x1cCommandSetVector = packed struct(u64) {
     nvmcs: u1, //0 - NVM Command Set
@@ -671,6 +679,35 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
                 log.info("Identify Namespace Data Structure(cns: 0x00): nsid:{d}, info:{}", .{ nsid, ns_info.* });
 
                 // CNS 05h: I/O Command Set specific Identify Namespace data structure
+                @memset(prp1, 0);
+                const identify_0x05_cmd = IdentifyCommand{
+                    .cdw0 = .{
+                        .opc = .identify,
+                        .cid = 0x05, //our id
+                    },
+                    .nsid = nsid,
+                    .dptr = .{
+                        .prp = .{
+                            .prp1 = prp1_phys,
+                        },
+                    },
+                    .cns = 0x00,
+                    .csi = @intCast(i),
+                };
+
+                const identify_0x05_res_status = executeAdminCommand(bar, &drive, @bitCast(identify_0x05_cmd)) catch |err| {
+                    log.err("Failed to execute Identify Command(cns:0x05): {}", .{err});
+                    return;
+                };
+
+                if (identify_0x05_res_status.sc != 0) {
+                    log.err("Identify Command(cns:0x05) failed with status: {}", .{identify_0x05_res_status});
+                    return;
+                }
+
+                const ns_io_info: *const Identify0x05Info = @ptrCast(@alignCast(prp1));
+                log.info("Identify I/O Command Set specific Identify Namespace data structure for the specified NSID (cns: 0x05): nsid:{d}, info:{}", .{ nsid, ns_io_info.* });
+
                 // CNS 06h: I/O Command Set specific Identify Controller data structure
                 // CNS 08h: I/O Command Set independent Identify Namespace data structure
 
