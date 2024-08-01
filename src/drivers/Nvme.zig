@@ -250,9 +250,18 @@ const Identify0x01Info = extern struct {
 const Identify0x05Info = extern struct {
     lbmstm: u64, //8bytes Logical Block Memory Storage Tag Mask
     pic: u8, //1byte Protection Information Capabilities
-    rsrvd_a: u16 = 0, //2bytes
+    rsrvd_a: u16 = 0, //2byte s
     rsrvd_b: u8 = 0, //1byte
     elbaf: [64]u32, //4bytes Extend LBA Format 0 Support
+};
+
+const Identify0x06Info = extern struct {
+    vsl: u8, //1byte Verify Size Limit
+    wzsl: u8, //1byte Write Zeroes Size Limit
+    wusl: u8, //1byte Write Uncorrectable Size Limit
+    dmrl: u8, //1byte Dataset Management Ranges Limit
+    dmrsl: u32, //4bytes Dataset Management Range Size List
+    dmsl: u64, //8bytes Dataset Management Size Limit
 };
 
 // Each vector consists of 0 to 3 command set indexes, each 1 byte long
@@ -691,8 +700,8 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
                             .prp1 = prp1_phys,
                         },
                     },
-                    .cns = 0x00,
-                    .csi = @intCast(i),
+                    .cns = 0x05,
+                    .csi = 0x00, //see NVMe NVM Command Set Specification
                 };
 
                 const identify_0x05_res_status = executeAdminCommand(bar, &drive, @bitCast(identify_0x05_cmd)) catch |err| {
@@ -709,6 +718,35 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
                 log.info("Identify I/O Command Set specific Identify Namespace data structure for the specified NSID (cns: 0x05): nsid:{d}, info:{}", .{ nsid, ns_io_info.* });
 
                 // CNS 06h: I/O Command Set specific Identify Controller data structure
+                @memset(prp1, 0);
+                const identify_0x06_cmd = IdentifyCommand{
+                    .cdw0 = .{
+                        .opc = .identify,
+                        .cid = 0x06, //our id
+                    },
+                    .nsid = nsid,
+                    .dptr = .{
+                        .prp = .{
+                            .prp1 = prp1_phys,
+                        },
+                    },
+                    .cns = 0x06,
+                    .csi = 0x00, //see NVMe NVM Command Set Specification
+                };
+
+                const identify_0x06_res_status = executeAdminCommand(bar, &drive, @bitCast(identify_0x06_cmd)) catch |err| {
+                    log.err("Failed to execute Identify Command(cns:0x06): {}", .{err});
+                    return;
+                };
+
+                if (identify_0x06_res_status.sc != 0) {
+                    log.err("Identify Command(cns:0x06) failed with status: {}", .{identify_0x06_res_status});
+                    return;
+                }
+
+                const ns_ctrl_info: *const Identify0x06Info = @ptrCast(@alignCast(prp1));
+                log.info("Identify I/O Command Set specific Identify Controller data structure for the specified NSID (cns: 0x06): nsid:{d}, info:{}", .{ nsid, ns_ctrl_info.* });
+
                 // CNS 08h: I/O Command Set independent Identify Namespace data structure
 
             }
