@@ -184,6 +184,28 @@ const IdentifyCommand = packed struct(u512) {
     ignrd_j: u32 = 0, //60-63 in cdw15
 };
 
+const GetFeaturesCommand = packed struct(u512) {
+    cdw0: CDW0, //00:03 byte
+    ignrd_a: u32 = 0, //04:07 byte - nsid
+    ignrd_b: u32 = 0, //08:11 byte - cdw2
+    ignrd_c: u32 = 0, //12:15 byte = cdw3
+    ignrd_e: u64 = 0, //16:23 byte = mptr
+    dptr: DataPointer, //24:39 byte = prp1, prp2
+    fid: u8, //00:07 id cdw10 - Feature Identifier
+    sel: enum(u3) {
+        current = 0b000,
+        default = 0b001,
+        saved = 0b010,
+        supported_capabilities = 0b011,
+    }, //08:10 in cdw10 - Select
+    rsrvd_a: u21 = 0, //11-31 in cdw10 - Reserved
+    ignrd_f: u32 = 0, //32-63 in cdw11 - I/O Command Set Combination Index
+    ignrd_g: u32 = 0, //48-52 in cdw12
+    ignrd_h: u32 = 0, //52-55 in cdw13
+    ignrd_i: u32 = 0, //56-59 in cdw14
+    ignrd_j: u32 = 0, //60-63 in cdw15
+};
+
 const SetFeatures0x19Command = packed struct(u512) {
     cdw0: CDW0, //00:03 byte
     ignrd_a: u32 = 0, //04:07 byte - nsid
@@ -587,7 +609,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
     };
 
     if (identify_0x1c_res_status.sc != 0) {
-        log.err("Identify Command(cns:0x1c) failed with status: {}", .{identify_0x1c_res_status});
+        log.err("Identgify Command(cns:0x1c) failed with status: {}", .{identify_0x1c_res_status});
         return;
     }
 
@@ -798,6 +820,32 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
                     const ns_indep_info: *const Identify0x08Info = @ptrCast(@alignCast(prp1));
                     log.info("Identify I/O Command Set Independent Identify Namespace data structure for the specified NSID (cns: 0x08): nsid:{d}, info:{}", .{ nsid, ns_indep_info.* });
                 } //vs.mjr==2
+
+                // Set I/O Command Set Profile with Command Set Combination index
+                @memset(prp1, 0);
+                const get_features_0x07_cmd = GetFeaturesCommand{
+                    .cdw0 = .{
+                        .opc = .get_features,
+                        .cid = 0x09, //our id
+                    },
+                    .dptr = .{
+                        .prp = .{
+                            .prp1 = prp1_phys,
+                        },
+                    },
+                    .fid = 0x07, //I/O Command Set Profile
+                    .sel = .current,
+                };
+
+                const get_features_0x07_res_status = executeAdminCommand(bar, &drive, @bitCast(get_features_0x07_cmd)) catch |err| {
+                    log.err("Failed to execute Get Features Command(fid: 0x07): {}", .{err});
+                    return;
+                };
+
+                if (get_features_0x07_res_status.sc != 0) {
+                    log.err("Get Features Command(fid: 0x07) failed with status: {}", .{get_features_0x07_res_status});
+                    return;
+                }
             }
         }
     }
