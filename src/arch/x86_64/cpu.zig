@@ -177,6 +177,23 @@ pub inline fn lgdt(gdtd: *const gdt.Gdtd, code_selector: usize, data_selector: u
     );
 }
 
+pub fn cpuid(eax_in: u32) struct { eax: u32, ebx: u32, ecx: u32, edx: u32 } {
+    var eax: u32 = 0;
+    var ebx: u32 = 0;
+    var ecx: u32 = 0;
+    var edx: u32 = 0;
+
+    asm volatile ("cpuid"
+        : [eax] "={eax}" (eax),
+          [ebx] "={ebx}" (ebx),
+          [ecx] "={ecx}" (ecx),
+          [edx] "={edx}" (edx),
+        : [eax_in] "{eax}" (eax_in),
+        : "eax", "ebx", "ecx", "edx"
+    );
+    return .{ .eax = eax, .ebx = ebx, .ecx = ecx, .edx = edx };
+}
+
 pub inline fn div0() void {
     asm volatile ("int $0");
 }

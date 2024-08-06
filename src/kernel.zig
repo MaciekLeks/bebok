@@ -12,6 +12,7 @@ const term = @import("terminal");
 const pci = @import("drivers/pci.zig");
 const Nvme = @import("drivers/Nvme.zig");
 const int = @import("int.zig");
+const apic = @import("apic.zig");
 
 const log = std.log.scoped(.kernel);
 
@@ -95,6 +96,10 @@ export fn _start() callconv(.C) noreturn {
     defer int.deinitISRMap();
     cpu.sti();
     //} init handler list
+    // TODO: apic instead of pic
+    apic.init() catch |err| {
+        log.warn("Failed to initialize APIC: {}", .{err});
+    };
 
     //pci test start
     pci.init();
@@ -114,7 +119,6 @@ export fn _start() callconv(.C) noreturn {
     //start.done(); //only now we can hlt - do not use defer after start.init();
     cpu.halt();
 }
-
 
 //TODO tbd
 fn testISR() !void {
