@@ -65,7 +65,8 @@ pub const RegisterOffset = enum(u8) {
 };
 
 const ConfigAddress = packed struct(u32) {
-    register_offset: RegisterOffset, //0-7
+    // register_offset: RegisterOffset, //0-7
+    register_offset: u8, //0-7 - can't use RegisterOffset because we are going to iterate over the cappabilities
     function_no: u3, //8-10
     slot_no: u5, //11-15 //physical device
     bus_no: u8, //16-23
@@ -128,7 +129,7 @@ test "PCI register addresses" {
 fn readRegister(T: type, config_addr: ConfigAddress) T {
     cpu.out(u32, pci_config_addres_port, registerAddress(u32, config_addr));
     const config_data = blk: {
-        var cd = cpu.in(T, @as(cpu.PortNumberType, pci_config_data_port) + (@intFromEnum(config_addr.register_offset) & 0b11)); //use offset on the data config port
+        var cd = cpu.in(T, @as(cpu.PortNumberType, pci_config_data_port) + (config_addr.register_offset & 0b11)); //use offset on the data config port
         if (native_endian == .big) {
             cd = @byteSwap(cd);
         }
@@ -139,7 +140,17 @@ fn readRegister(T: type, config_addr: ConfigAddress) T {
 
 pub fn readRegisterWithArgs(T: type, register_offset: RegisterOffset, function_no: u3, slot_no: u5, bus_no: u8) T {
     return readRegister(T, ConfigAddress{
-        .register_offset = register_offset,
+        .register_offset = @intFromEnum(register_offset),
+        .function_no = function_no,
+        .slot_no = slot_no,
+        .bus_no = bus_no,
+    });
+}
+
+// With direct register offset
+pub fn readRegisterWithRawArgs(T: type, raw_register_offset: u8, function_no: u3, slot_no: u5, bus_no: u8) T {
+    return readRegister(T, ConfigAddress{
+        .register_offset = raw_register_offset,
         .function_no = function_no,
         .slot_no = slot_no,
         .bus_no = bus_no,
@@ -151,12 +162,12 @@ fn writeRegister(T: type, config_addr: ConfigAddress, value: T) void {
     if (native_endian == .big) {
         value = @byteSwap(value);
     }
-    cpu.out(T, @as(cpu.PortNumberType, pci_config_data_port) + (@intFromEnum(config_addr.register_offset) & 0b11), value);
+    cpu.out(T, @as(cpu.PortNumberType, pci_config_data_port) + (config_addr.register_offset & 0b11), value);
 }
 
 pub fn writeRegisterWithArgs(T: type, register_offset: RegisterOffset, function_no: u3, slot_no: u5, bus_no: u8, value: T) void {
     writeRegister(T, ConfigAddress{
-        .register_offset = register_offset,
+        .register_offset = @intFromEnum(register_offset),
         .function_no = function_no,
         .slot_no = slot_no,
         .bus_no = bus_no,
@@ -179,7 +190,7 @@ pub fn readBAR(bar_addr: ConfigAddress) BAR {
             bar.address = .{ .a32 = bar_value & 0xFFFF_FFF0 };
         } else {
             next_bar_addr = .{
-                .register_offset = @enumFromInt(@intFromEnum(bar_addr.register_offset) + @sizeOf(u32)), //BAR[x + 1]
+                .register_offset = bar_addr.register_offset + @sizeOf(u32), //BAR[x + 1]
                 .function_no = bar_addr.function_no,
                 .slot_no = bar_addr.slot_no,
                 .bus_no = bar_addr.bus_no,
@@ -207,7 +218,7 @@ pub fn readBAR(bar_addr: ConfigAddress) BAR {
 
 pub fn readBARWithArgs(register_offset: RegisterOffset, function_no: u3, slot_no: u5, bus_no: u8) BAR {
     return readBAR(ConfigAddress{
-        .register_offset = register_offset,
+        .register_offset = @intFromEnum(register_offset),
         .function_no = function_no,
         .slot_no = slot_no,
         .bus_no = bus_no,
@@ -281,8 +292,9 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
     const interrupt_pin = readRegisterWithArgs(u8, .interrupt_pin, function, slot, bus);
     const command = readRegisterWithArgs(u16, .command, function, slot, bus);
     const status = readRegisterWithArgs(u16, .status, function, slot, bus);
+    const capabilities_pointer = readRegisterWithArgs(u8, .capabilities_pointer, function, slot, bus);
 
-    const bar = readBAR(.{ .register_offset = .bar0, .function_no = function, .slot_no = slot, .bus_no = bus });
+    const bar = readBAR(.{ .register_offset = @intFromEnum(RegisterOffset.bar0), .function_no = function, .slot_no = slot, .bus_no = bus });
 
     if (class_code == 0x06 and subclass == 0x04) {
         // PCI-to-PCI bridge
@@ -299,7 +311,25 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
             .a32 => bar.address.a32,
             .a64 => bar.address.a64,
         };
-        log.debug("PCI device: bus: {d}, slot: {d}, function: {d}, class: {d}, subclass: {d}, prog_id: {d}, header_type: 0x{x}, vendor_id: 0x{x}, device_id=0x{x}, interrupt_no: 0x{x}, interrupt_pin: 0x{x}, bar: {}, bar.addr: 0x{x}, size: {d}GB, {d}MB, {d}KB, command: 0b{b:0>16}, status: 0b{b:0>16}", .{
+        log.debug(
+            \\PCI device: bus: {d}, 
+            \\slot: {d}, 
+            \\function: {d}, 
+            \\class: {d}, 
+            \\subclass: {d}, 
+            \\prog_id: {d}, 
+            \\header_type: 0x{x}, 
+            \\vendor_id: 0x{x}, 
+            \\device_id=0x{x}, 
+            \\interrupt_no: 0x{x}, 
+            \\interrupt_pin: 0x{x}, 
+            \\bar: {}, 
+            \\bar.addr: 0x{x}, 
+            \\size: {d}GB, {d}MB, {d}KB, 
+            \\command: 0b{b:0>16}, 
+            \\status: 0b{b:0>16}",
+            \\capabilities_pointer: 0x{x}, 
+        , .{
             bus,
             slot,
             function,
@@ -318,8 +348,16 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
             size_KB,
             command,
             status, //bit 3 - Interrupt Status
+            capabilities_pointer,
         });
     }
+
+    const pci_version = readPciVersion(function, slot, bus) catch |err| blk: {
+        log.err("Failed to read PCI version: {}", .{err});
+        break :blk 0;
+    };
+
+    log.debug("PCI version: 0x{x}", .{pci_version});
 
     notifyDriver(function, slot, bus, class_code, subclass, prog_if, interrupt_line);
 }
@@ -357,4 +395,25 @@ pub fn init() void {
 
 pub fn scan() void {
     checkBus(0);
+}
+
+// --- helper function ---
+
+pub fn readPciVersion(function: u3, slot: u5, bus: u8) !u8 {
+    const capabilities_pointer = readRegisterWithArgs(u8, .capabilities_pointer, function, slot, bus);
+    if (capabilities_pointer == 0) {
+        return error.CapabilitiesPointerNotFound;
+    }
+
+    var current_pointer = capabilities_pointer;
+    while (current_pointer != 0) {
+        const capability_id = readRegisterWithRawArgs(u8, current_pointer, function, slot, bus);
+        if (capability_id == 0x10) { // 0x10 stands for PCI Express
+            const version = readRegisterWithRawArgs(u8, current_pointer + 2, function, slot, bus);
+            return version;
+        }
+        current_pointer = readRegisterWithRawArgs(u8, current_pointer + 1, function, slot, bus);
+    }
+
+    return error.PciExpressCapabilityNotFound;
 }

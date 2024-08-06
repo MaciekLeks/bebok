@@ -11,10 +11,13 @@ const nvme_class_code = 0x01;
 const nvme_subclass = 0x08;
 const nvme_prog_if = 0x02;
 
-const nvme_iosqs = 0x2; //submisstion queue length
-const nvme_iocqs = 0x2; //completion queue length
-const nvme_ioasqs = 0x2; //admin submission queue length
-const nvme_ioacqs = 0x2; //admin completion queue length
+const nvme_iosqs = 0x2; //submisstion queue size(length)
+const nvme_iocqs = 0x2; //completion queue size
+const nvme_ioasqs = 0x2; //admin submission queue size
+const nvme_ioacqs = 0x2; //admin completion queue size
+
+const nvme_ncqr = 0x1; //number of completion queues requested - TODO only one cq now
+const nvme_nsqr = 0x1; //number of submission queues requested - TODO only one sq now
 
 const Self = @This();
 
@@ -221,6 +224,46 @@ const SetFeatures0x19Command = packed struct(u512) {
     ignrd_h: u32 = 0, //60-63 in cdw15
 };
 
+// Create I/O Completion Queue Command
+const CreateIOCQCommand = packed struct(u512) {
+    cdw0: CDW0, //00:03 byte
+    ignrd_a: u32 = 0, //04:07 byte - nsid
+    ignrd_b: u32 = 0, //08:11 byte - cdw2
+    ignrd_c: u32 = 0, //12:15 byte = cdw3
+    ignrd_e: u64 = 0, //16:23 byte = mptr
+    dptr: DataPointer, //24:39 byte = prp1, prp2
+    qid: u16, //00:15 in cdw10 - Queue Identifier
+    qsize: u16, //16:31 in cdw10 - Queue Size
+    pc: bool, //32 in cdw11 - Physically Contiguous
+    ien: bool, //33 in cdw11 - Interrupt Enable
+    rsrvd_a: u14 = 0, //02-15 in cdw11
+    iv: u16, //16-31 in cdw11- Interrupt Vector
+    ignrd_f: u32 = 0, //32-63 in cdw12
+    ignrd_g: u32 = 0, //48-52 in cdw13
+    ignrd_h: u32 = 0, //52-55 in cdw14
+    ignrd_i: u32 = 0, //56-59 in cdw15
+};
+
+const CreateIOSQCommand = packed struct(u512) {
+    cdw0: CDW0, //00:03 byte
+    nsid: u32, //04:07 byte - nsid
+    ignrd_b: u32 = 0, //08:11 byte - cdw2
+    ignrd_c: u32 = 0, //12:15 byte = cdw3
+    ignrd_e: u64 = 0, //16:23 byte = mptr
+    dptr: DataPointer, //24:39 byte = prp1, prp2
+    qid: u16, //00:15 in cdw10 - Queue Identifier
+    qsize: u16, //16:31 in cdw10 - Queue Size
+    cqid: u16, //00:15 in cdw11 - Completion Queue Identifier
+    pc: bool, //16 in cdw11 - Physically Contiguous
+    ien: bool, //17 in cdw11 - Interrupt Enable
+    rsrvd_a: u14 = 0, //18-31 in cdw11
+    iv: u16, //00-15 in cdw11 - Interrupt Vector
+    ignrd_f: u32 = 0, //16-47 in cdw12
+    ignrd_g: u32 = 0, //48-52 in cdw13
+    ignrd_h: u32 = 0, //52-55 in cdw14
+    ignrd_i: u32 = 0, //56-59 in cdw15
+};
+
 const LBAFormatInfo = packed struct(u32) {
     ms: u16, //0-15 - Metadata Size
     lbads: u8, //4-7 - LBA Data Size
@@ -266,6 +309,16 @@ const Identify0x01Info = extern struct {
     //ignore till 256 bytes
     ignrd_b: [256 - 112]u8,
     oacs: u16, //256-257 Optional Admin Command Support
+    //ignroe till the 512 bytes
+    ignrd_c: [512 - 258]u8,
+    sqes: packed struct(u8) {
+        min: u4, //0-3 Minimum Submission Queue Entry Size
+        max: u4, //4-7 Maximum Submission Queue Entry Size
+    }, //512-513 Submission Queue Entry Size
+    cqes: packed struct(u8) {
+        min: u4, //0-3 Minimum Completion Queue Entry Size
+        max: u4, //4-7 Maximum Completion Queue Entry Size
+    }, //514-515 Completion Queue Entry Size
 
 };
 
@@ -332,9 +385,22 @@ const CQEntry = packed struct(u128) {
     status: CQEStatusField = .{},
 };
 
+fn Queue(EntryType: type) type {
+    return struct {
+        entries: []volatile EntryType = undefined,
+        tail_pos: u32 = 0,
+        tail_dbl: *volatile u32 = undefined,
+        head_pos: u32 = 0,
+        head_dbl: *volatile u32 = undefined,
+        expected_phase: u1 = 1,
+    };
+}
+
 const Drive = struct {
     sqa: []volatile SQEntry = undefined,
     cqa: []volatile CQEntry = undefined,
+    sq: []volatile SQEntry = undefined,
+    cq: []volatile CQEntry = undefined,
 
     sqa_tail_pos: u32 = 0, // private counter to keep track and update sqa_tail_dbl
     sqa_header_pos: u32 = 0, //contoller position retuned in CQEntry as sq_header_pos
@@ -342,13 +408,18 @@ const Drive = struct {
     cqa_head_pos: u32 = 0,
     cqa_head_dbl: *volatile u32 = undefined, //each doorbell value is u32, minmal doorbell stride is 4 (2^(2+CAP.DSTRD))
 
-    sq_tail_pos: u32 = 0, //private counter to keep track and update sq_tail_dbl
-    sq_tail_dbl: *volatile u32 = undefined,
-    cq_head_dbl: *volatile u32 = undefined,
+    //sq_tail_pos: u32 = 0, //private counter to keep track and update sq_tail_dbl
+    //sq_tail_dbl: *volatile u32 = undefined,
+    //cq_head_dbl: *volatile u32 = undefined,
 
     expected_phase: u1 = 1, //private counter to keep track of the expected phase
     mdts_bytes: u32 = 0, // Maximum Data Transfer Size in bytes
 
+    ncqr: u16 = 1, //number of completion queues requested - TODO only one cq now
+    nsqr: u16 = 1, //number of submission queues requested - TODO only one sq now
+
+    iocq: [nvme_ncqr]Queue(CQEntry) = undefined,
+    iosq: [nvme_nsqr]Queue(SQEntry) = undefined,
 };
 
 var drive: Drive = undefined; //TODO only one drive now
@@ -372,6 +443,7 @@ pub fn interested(_: Self, class_code: u8, subclass: u8, prog_if: u8) bool {
 pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void {
     drive = .{}; //TODO replace it for more drives
 
+    const VEC_NO: u16 = 0x20 + interrupt_line; //TODO: we need MSI/MSI-X support first - PIC does not work here
     const bar = pci.readBARWithArgs(.bar0, function, slot, bus);
 
     //  bus-mastering DMA, and memory space access in the PCI configuration space
@@ -521,6 +593,8 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
     cc.mps = sys_mps;
     // Set the arbitration mechanism to round-robin
     cc.ams = .round_robin;
+    cc.iosqes = 6; // 64 bytes - set to recommened value
+    cc.iocqes = 4; // 16 bytes - set to
     writeRegister(CCRegister, bar, .cc, cc);
     log.info("CC register post-modification: {}", .{readRegister(CCRegister, bar, .cc)});
 
@@ -530,12 +604,17 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
     const doorbell_size = math.pow(u32, 2, 2 + cap.dstrd);
     drive.sqa_tail_dbl = @ptrFromInt(doorbell_base + doorbell_size * 0);
     drive.cqa_head_dbl = @ptrFromInt(doorbell_base + doorbell_size * 1);
-    drive.sq_tail_dbl = @ptrFromInt(doorbell_base + doorbell_size * 2);
-    drive.cq_head_dbl = @ptrFromInt(doorbell_base + doorbell_size * 3);
-
-    log.info("NVMe interrupt line: {}", .{interrupt_line});
+    // for (drive.iosq, 1..) |sq, sq_dbl_idx| {
+    //     sq.tail_dbl = @ptrFromInt(doorbell_base + doorbell_size * (2 * sq_dbl_idx));
+    // }
+    // for (drive.iocq, 1..) |cq, cq_dbl_idx| {
+    //     cq.q_head_dbl = @ptrFromInt(doorbell_base + doorbell_size * (2 * cq_dbl_idx + 1));
+    // }
+    //
+    log.info("NVMe interrupt line: {x}, vector number: 0x{x}", .{ interrupt_line, VEC_NO });
     const unique_id = pci.uniqueId(bus, slot, function);
-    int.addISR(interrupt_line, .{ .unique_id = unique_id, .func = handleInterrupt }) catch |err| {
+    //int.addISR(interrupt_line, .{ .unique_id = unique_id, .func = handleInterrupt }) catch |err| {
+    int.addISR(@intCast(VEC_NO), .{ .unique_id = unique_id, .func = handleInterrupt }) catch |err| {
         log.err("Failed to add NVMe interrupt handler: {}", .{err});
     };
 
@@ -788,7 +867,67 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
             return;
         };
 
-        log.info("Get Features Command(fid: 0x07): Number Of Completion Queues: {d}, Number of Submission Queues: {d}", .{ @as(u16, @truncate(get_features_0x07_res.cmd_res0 >> 16)), @as(u16, @truncate(get_features_0x07_res.cmd_res0)) });
+        const supported_ncqr: u16 = @truncate(get_features_0x07_res.cmd_res0 >> 16);
+        const supported_nsqr: u16 = @truncate(get_features_0x07_res.cmd_res0);
+        log.info("Get Features Command(fid: 0x07): Default Number Of Completion/Submission Queues: {d}/{d}", .{ supported_ncqr, supported_nsqr });
+
+        if (drive.ncqr > supported_ncqr or drive.nsqr > supported_nsqr) {
+            log.err("Requested number of completion/submission queues is not supported", .{});
+        }
+
+        // log intms and intmc registers
+        log.info("NVMe INTMS Register: 0b{b:0>32}, INTMC Register: 0b{b:0>32}", .{ intms_reg_ptr.*, intmc_reg_ptr.* });
+
+        //set bit 42 to 1 to enable interrupt
+        intmc_reg_ptr.* = 0x00000400;
+        log.info("NVMe INTMS Register post-modification: 0b{b:0>32}", .{intmc_reg_ptr.*});
+
+        // Create I/O Completion Queue -  TODO:  we can create up to ncqr, and nsqr queues, but for not we create only one
+
+        const IS_MASKED = int.isIRQMasked(0x0a);
+        int.triggerInterrupt(0x2a);
+        log.info("NVMe interrupt line: {x}, vector number: 0x{x}, is masked: {}", .{ interrupt_line, VEC_NO, IS_MASKED });
+
+        for (&drive.iocq, 1..) |*cq, cq_id| {
+            cq.* = .{};
+
+            cq.entries = heap.page_allocator.alloc(CQEntry, nvme_ncqr) catch |err| {
+                log.err("Failed to allocate memory for completion queue entries: {}", .{err});
+                return;
+            };
+
+            const cq_phys = paging.physFromPtr(drive.cqa.ptr) catch |err| {
+                log.err("Failed to get physical address of I/O Completion Queue: {}", .{err});
+                return;
+            };
+            @memset(cq.entries, .{});
+
+            const create_iocq_res = executeAdminCommand(bar, &drive, @bitCast(CreateIOCQCommand{
+                .cdw0 = .{
+                    .opc = .create_io_cq,
+                    .cid = @intCast(0x100 + cq_id), //our id
+                },
+                .dptr = .{
+                    .prp = .{
+                        .prp1 = cq_phys,
+                    },
+                },
+                .qsize = nvme_iocqs,
+                .qid = @intCast(cq_id), // we use only one queue
+                .pc = true, // physically contiguous - the buddy allocator allocs memory in physically contiguous blocks
+                .ien = true, // interrupt enabled
+                .iv = VEC_NO,
+            })) catch |err| {
+                log.err("Failed to execute Create CQ Command: {}", .{err});
+                return;
+            };
+
+            cq.head_dbl = @ptrFromInt(doorbell_base + doorbell_size * (2 * cq_id + 1));
+
+            _ = create_iocq_res; //TODO
+        }
+
+        //for (drive.iosq, 0..) |sq, sq_idx| {}
     }
 }
 

@@ -62,7 +62,6 @@ pub inline fn inb(port: PortNumberType) u8 {
     );
 }
 
-
 // DEPRECIATED: use in instead
 pub inline fn inw(port: PortNumberType) u16 {
     return asm volatile ("inw %[port], %[result]"
@@ -102,37 +101,40 @@ pub inline fn cr3() usize {
 
 pub inline fn cr4() usize {
     return asm volatile ("mov %cr4, %[result]"
-    : [result] "={eax}" (-> usize),
+        : [result] "={eax}" (-> usize),
     );
 }
 
 pub inline fn invlpg(addr: usize) void {
     asm volatile ("invlpg (%[addr])"
-    :
-    : [addr] "r" (addr),
-    : "memory"
+        :
+        : [addr] "r" (addr),
+        : "memory"
     );
 }
 
 pub inline fn rdmsr(msr: u32) usize {
-    var low : u32 = undefined;
-    var high : u32 = undefined;
+    var low: u32 = undefined;
+    var high: u32 = undefined;
     asm volatile ("rdmsr"
-        : [low] "={eax}" (low), [high] "={edx}" (high)
-        : [msr] "N{ecx}" (msr)
+        : [low] "={eax}" (low),
+          [high] "={edx}" (high),
+        : [msr] "N{ecx}" (msr),
         : "ecx", "eax", "edx"
     );
     return (@as(u64, high) << 32) | low;
 }
 
 pub inline fn wrmsr(msr: u32, value: usize) void {
-    const low : u32 = @intCast(value & 0xFFFFFFFF);
-    const high : u32 = @intCast(value >> 32);
+    const low: u32 = @intCast(value & 0xFFFFFFFF);
+    const high: u32 = @intCast(value >> 32);
     asm volatile (
         \\ wrmsr
         :
-        : [msr] "N{ecx}" (msr), [low] "{eax}" (low), [high] "{edx}" (high)
-        : "eax", "ecx" ,"edx"
+        : [msr] "N{ecx}" (msr),
+          [low] "{eax}" (low),
+          [high] "{edx}" (high),
+        : "eax", "ecx", "edx"
     );
 }
 
@@ -179,4 +181,9 @@ pub inline fn div0() void {
     asm volatile ("int $0");
 }
 
-
+pub inline fn int(comptime n: u8) void {
+    asm volatile ("int %[n]"
+        :
+        : [n] "N" (n),
+    );
+}
