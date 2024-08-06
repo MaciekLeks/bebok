@@ -39,7 +39,7 @@ inline fn registerAddr(T: type, offset: u10) *volatile T {
     return @ptrFromInt(apic_base_virt_addr + offset);
 }
 
-inline fn readRegister(T: type, offset: u10) T {
+inline fn readRegister(T: type, offset: u10) align(128) T {
     return @volatileCast(registerAddr(T, offset)).*;
 }
 
@@ -62,6 +62,7 @@ pub fn init() !void {
     // Log all registers
     const fields = @typeInfo(LocalAPICRegisterOffset).Enum.fields;
     inline for (fields, 0..) |field, i| {
-        log.info("Local APIC Register: name:{s} idx:{d}, value:0x{x}", .{ field.name, i, readRegister(u32, field.value) });
+        const val align(128) = readRegister(u32, field.value);
+        log.info("Local APIC Register: name:{s} idx:{d}, value:0x{x}, value_ptr: 0x{*}", .{ field.name, i, val, &val });
     }
 }
