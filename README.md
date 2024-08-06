@@ -1,5 +1,5 @@
 # What is Bebok
-A 64-bit kernel (and eventually an operating system) written in Zig, currently targeting x86_64. Utilizes Limine as a bootloader.
+A 64-bit kernel (and eventually an operating system) written in Zig, currently targeting x86_64, using Limine as a bootloader. I've been working on it for a while now, just for fun.
 
 # Name Origin
 In Silesian language, a creature from our (Upper Silesians) demonology. 
@@ -13,11 +13,13 @@ In Silesian language, a creature from our (Upper Silesians) demonology.
 - Custom GDT (Global Descriptor Table) with kernel code and data segments, in addition to the default one provided by Limine
 - IDT (Interrupt Descriptor Table) with basic handlers for the Exceptions and PIC (Programmable Interrupt Controller) IRQs
 - Basic terminal support in graphical mode with the PC Screen Fonts (version 1 and 2)
+- PCI (Peripheral Component Interconnect) driver  
+- NVMe (Non-Volatile Memory Express) driver in progress (70% ready)
 
-# Current Development Steps
-- [ ] block device ops (I/O) 
+# In progress
+- [ ] APIC and MSI/MSI-X to handle NVMe interrupts
+- [ ] NVMe driver (I/O operations - read, write)
 
 # How to run
-```bash
 zig build iso-qemu 
 ```

@@ -1,8 +1,8 @@
 zig-out/
-zig-cache/
+.zig-cache/
 .idea/
 .swp
 tmp
 .gdbinit*
-gdb.log
 
+*.log

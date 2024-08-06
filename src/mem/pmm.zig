@@ -9,6 +9,8 @@ const log = std.log.scoped(.pmm);
 
 pub export var mmap_req = limine.MemoryMapRequest{};
 
+pub const page_size = config.mem_page_size;
+
 const min_region_size_pow2 = config.mem_page_size << 1; //one frame_size takes bbtree buffer, so to manage only one frame/page we need at least 2 frames
 
 const BuddyAllocatorPreconfigured = utils.BuddyAllocator(config.mem_bit_tree_max_levels, config.mem_page_size);
@@ -24,9 +26,7 @@ const KeyVaddrSize = struct {
 // a_key is the key in the get() routine and b_key is the key in the tree
 fn vaddrSizeCmp(a_key: KeyVaddrSize, b_key: KeyVaddrSize) math.Order {
     // check if b_key is in the range of a_key
-    if (a_key.vaddr >= b_key.vaddr and a_key.vaddr + a_key.size < b_key.vaddr + b_key.size)  return math.Order.eq
-    else if (a_key.vaddr <= b_key.vaddr and a_key.vaddr + a_key.size < b_key.vaddr + b_key.size) return math.Order.lt
-    else return math.Order.gt;
+    if (a_key.vaddr >= b_key.vaddr and a_key.vaddr + a_key.size < b_key.vaddr + b_key.size) return math.Order.eq else if (a_key.vaddr <= b_key.vaddr and a_key.vaddr + a_key.size < b_key.vaddr + b_key.size) return math.Order.lt else return math.Order.gt;
 }
 
 /// Tree based on free region memory size
@@ -45,9 +45,10 @@ pub fn init() !void {
         var best_region_entry_idx: usize = undefined;
 
         for (mmap_res.entries(), 0..) |entry, i| {
+            const size_kb = entry.length / 1024;
             const size_mb = entry.length / 1024 / 1024;
             const size_gb = if (size_mb > 1024) size_mb / 1024 else 0;
-            log.debug("init(): Memory map entry {d: >3}: {s: <23} 0x{x} -- 0x{x} of size {d}MB ({d}GB)", .{ i, @tagName(entry.kind), entry.base, entry.base + entry.length, size_mb, size_gb });
+            log.debug("init(): Memory map entry {d: >3}: {s: <23} 0x{x} -- 0x{x} of size {d}KB {d}MB ({d}GB)", .{ i, @tagName(entry.kind), entry.base, entry.base + entry.length, size_kb, size_mb, size_gb });
             if (entry.kind == .usable and (best_region == null or best_region.?.len < entry.length)) {
                 best_region = @as([*]u8, @ptrFromInt(entry.base))[0..entry.length];
                 best_region_entry_idx = i;
@@ -55,7 +56,7 @@ pub fn init() !void {
         }
 
         if (best_region) |p_region| {
-            const v_region = @as([*]u8, @ptrFromInt(paging.vaddrFromPaddr(@intFromPtr(p_region.ptr))))[0..p_region.len];
+            const v_region = @as([*]u8, @ptrFromInt(paging.virtFromMME(@intFromPtr(p_region.ptr))))[0..p_region.len];
             log.debug("init(): Best physical region address: 0x{x} -> 0x{x}, constituting virtual region address: 0x{x} -> 0x{x}", .{
                 @intFromPtr(p_region.ptr),
                 @intFromPtr(p_region.ptr) + p_region.len,
@@ -104,7 +105,6 @@ pub fn init() !void {
                 log.debug("init(): Free memory size: {d}GB ({d}MB, {d}kB, 0x{x} bytes) at 0x{x}", .{ size_gb, size_mb, size_kb, e.v.*.free_mem_size, e.v.*.mem_vaddr });
                 it_vadr.next();
             }
-
         } else return error.NoUsableMemory;
     } else return error.NoMemoryMap;
 }
@@ -112,7 +112,7 @@ pub fn init() !void {
 /// We register at leat one zone per region
 fn registerRegionZone(base: usize, len: usize) !void {
     if (len <= min_region_size_pow2) return;
-    const v_region = @as([*]u8, @ptrFromInt(paging.vaddrFromPaddr(base)))[0..len];
+    const v_region = @as([*]u8, @ptrFromInt(paging.virtFromMME(base)))[0..len];
     log.debug("registerRegionZone(): Inserting region zone: 0x{x} -> 0x{x}", .{ @intFromPtr(v_region.ptr), @intFromPtr(v_region.ptr) + v_region.len });
     const zone_buddy_allocator = try BuddyAllocatorPreconfigured.init(v_region);
     _ = try avl_tree_by_size.insert(len, zone_buddy_allocator);
@@ -135,15 +135,15 @@ fn alloc(_: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
     while (it.value()) |e| {
         log.debug("alloc(): Checking free memory at 0x{x} of total size: 0x{x} bytes, free size: 0x{x} to allocate: 0x{x}, pow2: 0x{x}  ", .{ e.v.*.mem_vaddr, e.v.*.max_mem_size_pow2, e.v.*.free_mem_size, len, size_pow2 });
         if (e.v.*.free_mem_size >= size_pow2) {
-            log.debug("alloc(): Found free memory size: 0x{x} bytes in buddy allocator at 0x{x} of total size: 0x{x} )", .{e.v.*.free_mem_size, e.v.*.mem_vaddr, e.v.*.max_mem_size_pow2 });
+            log.debug("alloc(): Found free memory size: 0x{x} bytes in buddy allocator at 0x{x} of total size: 0x{x} )", .{ e.v.*.free_mem_size, e.v.*.mem_vaddr, e.v.*.max_mem_size_pow2 });
             const ptr = e.v.*.allocator().rawAlloc(size_pow2, ptr_align, ret_addr); //len is also OK
             if (ptr) |p| {
-                defer log.debug("alloc(): Allocated 0x{x} bytes of total allocation 0x{x} bytes at 0x{x}", .{len, size_pow2,  @intFromPtr(p)});
+                defer log.debug("alloc(): Allocated 0x{x} bytes of total allocation 0x{x} bytes at 0x{x}", .{ len, size_pow2, @intFromPtr(p) });
                 return p;
             }
         }
-       //it.next();
-       it.prev();
+        //it.next();
+        it.prev();
     }
     return null;
 }
@@ -154,7 +154,7 @@ fn free(_: *anyopaque, buf: []u8, _: u8, _: usize) void {
     const it = avl_tree_by_vaddr.get(key);
     if (it) |v| {
         const ba = v.*;
-        log.debug("free(): Memory free size before freeing: 0x{x} bytes at 0x{x}", .{ba.free_mem_size, @intFromPtr(buf.ptr)});
+        log.debug("free(): Memory free size before freeing: 0x{x} bytes at 0x{x}", .{ ba.free_mem_size, @intFromPtr(buf.ptr) });
         v.*.allocator().free(buf);
         log.debug("free(): Memory free size now: 0x{x} bytes", .{ba.free_mem_size});
     } else {

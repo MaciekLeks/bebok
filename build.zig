@@ -4,7 +4,8 @@ const Target = std.Target;
 const Feature = std.Target.Cpu.Feature;
 
 const bebok_iso_filename = "bebok.iso";
-const kernel_version = std.SemanticVersion{.major = 0, .minor = 1, .patch = 0};
+const bebok_disk_img_filename = "disk.qcow2";
+const kernel_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 };
 
 // fn nasmRun(b: *Build, src: []const u8, dst: []const u8, options: []const []const u8, prev_step: ?*Build.Step) error{OutOfMemory}!*Build.Step {
 //     var args = std.ArrayList([]const u8).init(b.allocator);
@@ -58,7 +59,8 @@ fn resolveTarget(b: *Build, arch: Target.Cpu.Arch) !Build.ResolvedTarget {
 fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, options: *Build.Step.Options, limine_zig_mod: *Build.Module, zigavl_mod: *Build.Module) *Build.Step.Compile {
     const compile_kernel_action = b.addExecutable(.{
         .name = "kernel.elf",
-        .root_source_file = .{ .path = "src/kernel.zig" },
+        // .root_source_file = .{ .path = "src/kernel.zig" },
+        .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/kernel.zig" } },
         .target = target,
         .optimize = optimize,
         .single_threaded = true,
@@ -71,16 +73,19 @@ fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.bu
 
     compile_kernel_action.root_module.addImport("limine", limine_zig_mod);
     compile_kernel_action.root_module.addImport("zigavl", zigavl_mod);
-    compile_kernel_action.setLinkerScript(.{ .path = b.fmt("linker-{s}.ld", .{@tagName(target.result.cpu.arch)}) });
+    //compile_kernel_action.setLinkerScript(.{ .path = b.fmt("linker-{s}.ld", .{@tagName(target.result.cpu.arch)}) });
+    compile_kernel_action.setLinkerScript(.{ .src_path = .{ .owner = b, .sub_path = b.fmt("linker-{s}.ld", .{@tagName(target.result.cpu.arch)}) } });
     compile_kernel_action.out_filename = "kernel.elf";
     compile_kernel_action.pie = false; //TODO: ?
 
     //{Modules
-    const terminal_module = b.addModule("terminal", .{ .root_source_file = .{ .path = "lib/terminal/mod.zig" } });
+    //const terminal_module = b.addModule("terminal", .{ .root_source_file = .{ .path = "lib/terminal/mod.zig" } });
+    const terminal_module = b.addModule("terminal", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "lib/terminal/mod.zig" } } });
     terminal_module.addImport("limine", limine_zig_mod); //we need limine there
     compile_kernel_action.root_module.addImport("terminal", terminal_module);
 
-    const utils_module = b.addModule("utils", .{ .root_source_file = .{ .path = "lib/utils/mod.zig" } });
+    //const utils_module = b.addModule("utils", .{ .root_source_file = .{ .path = "lib/utils/mod.zig" } });
+    const utils_module = b.addModule("utils", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "lib/utils/mod.zig" } } });
     compile_kernel_action.root_module.addImport("utils", utils_module);
     //}Modules
 
@@ -126,7 +131,8 @@ fn buildIsoFileAction(b: *Build, compile_kernel_action: *Build.Step.Compile) *Bu
     const limine_dep = b.dependency("limine", .{});
     const iso_prepate_files_action = b.addWriteFiles();
     _ = iso_prepate_files_action.addCopyFile(compile_kernel_action.getEmittedBin(), "kernel.elf");
-    _ = iso_prepate_files_action.addCopyFile(.{ .path = "src/boot/limine.cfg" }, "limine.cfg");
+    //_ = iso_prepate_files_action.addCopyFile(.{ .path = "src/boot/limine.cfg" }, "limine.cfg");
+    _ = iso_prepate_files_action.addCopyFile(.{ .src_path = .{ .owner = b, .sub_path = "src/boot/limine.cfg" } }, "limine.cfg");
     _ = iso_prepate_files_action.addCopyFile(limine_dep.path("limine-bios.sys"), "limine-bios.sys");
     _ = iso_prepate_files_action.addCopyFile(limine_dep.path("limine-bios-cd.bin"), "limine-bios-cd.bin");
     _ = iso_prepate_files_action.addCopyFile(limine_dep.path("limine-uefi-cd.bin"), "limine-uefi-cd.bin");
@@ -152,6 +158,16 @@ fn buildIsoFileAction(b: *Build, compile_kernel_action: *Build.Step.Compile) *Bu
     return iso_build_action;
 }
 
+fn buildDiskImgFileAction(b: *Build, out_file: *Build.LazyPath) *Build.Step.Run {
+    const qemu_img_action = b.addSystemCommand(&.{"qemu-img"});
+    qemu_img_action.addArg("create");
+    qemu_img_action.addArg("-f");
+    qemu_img_action.addArg("qcow2");
+    out_file.* = qemu_img_action.addOutputFileArg(bebok_disk_img_filename); //output file is not the last one in the sequence of args, we can't add it from outside
+    qemu_img_action.addArg("1G");
+    return qemu_img_action;
+}
+
 fn injectLimineStages(limine_run_action: *Build.Step.Run, iso_file: Build.LazyPath) void {
     limine_run_action.addArg("bios-install");
     limine_run_action.addFileArg(iso_file);
@@ -164,7 +180,14 @@ fn installIsoFileAction(b: *Build, iso_build_task: *Build.Step, iso_file: Build.
     return b.addInstallFile(iso_artifact_path, bebok_iso_filename);
 }
 
-fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, iso_file: Build.LazyPath, debug: bool) !*Build.Step.Run {
+fn installDiskImgFileAction(b: *Build, disk_img_build_task: *Build.Step, disk_img_file: Build.LazyPath) *Build.Step.InstallFile {
+    const copy_disk_img_task = b.addWriteFiles();
+    copy_disk_img_task.step.dependOn(disk_img_build_task);
+    const disk_img_artifact_path = copy_disk_img_task.addCopyFile(disk_img_file, bebok_disk_img_filename);
+    return b.addInstallFile(disk_img_artifact_path, bebok_disk_img_filename);
+}
+
+fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, debug: bool) !*Build.Step.Run {
     const qemu_iso_action = b.addSystemCommand(&.{switch (target.result.cpu.arch) {
         .x86_64 => "qemu-system-x86_64",
         else => return error.UnsupportedArch,
@@ -173,11 +196,28 @@ fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, iso_file: Build.LazyPa
     switch (target.result.cpu.arch) {
         .x86_64 => {
             qemu_iso_action.addArgs(&.{
-                "-m", "2G",
+                "-M", "q35", //for PCIe and NVMe support
+                "-m", "2G", //Memory size
+                //"-cpu", "486,-pse", // TODO: enable 1GB and 2MB pages, for now we turn them off
+                //"-enable-kvm", //to be able to use host cpu
             });
             qemu_iso_action.addArg("-no-reboot");
             qemu_iso_action.addArg("-cdrom");
-            qemu_iso_action.addFileArg(iso_file);
+            //qemu_iso_action.addArg(try std.fmt.allocPrint(b.allocator, "{s}/{s}", .{b.install_prefix, bebok_iso_filename})); //TODO: can't take installed artifact LazyPAth
+            qemu_iso_action.addArg(try std.fmt.allocPrint(b.allocator, "{s}", .{b.getInstallPath(.prefix, bebok_iso_filename)})); //TODO: can't take installed artifact LazyPAth
+            qemu_iso_action.addArgs(&.{ //PCIe controller
+                "-device",
+                "pcie-root-port,id=pcie_port0,multifunction=on,bus=pcie.0,addr=0x10",
+            });
+            qemu_iso_action.addArgs(&.{ //NVMe controller
+                "-device",
+                "nvme,drive=drv0,serial=1,bus=pcie_port0,use-intel-id=on",
+            });
+            qemu_iso_action.addArg("-drive");
+            //> TODO: can't take installed artifact LazyPAth, see my issue: https://stackoverflow.com/questions/78499409/buid-system-getting-installed-relative-path
+            //qemu_iso_action.addArg(try std.fmt.allocPrint(b.allocator, "file={s}/{s},format=qcow2,if=none,id=drv0", .{b.install_prefix, bebok_disk_img_filename}));
+            qemu_iso_action.addArg(try std.fmt.allocPrint(b.allocator, "file={s},format=qcow2,if=none,id=drv0", .{b.getInstallPath(.prefix, bebok_disk_img_filename)}));
+            //boot from cdrom
             qemu_iso_action.addArgs(&.{
                 "-boot",
                 "d",
@@ -188,7 +228,7 @@ fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, iso_file: Build.LazyPa
                     "-s",
                     "-S",
                 });
-                qemu_iso_action.addArgs(&.{"-d", "int"});
+                qemu_iso_action.addArgs(&.{ "-d", "int" });
             }
         },
         else => return error.UnsupportedArch,
@@ -201,7 +241,7 @@ pub fn build(b: *Build) !void {
 
     const build_options = .{
         .arch = b.option(std.Target.Cpu.Arch, "arch", "The architecture to build for") orelse b.host.result.cpu.arch,
-        .mem_page_size = b.option(enum(u32) { normal = 4096 }, "page-size", "The page size to be used; 'normal' represents 4096 bytes ") orelse .normal,
+        .mem_page_size = b.option(enum(u32) { ps4k = 4096, ps2m = 512 * 4096, ps1g = 1024 * 1024 * 1024 }, "page-size", "Choose the page size: 'ps4k' stands for 4096 bytes, 'ps1m' means 2MB pages, and 'ps1g' is a 1GB page. ") orelse .ps4k,
         .mem_bit_tree_max_levels = b.option(u8, "mem-bit-tree-max-levels", "Maximum number of the bit tree levels to manage memory, calculated as log2(total_memory_in_bytes/page_size_in_bytes)+ 1; defaults to 32") orelse 32,
     };
 
@@ -222,7 +262,7 @@ pub fn build(b: *Build) !void {
     const options = b.addOptions();
     options.addOption(u32, "mem_page_size", @intFromEnum(build_options.mem_page_size));
     options.addOption(u8, "mem_bit_tree_max_levels", build_options.mem_bit_tree_max_levels);
-    options.addOption(std.SemanticVersion, "kernel_version",  kernel_version);
+    options.addOption(std.SemanticVersion, "kernel_version", kernel_version);
 
     const compile_kernel_action = compileKernelAction(b, target, optimize, options, limine_zig_mod, zigavl_mod);
     const install_kernel_action = installKernelAction(b, compile_kernel_action);
@@ -248,16 +288,28 @@ pub fn build(b: *Build) !void {
     iso_stage.dependOn(install_iso_file_task);
     iso_stage.dependOn(install_kernel_task); //to be able to debug in gdb
 
-    const qemu_iso_action = try qemuIsoAction(b, target, build_iso_file_action_output, false); //run with the cached iso file
+    var qemu_disk_img_file_action_output: Build.LazyPath = undefined;
+    const qemu_disk_img_file_action = buildDiskImgFileAction(b, &qemu_disk_img_file_action_output);
+    const qemu_disk_img_file_task = &qemu_disk_img_file_action.step;
+    const qemu_install_disk_img_file_action = installDiskImgFileAction(b, qemu_disk_img_file_task, qemu_disk_img_file_action_output);
+    const qemu_install_disk_img_file_task = &qemu_install_disk_img_file_action.step;
+
+    //const qemu_iso_action = try qemuIsoAction(b, target, build_iso_file_action_output, qemu_disk_img_file_action_output, false); //run with the cached iso file
+    const qemu_iso_action = try qemuIsoAction(b, target, false); //run with the cached iso file
+    const qemu_iso_task = &qemu_iso_action.step;
+    qemu_iso_task.dependOn(qemu_install_disk_img_file_task);
+    qemu_iso_task.dependOn(install_iso_file_task);
     const qemu_iso_stage = b.step("iso-qemu", "Run the ISO in QEMU");
-    qemu_iso_stage.dependOn(iso_stage);
-    qemu_iso_stage.dependOn(&qemu_iso_action.step);
+    qemu_iso_stage.dependOn(qemu_iso_task);
 
     // debug mode
-    const qemu_iso_debug_action = try qemuIsoAction(b, target, build_iso_file_action_output, true); //run with the cached iso file
-    const qemu_iso_debug_stage = b.step("iso-qemu-debug", "Run the ISO in QEMU in debug mode");
-    qemu_iso_debug_stage.dependOn(iso_stage);
-    qemu_iso_debug_stage.dependOn(&qemu_iso_debug_action.step);
+    const qemu_iso_debug_action = try qemuIsoAction(b, target, true); //run with the cached iso file
+    const qemu_iso_debug_task = &qemu_iso_debug_action.step;
+    qemu_iso_debug_task.dependOn(qemu_install_disk_img_file_task);
+    qemu_iso_debug_task.dependOn(install_iso_file_task);
+    qemu_iso_debug_task.dependOn(install_kernel_task); //to be able to debug in gdb
+    const qemu_iso_debug_stage = b.step("iso-qemu-debug", "Run the ISO in QEMU with debug mode enabled");
+    qemu_iso_debug_stage.dependOn(qemu_iso_debug_task);
 
     b.default_step = iso_stage;
 }

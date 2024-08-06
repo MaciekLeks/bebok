@@ -15,6 +15,7 @@ const ct_max_branches = 100000;
 const ct_max_codepoints = 1000;
 
 const GlyphNumber = u32;
+const StaticHashMapType = std.StaticStringMap(GlyphNumber);
 
 /// build an iterator that can walk over the pixel data in a given PSFFont
 /// iterates over single bits, aligning forward a bite when hitting the glyph
@@ -101,10 +102,21 @@ const HeaderInfo = struct {
 };
 
 // comptime known header info plus utf8 map if current font has unicode table
-fn HeaderDataInfo(comptime h_info: HeaderInfo, comptime UTF8Map: ?type) type {
+// fn HeaderDataInfo(comptime h_info: HeaderInfo, comptime UTF8Map: ?type) type {
+//     return struct {
+//         const header_info = h_info;
+//         const Map = UTF8Map;
+//     };
+// }
+
+fn HeaderDataInfo(comptime h_info: HeaderInfo, comptime Utf8MapType: type) type {
     return struct {
-        const header_info = h_info;
-        const Map = UTF8Map;
+        fn init(comptime map_c: ?Utf8MapType) type {
+            return struct {
+                const header_info: HeaderInfo = h_info;
+                const map = map_c;
+            };
+        }
     };
 }
 
@@ -127,7 +139,7 @@ fn GenericInfo(comptime Settings: type) type {
         unicode_table_offset: ?u32, //TOOD remove
         unicode_count: u32,
 
-        const Map = Settings.Map;
+        //const Map = Settings.Map;
 
         pub fn init() Self {
 
@@ -159,7 +171,7 @@ fn GenericInfo(comptime Settings: type) type {
         }
 
         pub fn glyphNumber(_: Self, utf8_slice: []const u8) ?u32 {
-            if (Map) |map| {
+            if (Settings.map) |map| {
                 return map.get(utf8_slice);
             } else {
                 return utf8_slice[0];
@@ -264,7 +276,8 @@ fn Version2Info(comptime file: []const u8) type {
 
             //update unicode count
             h_info.unicode_count = uc_codes;
-            return GenericInfo(HeaderDataInfo(h_info, std.ComptimeStringMap(GlyphNumber, utf8_glyph_arr[0..uc_codes])));
+            //return GenericInfo(HeaderDataInfo(h_info, std.ComptimeStringMap(GlyphNumber, utf8_glyph_arr[0..uc_codes])));
+            return GenericInfo(HeaderDataInfo(h_info, StaticHashMapType).init(StaticHashMapType.initComptime(utf8_glyph_arr[0..uc_codes])));
         }
     }
 
@@ -345,7 +358,9 @@ fn Version1Info(comptime file: []const u8) type {
 
             //update unicode count
             h_info.unicode_count = uc_codes;
-            return GenericInfo(HeaderDataInfo(h_info, std.ComptimeStringMap(GlyphNumber, codepoint_glyph_arr[0..uc_codes])));
+            //return GenericInfo(HeaderDataInfo(h_info, std.ComptimeStringMap(GlyphNumber, codepoint_glyph_arr[0..uc_codes])));
+            //const StaticHashMapType = std.StaticStringMap(GlyphNumber).initComptime(codepoint_glyph_arr[0..uc_codes]);
+            return GenericInfo(HeaderDataInfo(h_info, StaticHashMapType).init(StaticHashMapType.initComptime(codepoint_glyph_arr[0..uc_codes])));
         }
     }
 

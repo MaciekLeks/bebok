@@ -1,14 +1,21 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const limine = @import("limine");
 const config = @import("config");
 const cpu = @import("cpu.zig");
-const start = @import("start.zig");
+//const start = @import("start.zig");
+const segmentation = @import("segmentation.zig");
 const paging = @import("paging.zig");
 const pmm = @import("mem/pmm.zig");
 const heap = @import("mem/heap.zig").heap;
 const term = @import("terminal");
+const pci = @import("drivers/pci.zig");
+const Nvme = @import("drivers/Nvme.zig");
+const int = @import("int.zig");
 
 const log = std.log.scoped(.kernel);
+
+pub export var base_revision: limine.BaseRevision = .{ .revision = 1 };
 
 pub const std_options = .{
     .logFn = logFn,
@@ -51,10 +58,19 @@ pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     cpu.halt();
 }
 
-
-
 export fn _start() callconv(.C) noreturn {
-    start.init();
+    // Ensure the bootloader actually understands our base revision (see spec).
+    if (!base_revision.is_supported()) {
+        cpu.halt();
+    }
+
+    cpu.cli();
+    segmentation.init();
+
+    paging.init() catch |err| {
+        log.err("Paging initialization error: {}", .{err});
+        @panic("Paging initialization error");
+    };
 
     log.debug("Hello, world!", .{});
 
@@ -69,13 +85,38 @@ export fn _start() callconv(.C) noreturn {
         log.err("OOM: {}", .{err});
         @panic("OOM");
     };
+    log.warn("Allocated memory at {*}", .{memory});
     allocator.free(memory);
+
+    //{  init handler list
+    int.init(int.processISRList);
+    var arena_allocator = std.heap.ArenaAllocator.init(heap.page_allocator);
+    int.initISRMap(arena_allocator.allocator());
+    defer int.deinitISRMap();
+    cpu.sti();
+    //} init handler list
+
+    //pci test start
+    pci.init();
+    Nvme.init();
+    pci.scan();
+    defer Nvme.deinit();
+    defer pci.deinit(); //TODO: na pewno?
+    //pci test end
+
+    int.addISR(0x21, .{ .unique_id = 1234, .func = &testISR }) catch |err| {
+        log.err("Failed to add NVMe interrupt handler: {}", .{err});
+    };
 
     var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");
     pty.printf("Bebok version: {any}\n", .{config.kernel_version});
 
-    //cpu.div0();
+    //start.done(); //only now we can hlt - do not use defer after start.init();
+    cpu.halt();
+}
 
 
-    start.done(); //only now we can hlt - do not use defer after start.init();
+//TODO tbd
+fn testISR() !void {
+    log.warn("----->>>>!!!!", .{});
 }

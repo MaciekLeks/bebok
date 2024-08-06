@@ -7,21 +7,71 @@ pub fn halt() noreturn {
     }
 }
 
-pub inline fn inb(port: u16) u8 {
+pub const PortNumberType = u16; // Port numbers are 16-bit for all x86 architectures
+
+pub inline fn in(comptime T: type, port: PortNumberType) T {
+    return switch (T) {
+        u8 => asm volatile ("inb %[port], %[ret]"
+            : [ret] "={al}" (-> u8),
+            : [port] "N{dx}" (port),
+        ),
+
+        u16 => asm volatile ("inw %[port], %[ret]"
+            : [ret] "={al}" (-> u16),
+            : [port] "N{dx}" (port),
+        ),
+
+        u32 => asm volatile ("inl %[port], %[ret]"
+            : [ret] "={eax}" (-> u32),
+            : [port] "N{dx}" (port),
+        ),
+
+        else => unreachable,
+    };
+}
+
+pub inline fn out(comptime T: type, port: PortNumberType, value: T) void {
+    switch (T) {
+        u8 => asm volatile ("outb %[value], %[port]"
+            :
+            : [value] "{al}" (value),
+              [port] "N{dx}" (port),
+        ),
+
+        u16 => asm volatile ("outw %[value], %[port]"
+            :
+            : [value] "{al}" (value),
+              [port] "N{dx}" (port),
+        ),
+
+        u32 => asm volatile ("outl %[value], %[port]"
+            :
+            : [value] "{eax}" (value),
+              [port] "N{dx}" (port),
+        ),
+
+        else => unreachable,
+    }
+}
+
+// DEPRECIATED: use in instead
+pub inline fn inb(port: PortNumberType) u8 {
     return asm volatile ("inb %[port], %[result]"
         : [result] "={al}" (-> u8),
         : [port] "{dx}" (port),
     );
 }
 
-pub inline fn inw(port: u16) u16 {
+// DEPRECIATED: use in instead
+pub inline fn inw(port: PortNumberType) u16 {
     return asm volatile ("inw %[port], %[result]"
         : [result] "={ax}" (-> u16),
         : [port] "{dx}" (port),
     );
 }
 
-pub inline fn outb(port: u16, data: u8) void {
+// DEPRECIATED: use out instead
+pub inline fn outb(port: PortNumberType, data: u8) void {
     asm volatile ("outb %[data], %[port]"
         :
         : [data] "{al}" (data),
@@ -29,7 +79,8 @@ pub inline fn outb(port: u16, data: u8) void {
     );
 }
 
-pub inline fn outw(port: u16, data: u16) void {
+// DEPRECIATED: use out instead
+pub inline fn outw(port: PortNumberType, data: u16) void {
     asm volatile ("outw %[data], %[port]"
         :
         : [data] "{ax}" (data),
@@ -45,6 +96,45 @@ pub fn putb(byte: u8) void {
 pub inline fn cr3() usize {
     return asm volatile ("mov %cr3, %[result]"
         : [result] "={eax}" (-> usize),
+    );
+}
+
+pub inline fn cr4() usize {
+    return asm volatile ("mov %cr4, %[result]"
+        : [result] "={eax}" (-> usize),
+    );
+}
+
+pub inline fn invlpg(addr: usize) void {
+    asm volatile ("invlpg (%[addr])"
+        :
+        : [addr] "r" (addr),
+        : "memory"
+    );
+}
+
+pub inline fn rdmsr(msr: u32) usize {
+    var low: u32 = undefined;
+    var high: u32 = undefined;
+    asm volatile ("rdmsr"
+        : [low] "={eax}" (low),
+          [high] "={edx}" (high),
+        : [msr] "N{ecx}" (msr),
+        : "ecx", "eax", "edx"
+    );
+    return (@as(u64, high) << 32) | low;
+}
+
+pub inline fn wrmsr(msr: u32, value: usize) void {
+    const low: u32 = @intCast(value & 0xFFFFFFFF);
+    const high: u32 = @intCast(value >> 32);
+    asm volatile (
+        \\ wrmsr
+        :
+        : [msr] "N{ecx}" (msr),
+          [low] "{eax}" (low),
+          [high] "{edx}" (high),
+        : "eax", "ecx", "edx"
     );
 }
 
@@ -89,4 +179,11 @@ pub inline fn lgdt(gdtd: *const gdt.Gdtd, code_selector: usize, data_selector: u
 
 pub inline fn div0() void {
     asm volatile ("int $0");
+}
+
+pub inline fn int(comptime n: u8) void {
+    asm volatile ("int %[n]"
+        :
+        : [n] "N" (n),
+    );
 }
