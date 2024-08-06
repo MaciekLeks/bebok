@@ -12,7 +12,7 @@
         },
         .zigavl = .{
             .url = "git+https://github.com/MaciekLeks/zigavl.git#main",
-            .hash = "1220a2167c63a4d8faea9ecd8b5b39d66b1042066649c8289ed688958a5ff93e1d3d",
+            .hash = "1220302a3948a5e86233ad8282329ad8c3deb387a0751e7115f756ca5796c04be2cb"
         }
     },
     .paths = .{""},
