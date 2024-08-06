@@ -31,10 +31,17 @@ const HandleFn = fn () callconv(.Interrupt) void;
 const ISRHandleLoopFn = *const fn (vec_no: VectorIndex) ISRError!void;
 pub const IH = fn (vec_no: VectorIndex) void;
 
-fn remapPIC(cmd_port: u16, data_port: u16, irq_start: u8) void {
-    cpu.outb(cmd_port, pic_init_command); //send the init command
-    cpu.outb(data_port, irq_start); //set start of irq  (0 for the master, 8 for the slave) at irq_start
-    cpu.outb(data_port, pic_end_of_init);
+// fn remapPIC(cmd_port: u16, data_port: u16, irq_start: u8) void {
+//     cpu.outb(cmd_port, pic_init_command); //send the init command
+//     cpu.outb(data_port, irq_start); //set start of irq  (0 for the master, 8 for the slave) at irq_start
+//     cpu.outb(data_port, pic_end_of_init);
+// }
+
+// Funkcja do wyłączenia PIC
+pub fn disablePIC() void {
+    // Mask all interrupts
+    cpu.outb(pic_master_data_port, 0xFF);
+    cpu.outb(pic_slave_data_port, 0xFF);
 }
 
 pub const Exception = struct {
@@ -183,8 +190,9 @@ pub fn init(comptime isr_handle_loop_fn: ISRHandleLoopFn) void {
     defer log.info("Interrupts handling initialized", .{});
 
     // Remap IRQs to 0x20->0x2F
-    remapPIC(pic_master_cmd_port, pic_master_data_port, pic_master_irq_start); // Remap master PIC (0-7)
-    remapPIC(pic_slave_cmd_port, pic_slave_data_port, pic_slave_irq_start); // Remap slave PIC (7-15)
+    //remapPIC(pic_master_cmd_port, pic_master_data_port, pic_master_irq_start); // Remap master PIC (0-7)
+    //remapPIC(pic_slave_cmd_port, pic_slave_data_port, pic_slave_irq_start); // Remap slave PIC (7-15)
+    disablePIC();
 
     // Update the IDT with the exceptions: 0x0->0x1F
     inline for (0..total_exceptions) |i| {
