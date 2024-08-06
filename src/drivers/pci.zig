@@ -357,8 +357,6 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
         break :blk 0;
     };
 
-    log.debug("PCI version: 0x{x}", .{pci_version});
-
     notifyDriver(function, slot, bus, class_code, subclass, prog_if, interrupt_line);
 }
 
@@ -409,8 +407,12 @@ pub fn readPciVersion(function: u3, slot: u5, bus: u8) !u8 {
     while (current_pointer != 0) {
         const capability_id = readRegisterWithRawArgs(u8, current_pointer, function, slot, bus);
         if (capability_id == 0x10) { // 0x10 stands for PCI Express
-            const version = readRegisterWithRawArgs(u8, current_pointer + 2, function, slot, bus);
-            return version;
+            const major_version = readRegisterWithRawArgs(u8, current_pointer + 2, function, slot, bus);
+            const minor_version = readRegisterWithRawArgs(u8, current_pointer + 3, function, slot, bus);
+
+            log.debug("PCI Express version: {d}.{d}", .{ major_version, minor_version });
+
+            return major_version << 4 | minor_version;
         }
         current_pointer = readRegisterWithRawArgs(u8, current_pointer + 1, function, slot, bus);
     }
