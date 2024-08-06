@@ -352,8 +352,8 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
         });
     }
 
-    const pci_version = readPciVersion(function, slot, bus) catch |err| blk: {
-        log.err("Failed to read PCI version: {}", .{err});
+    _ = readPciVersion(function, slot, bus) catch |err| blk: {
+        log.warn("Failed to read PCI version: {}", .{err});
         break :blk 0;
     };
 
