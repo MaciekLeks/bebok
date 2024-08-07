@@ -1,15 +1,14 @@
 const std = @import("std");
 const cpu = @import("cpu.zig");
 const paging = @import("paging.zig");
+const limine = @import("smp.zig");
 
 const log = std.log.scoped(.apic);
 
 const apic_base_msr: u32 = 0x1B;
-const apic_base_phys_addr: usize = 0xFEE00000;
-var apic_base_virt_addr: usize = undefined;
 var allocator: std.mem.Allocator = undefined;
 const apic_registry_size: usize = 0x1000;
-var apic_regs: []u8 = undefined;
+var apic_registry: []volatile u8 = undefined; //apic base is apic_regs.ptr
 
 fn isLocalAPICSupported() bool {
     const cpuid = cpu.cpuid(0x01);
@@ -18,27 +17,33 @@ fn isLocalAPICSupported() bool {
 
 fn enableLocalAPIC() void {
     var lapic_base: u64 = cpu.rdmsr(apic_base_msr);
-    log.info("Local APIC enabled: 0b{b:0>64}", .{lapic_base});
+    log.info("Before updating APIC MSR(0x1B): 0b{b:0>64}", .{lapic_base});
 
-    apic_regs = allocator.alloc(u8, apic_registry_size) catch |err| {
+    apic_registry = allocator.alloc(u8, apic_registry_size) catch |err| {
         log.err("Failed to allocate memory for APIC registers: {}", .{err});
         return;
     };
 
-    const apic_regs_phys = paging.physFromVirt(@intFromPtr(apic_regs.ptr)) catch |err| {
+    paging.adjustPageAreaPAT(@intFromPtr(apic_registry.ptr), apic_registry_size, .uncacheable) catch |err| {
+        log.err("Failed to adjust page area PAT for APIC registry: {}", .{err});
+        return;
+    };
+    log.info("APIC registry page area PAT set to UC", .{});
+
+    const apic_registry_phys_addr = paging.physFromVirt(@intFromPtr(apic_registry.ptr)) catch |err| {
         log.err("Failed to get physical address of APIC registers: {}", .{err});
         return;
     };
-    @memset(apic_regs, 0);
+    @memset(apic_registry, 0);
 
-    log.info("Physical address of APIC registers: 0x{x}", .{apic_regs_phys});
+    log.info("Physical address of APIC registers: 0x{x}", .{apic_registry_phys_addr});
 
-    // set APIC base address (bits 12 though 35) and enable APIC though bit 11
-    lapic_base |= ((0x0000_00FF_FFFF_F000 & apic_regs_phys) << 12) | 1 << 11;
+    // set APIC base address (bits 12 though 35) and enable APIC though bit 11 and Bootstrap Processor flag through bit 8
+    lapic_base |= ((0x0000_00FF_FFFF_F000 & apic_registry_phys_addr) << 12) | 1 << 11 | 1 << 8;
     cpu.wrmsr(apic_base_msr, lapic_base);
 
     lapic_base = cpu.rdmsr(apic_base_msr);
-    log.info("Local APIC enabled: 0x{0x}(0b{0b:0>64})", .{lapic_base});
+    log.debug("Local APIC enabled MSR(0x1B): 0x{0x}(0b{0b:0>64})", .{lapic_base});
 }
 
 const LocalAPICRegisterOffset = enum(u10) {
@@ -59,7 +64,7 @@ const LocalAPICRegisterOffset = enum(u10) {
 };
 
 inline fn registerAddr(T: type, offset: u10) *volatile T {
-    return @ptrFromInt(apic_base_virt_addr + offset);
+    return @ptrCast(@alignCast(@as([*]volatile u8, apic_registry.ptr) + offset));
 }
 
 inline fn readRegister(T: type, offset: u10) align(128) T {
@@ -84,7 +89,7 @@ pub fn init(allocr: std.mem.Allocator) !void {
     // Log all registers
     const fields = @typeInfo(LocalAPICRegisterOffset).Enum.fields;
     inline for (fields, 0..) |field, i| {
-        const val align(128) = readRegister(u32, field.value);
+        const val align(128) = readRegister(u16, field.value);
         log.info("Local APIC Register: name:{s} idx:{d}, value:0x{x}, value_ptr: 0x{*}", .{ field.name, i, val, &val });
     }
 }
@@ -92,5 +97,5 @@ pub fn init(allocr: std.mem.Allocator) !void {
 pub fn deinit() void {
     log.info("Deinitializing APIC", .{});
     defer log.info("APIC deinitialized", .{});
-    allocator.free(apic_regs);
+    allocator.free(apic_registry);
 }

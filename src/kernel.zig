@@ -13,6 +13,7 @@ const pci = @import("drivers/pci.zig");
 const Nvme = @import("drivers/Nvme.zig");
 const int = @import("int.zig");
 const apic = @import("apic.zig");
+const smp = @import("smp.zig");
 
 const log = std.log.scoped(.kernel);
 
@@ -64,6 +65,8 @@ export fn _start() callconv(.C) noreturn {
     if (!base_revision.is_supported()) {
         cpu.halt();
     }
+
+    smp.init();
 
     cpu.cli();
     segmentation.init();
