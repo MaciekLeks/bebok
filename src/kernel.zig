@@ -96,10 +96,12 @@ export fn _start() callconv(.C) noreturn {
     defer int.deinitISRMap();
     cpu.sti();
     //} init handler list
+
     // TODO: apic instead of pic
-    apic.init() catch |err| {
+    apic.init(heap.page_allocator) catch |err| {
         log.warn("Failed to initialize APIC: {}", .{err});
     };
+    defer apic.deinit();
 
     //pci test start
     pci.init();

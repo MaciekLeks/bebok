@@ -37,9 +37,35 @@ pub const IH = fn (vec_no: VectorIndex) void;
 //     cpu.outb(data_port, pic_end_of_init);
 // }
 
-// Funkcja do wyłączenia PIC
-pub fn disablePIC() void {
-    // Mask all interrupts
+// pub fn disablePIC() void {
+//     // Mask all interrupts
+//     cpu.outb(pic_master_data_port, 0xFF);
+//     cpu.outb(pic_slave_data_port, 0xFF);
+// }
+fn disablePIC() void {
+    // Mask all interrupts on Master PIC
+    cpu.outb(pic_master_data_port, 0xFF);
+
+    // Mask all interrupts on Slave PIC
+    cpu.outb(pic_slave_data_port, 0xFF);
+
+    // ICW1: Initialize PIC
+    cpu.outb(pic_master_cmd_port, pic_init_command); // Start initialization sequence for Master PIC
+    cpu.outb(pic_slave_cmd_port, pic_init_command); // Start initialization sequence for Slave PIC
+
+    // ICW2: Set vector offset
+    cpu.outb(pic_master_data_port, pic_master_irq_start); // Master PIC vector offset
+    cpu.outb(pic_slave_data_port, pic_slave_irq_start); // Slave PIC vector offset
+
+    // ICW3: Configure cascading
+    cpu.outb(pic_master_data_port, 0x04); // Master PIC has a Slave at IRQ2
+    cpu.outb(pic_slave_data_port, 0x02); // Slave PIC ID = 2
+
+    // ICW4: Set additional settings
+    cpu.outb(pic_master_data_port, pic_end_of_init); // 8086/88 mode
+    cpu.outb(pic_slave_data_port, pic_end_of_init); // 8086/88 mode
+
+    // Mask all interrupts on Master PIC and Slave PIC
     cpu.outb(pic_master_data_port, 0xFF);
     cpu.outb(pic_slave_data_port, 0xFF);
 }

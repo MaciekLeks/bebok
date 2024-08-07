@@ -198,7 +198,8 @@ fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, debug: bool) !*Build.S
             qemu_iso_action.addArgs(&.{
                 "-M", "q35", //for PCIe and NVMe support
                 "-m", "2G", //Memory size
-                //"-cpu", "486,-pse", // TODO: enable 1GB and 2MB pages, for now we turn them off
+                // "-smp","1", //one processor only
+                // "-cpu", "qemu64,+apic", // TODO: enable 1GB and 2MB pages, for now we turn them off
                 //"-enable-kvm", //to be able to use host cpu
             });
             qemu_iso_action.addArg("-no-reboot");
