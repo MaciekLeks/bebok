@@ -97,14 +97,17 @@ export fn _start() callconv(.C) noreturn {
     var arena_allocator = std.heap.ArenaAllocator.init(heap.page_allocator);
     int.initISRMap(arena_allocator.allocator());
     defer int.deinitISRMap();
-    cpu.sti();
-    //} init handler list
 
+    //{ apic
     // TODO: apic instead of pic
     apic.init(heap.page_allocator) catch |err| {
         log.warn("Failed to initialize APIC: {}", .{err});
     };
     defer apic.deinit();
+    //}
+
+    cpu.sti();
+    //} init handler list
 
     //pci test start
     pci.init();

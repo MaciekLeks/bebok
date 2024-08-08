@@ -885,8 +885,13 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
         // Create I/O Completion Queue -  TODO:  we can create up to ncqr, and nsqr queues, but for not we create only one
 
         const IS_MASKED = int.isIRQMasked(0x0a);
-        int.triggerInterrupt(0x2a);
-        log.info("NVMe interrupt line: {x}, vector number: 0x{x}, is masked: {}", .{ interrupt_line, VEC_NO, IS_MASKED });
+        switch (IS_MASKED) {
+            false => {
+                log.info("NVMe interrupt line: {x}, vector number: 0x{x}, is masked: {}", .{ interrupt_line, VEC_NO, IS_MASKED });
+                int.triggerInterrupt(0x2a);
+            },
+            true => log.err("NVMe interrupt line: {x}, vector number: 0x{x}, is masked: {}", .{ interrupt_line, VEC_NO, IS_MASKED }),
+        }
 
         for (&drive.iocq, 1..) |*cq, cq_id| {
             cq.* = .{};

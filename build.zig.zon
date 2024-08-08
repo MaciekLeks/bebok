@@ -7,8 +7,8 @@
             .hash = "122021bb754764323f91dc9b85dfd9375f0f47d341d8df23fd39c4001da39df0b483"
         },
         .limine = .{
-            .url = "git+https://github.com/limine-bootloader/limine#v7.x-binary",
-            .hash = "1220409caa0ebb57268a5c273c7bcc9f523d7e34f4fc4e5ab59a09c738c1bb59c8f2",
+            .url = "git+https://github.com/limine-bootloader/limine#v8.x-binary",
+            .hash = "1220e7ed48778a876f993f1a4882b29a2722ba60c55da2738d4d39e7ddd573498f97",
         },
         .zigavl = .{
             .url = "git+https://github.com/MaciekLeks/zigavl.git#main",

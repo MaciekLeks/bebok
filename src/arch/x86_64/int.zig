@@ -247,30 +247,30 @@ pub fn init(comptime isr_handle_loop_fn: ISRHandleLoopFn) void {
     }
 
     // PIC IRQs
-    inline for (0..total_irqs) |i| {
-        //change code to use set
-        setDefaultInterruptEntry(pic_master_irq_start + i, isr_handle_loop_fn, false);
-
-        // idt[pic_master_irq_start + i].segment_selector = gdt.segment_selectors.kernel_code_x64;
-        // idt[pic_master_irq_start + i].interrupt_stack_table = 0;
-        // idt[pic_master_irq_start + i].gate_type = IdtEntry.GateType.interrupt_gate;
-        // idt[pic_master_irq_start + i].privilege = dpl.PrivilegeLevel.ring3;
-        // idt[pic_master_irq_start + i].present = true;
-        // switch (i) {
-        //     1, 0xa => { //TODO: 0xa -> PCI - write function to set handler from outside this file
-        //         idt[pic_master_irq_start + i].setOffset(@intFromPtr(&interruptWithAckowledgeFnBind(i, null, true)));
-        //     },
-        //     else => {
-        //         idt[pic_master_irq_start + i].setOffset(@intFromPtr(&interruptWithAckowledgeFnBind(i, null,false)));
-        //     },
-        // }
-
-        // change above code to use set
-
-        // Softwares interrupts
-        //TODO: add
-
-    }
+    // inline for (0..total_irqs) |i| {
+    //     //change code to use set
+    //     setDefaultInterruptEntry(pic_master_irq_start + i, isr_handle_loop_fn, false);
+    //
+    //     // idt[pic_master_irq_start + i].segment_selector = gdt.segment_selectors.kernel_code_x64;
+    //     // idt[pic_master_irq_start + i].interrupt_stack_table = 0;
+    //     // idt[pic_master_irq_start + i].gate_type = IdtEntry.GateType.interrupt_gate;
+    //     // idt[pic_master_irq_start + i].privilege = dpl.PrivilegeLevel.ring3;
+    //     // idt[pic_master_irq_start + i].present = true;
+    //     // switch (i) {
+    //     //     1, 0xa => { //TODO: 0xa -> PCI - write function to set handler from outside this file
+    //     //         idt[pic_master_irq_start + i].setOffset(@intFromPtr(&interruptWithAckowledgeFnBind(i, null, true)));
+    //     //     },
+    //     //     else => {
+    //     //         idt[pic_master_irq_start + i].setOffset(@intFromPtr(&interruptWithAckowledgeFnBind(i, null,false)));
+    //     //     },
+    //     // }
+    //
+    //     // change above code to use set
+    //
+    //     // Softwares interrupts
+    //     //TODO: add
+    //
+    // }
 
     idtd.offset = @intFromPtr(&idt);
     cpu.lidt(&idtd);

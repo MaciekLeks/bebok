@@ -5,19 +5,19 @@ const limine = @import("smp.zig");
 
 const log = std.log.scoped(.apic);
 
-const apic_base_msr: u32 = 0x1B;
+const apic_base_msr_addr: u32 = 0x1B;
 var allocator: std.mem.Allocator = undefined;
 const apic_registry_size: usize = 0x1000;
 var apic_registry: []volatile u8 = undefined; //apic base is apic_regs.ptr
 
-fn isLocalAPICSupported() bool {
+fn isLapicSupported() bool {
     const cpuid = cpu.cpuid(0x01);
     return cpuid.edx & (1 << 9) != 0;
 }
 
-fn enableLocalAPIC() void {
-    var lapic_base: u64 = cpu.rdmsr(apic_base_msr);
-    log.info("Before updating APIC MSR(0x1B): 0b{b:0>64}", .{lapic_base});
+fn enableLapic() void {
+    var apic_base_msr: u64 = cpu.rdmsr(apic_base_msr_addr);
+    log.info("Before updating APIC 0x1B@MSR: 0b{b:0>64}", .{apic_base_msr});
 
     apic_registry = allocator.alloc(u8, apic_registry_size) catch |err| {
         log.err("Failed to allocate memory for APIC registers: {}", .{err});
@@ -36,17 +36,19 @@ fn enableLocalAPIC() void {
     };
     @memset(apic_registry, 0);
 
-    log.info("Physical address of APIC registers: 0x{x}", .{apic_registry_phys_addr});
+    log.info("Physical/Virtual address of APIC registers: 0x{x}/{*}", .{ apic_registry_phys_addr, apic_registry.ptr });
 
-    // set APIC base address (bits 12 though 35) and enable APIC though bit 11 and Bootstrap Processor flag through bit 8
-    lapic_base |= ((0x0000_00FF_FFFF_F000 & apic_registry_phys_addr) << 12) | 1 << 11 | 1 << 8;
-    cpu.wrmsr(apic_base_msr, lapic_base);
+    // set APIC base address (bits 12 though 35 - 3 bytes) and enable APIC though bit 11 and Bootstrap Processor flag through bit 8
+    //apic_base_msr |= ((0x0000_00FF_FFFF_F000 & apic_registry_phys_addr) << 12) | 1 << 11 | 1 << 8;
+    apic_base_msr |= (0x0000_00FF_FFFF_F000 & apic_registry_phys_addr) | 1 << 11 | 1 << 8;
+    log.info("Setting APIC MSR to 0x{x}", .{apic_base_msr});
+    cpu.wrmsr(apic_base_msr_addr, apic_base_msr);
 
-    lapic_base = cpu.rdmsr(apic_base_msr);
-    log.debug("Local APIC enabled MSR(0x1B): 0x{0x}(0b{0b:0>64})", .{lapic_base});
+    apic_base_msr = cpu.rdmsr(apic_base_msr_addr);
+    log.debug("Local APIC enabled 0x1B@MSR: 0x{0x}(0b{0b:0>64})", .{apic_base_msr});
 }
 
-const LocalAPICRegisterOffset = enum(u10) {
+const LapicRegisterOffset = enum(u10) {
     id = 0x20,
     version = 0x30,
     tpr = 0x80,
@@ -77,21 +79,25 @@ pub fn init(allocr: std.mem.Allocator) !void {
 
     allocator = allocr;
 
-    const lapic_supported = isLocalAPICSupported();
+    const lapic_supported = isLapicSupported();
     log.info("Checking if LAPIC is supported: {}", .{lapic_supported});
 
     if (!lapic_supported) {
         return error.LAPICNotSupported;
     }
 
-    enableLocalAPIC();
+    enableLapic();
 
     // Log all registers
-    const fields = @typeInfo(LocalAPICRegisterOffset).Enum.fields;
+    const fields = @typeInfo(LapicRegisterOffset).Enum.fields;
     inline for (fields, 0..) |field, i| {
         const val align(128) = readRegister(u16, field.value);
         log.info("Local APIC Register: name:{s} idx:{d}, value:0x{x}, value_ptr: 0x{*}", .{ field.name, i, val, &val });
     }
+
+    // for (0..100) |i| {
+    //     log.info("apic_registry[{d: >3}]:0x{x}", .{ i, apic_registry[i] });
+    // }
 }
 
 pub fn deinit() void {
