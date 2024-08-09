@@ -120,7 +120,6 @@ pub inline fn rdmsr(msr: u32) usize {
         : [low] "={eax}" (low),
           [high] "={edx}" (high),
         : [msr] "{ecx}" (msr),
-        : "ecx", "eax", "edx"
     );
     return (@as(u64, high) << 32) | low;
 }
@@ -134,7 +133,6 @@ pub inline fn wrmsr(msr: u32, value: usize) void {
         : [msr] "{ecx}" (msr),
           [low] "{eax}" (low),
           [high] "{edx}" (high),
-        : "eax", "ecx", "edx"
     );
 }
 
