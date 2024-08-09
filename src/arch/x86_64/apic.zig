@@ -11,6 +11,7 @@ const apic_registry_size: usize = 0x1000;
 //var apic_registry: []volatile u8 = undefined; //apic base is apic_regs.ptr
 var apic_default_base_phys: usize = undefined;
 var apic_default_base_virt: usize = undefined;
+const lvt_mask = 0x10000;
 
 fn isLapicSupported() bool {
     const cpuid = cpu.cpuid(0x01);
@@ -67,11 +68,14 @@ fn enableLapicWithDefaultBase() void {
     log.info("APIC registry page area PAT set to UC", .{});
 
     // set APIC base address (bits 12 though 35 - 3 bytes) and enable APIC though bit 11 and Bootstrap Processor flag through bit 8
-    apic_base_msr |= 1 << 11;
-    log.info("Setting APIC MSR to 0x{x}", .{apic_base_msr});
-    cpu.wrmsr(apic_base_msr_addr, apic_base_msr);
+    if (apic_base_msr & 1 << 11 == 0) {
+        apic_base_msr |= 1 << 11;
+        log.info("Setting APIC MSR to 0x{x}", .{apic_base_msr});
+        cpu.wrmsr(apic_base_msr_addr, apic_base_msr);
 
-    apic_base_msr = cpu.rdmsr(apic_base_msr_addr);
+        apic_base_msr = cpu.rdmsr(apic_base_msr_addr);
+    }
+
     log.debug("Local APIC enabled 0x1B@MSR: 0x{0x}(0b{0b:0>64})", .{apic_base_msr});
 }
 
@@ -92,12 +96,27 @@ const LapicRegisterOffset = enum(u10) {
     timer_divide_config = 0x3E0,
 };
 
-inline fn registerAddr(T: type, offset: u10) *align(16) volatile T {
-    return @ptrFromInt(apic_default_base_virt + offset);
+inline fn registerAddr(T: type, offset: LapicRegisterOffset) *align(16) volatile T {
+    return @ptrFromInt(apic_default_base_virt + @intFromEnum(offset));
 }
 
-inline fn readRegister(T: type, offset: u10) align(16) T {
+inline fn readRegister(T: type, offset: LapicRegisterOffset) align(16) T {
     return @volatileCast(registerAddr(T, offset)).*;
+}
+
+inline fn writeRegister(T: type, offset: LapicRegisterOffset, val: T) void {
+    const aligned_val align(16) = val;
+    registerAddr(T, offset).* = aligned_val;
+}
+
+fn logRegistryState() void {
+    // Log all registers
+    const fields = @typeInfo(LapicRegisterOffset).Enum.fields;
+    log.info("Local APIC Register State", .{});
+    inline for (fields) |field| {
+        const val align(128) = readRegister(u32, @enumFromInt(field.value));
+        log.info("Local APIC Register: {s} -> value:0x{x} at 0x{*}", .{ field.name, val, &val });
+    }
 }
 
 pub fn init(allocr: std.mem.Allocator) !void {
@@ -114,16 +133,29 @@ pub fn init(allocr: std.mem.Allocator) !void {
     }
 
     enableLapicWithDefaultBase();
-    //enableLapic();
 
-    // Log all registers
-    const fields = @typeInfo(LapicRegisterOffset).Enum.fields;
-    inline for (fields, 0..) |field, i| {
-        const val align(128) = readRegister(u32, field.value);
-        log.info("Local APIC Register: name:{s} idx:{d}, value:0x{x}, value_ptr: 0x{*}", .{ field.name, i, val, &val });
-    }
+    logRegistryState();
 
-    const id align(16) = readRegister(u32, @intFromEnum(LapicRegisterOffset.id));
+    // Enable the APIC by setting the Spurious Interrupt Vector Register
+
+    // Disable LVT entries for LINT0 and LINT1
+    writeRegister(u32, .lvt_lint0, lvt_mask); // Mask
+    writeRegister(u32, .lvt_lint1, lvt_mask); // Mask
+
+    // Disable LVT Timer, and LVT Thermal Sensor
+    writeRegister(u32, .lvt_timer, lvt_mask); // Mask
+    writeRegister(u32, .lvt_thermal_sensor, lvt_mask); //Mask
+
+    // Set up the LVT Error
+    writeRegister(u32, .lvt_error, lvt_mask); //Mask
+
+    // Initialize the timer
+    writeRegister(u32, .timer_divide_config, 0x3); //divide by 16, see Figure 11.10 in the Intel System Programming Guide
+    writeRegister(u32, .timer_initial_count, 0);
+
+    logRegistryState();
+
+    const id align(16) = readRegister(u32, .id);
     log.info("Local APIC ID: 0x{x}, align:{d}", .{ id, @alignOf(@TypeOf(id)) });
 }
 
