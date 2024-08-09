@@ -119,7 +119,7 @@ pub inline fn rdmsr(msr: u32) usize {
     asm volatile ("rdmsr"
         : [low] "={eax}" (low),
           [high] "={edx}" (high),
-        : [msr] "N{ecx}" (msr),
+        : [msr] "{ecx}" (msr),
         : "ecx", "eax", "edx"
     );
     return (@as(u64, high) << 32) | low;
@@ -131,7 +131,7 @@ pub inline fn wrmsr(msr: u32, value: usize) void {
     asm volatile (
         \\ wrmsr
         :
-        : [msr] "N{ecx}" (msr),
+        : [msr] "{ecx}" (msr),
           [low] "{eax}" (low),
           [high] "{edx}" (high),
         : "eax", "ecx", "edx"

@@ -13,6 +13,9 @@ pub fn init() void {
     if (smp_request.response) |response| {
         log.info("SMP reponse: {}", .{response.*});
         core_count = response.cpu_count;
+        for (0..core_count) |i| {
+            log.info("CPUs Info: {}", .{response.cpus_ptr[i]});
+        }
     }
 }
 

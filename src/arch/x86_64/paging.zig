@@ -758,7 +758,7 @@ pub fn init() !void {
     // log.warn("phys_buddy_virt: 0x{x}", .{phys_buddy.phys});
     //
     // //wite loop to iterate over each element of address in the table
-    const vt = [_]usize{ virtFromMME(0x4d00), virtFromMME(0x10_0000), virtFromMME(0x7fa61000), virtFromMME(0x7fa63000) };
+    const vt = [_]usize{ virtFromMME(0x4d00), virtFromMME(0x10_0000), virtFromMME(0x7fa61000), virtFromMME(0x7fa63000), virtFromMME(0xfee0_0000) };
     for (vt) |vaddr| {
         log.err("------: 0x{x}", .{vaddr});
 

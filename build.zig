@@ -44,8 +44,16 @@ fn resolveTarget(b: *Build, arch: Target.Cpu.Arch) !Build.ResolvedTarget {
                 features.addFeature(@intFromEnum(Target.x86.Feature.mmx));
                 features.addFeature(@intFromEnum(Target.x86.Feature.sse));
                 features.addFeature(@intFromEnum(Target.x86.Feature.sse2));
+                features.addFeature(@intFromEnum(Target.x86.Feature.sse3));
+                features.addFeature(@intFromEnum(Target.x86.Feature.sse4_1));
+                features.addFeature(@intFromEnum(Target.x86.Feature.sse4_2));
+                features.addFeature(@intFromEnum(Target.x86.Feature.ssse3));
                 features.addFeature(@intFromEnum(Target.x86.Feature.avx));
                 features.addFeature(@intFromEnum(Target.x86.Feature.avx2));
+                features.addFeature(@intFromEnum(Target.x86.Feature.x87)); //no FPU for kvm guest
+                features.addFeature(@intFromEnum(Target.x86.Feature.fma));
+                features.addFeature(@intFromEnum(Target.x86.Feature.f16c));
+                features.addFeature(@intFromEnum(Target.x86.Feature.fma4));
                 break :blk features;
             },
             else => return error.UnsupportedArch,
@@ -196,7 +204,8 @@ fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, debug: bool) !*Build.S
     switch (target.result.cpu.arch) {
         .x86_64 => {
             qemu_iso_action.addArgs(&.{
-                "-M", "q35", //for PCIe and NVMe support
+                //"-M", "q35", //for PCIe and NVMe support
+                "-M", "ubuntu-q35", //see qemu-system-x86_64 -M help
                 "-m", "2G", //Memory size
                 //"-smp", "1", //one processor only
                 // "-cpu", "qemu64,+apic", // TODO: enable 1GB and 2MB pages, for now we turn them off

@@ -44,30 +44,30 @@ pub const IH = fn (vec_no: VectorIndex) void;
 // }
 fn disablePIC() void {
     // Mask all interrupts on Master PIC
-    cpu.outb(pic_master_data_port, 0xFF);
+    cpu.out(u8, pic_master_data_port, 0xFF);
 
     // Mask all interrupts on Slave PIC
-    cpu.outb(pic_slave_data_port, 0xFF);
+    cpu.out(u8, pic_slave_data_port, 0xFF);
 
     // ICW1: Initialize PIC
-    cpu.outb(pic_master_cmd_port, pic_init_command); // Start initialization sequence for Master PIC
-    cpu.outb(pic_slave_cmd_port, pic_init_command); // Start initialization sequence for Slave PIC
+    cpu.out(u8, pic_master_cmd_port, pic_init_command); // Start initialization sequence for Master PIC
+    cpu.out(u8, pic_slave_cmd_port, pic_init_command); // Start initialization sequence for Slave PIC
 
     // ICW2: Set vector offset
-    cpu.outb(pic_master_data_port, pic_master_irq_start); // Master PIC vector offset
-    cpu.outb(pic_slave_data_port, pic_slave_irq_start); // Slave PIC vector offset
+    cpu.out(u8, pic_master_data_port, pic_master_irq_start); // Master PIC vector offset
+    cpu.out(u8, pic_slave_data_port, pic_slave_irq_start); // Slave PIC vector offset
 
     // ICW3: Configure cascading
-    cpu.outb(pic_master_data_port, 0x04); // Master PIC has a Slave at IRQ2
-    cpu.outb(pic_slave_data_port, 0x02); // Slave PIC ID = 2
+    cpu.out(u8, pic_master_data_port, 0x04); // Master PIC has a Slave at IRQ2
+    cpu.out(u8, pic_slave_data_port, 0x02); // Slave PIC ID = 2
 
     // ICW4: Set additional settings
-    cpu.outb(pic_master_data_port, pic_end_of_init); // 8086/88 mode
-    cpu.outb(pic_slave_data_port, pic_end_of_init); // 8086/88 mode
+    cpu.out(u8, pic_master_data_port, pic_end_of_init); // 8086/88 mode
+    cpu.out(u8, pic_slave_data_port, pic_end_of_init); // 8086/88 mode
 
     // Mask all interrupts on Master PIC and Slave PIC
-    cpu.outb(pic_master_data_port, 0xFF);
-    cpu.outb(pic_slave_data_port, 0xFF);
+    cpu.out(u8, pic_master_data_port, 0xFF);
+    cpu.out(u8, pic_slave_data_port, 0xFF);
 }
 
 pub const Exception = struct {
@@ -82,6 +82,38 @@ pub const Exception = struct {
         abort,
     };
 };
+
+//TODO: fpu to be updated
+fn maskFPUExceptions() void {
+    const FPU_MASK_IM = 0 << 0; // Invalid Operation (1 means masking)
+    const FPU_MASK_DM = 1 << 1; // Denormalized Operand
+    const FPU_MASK_ZM = 1 << 2; // Zero Divide
+    const FPU_MASK_OM = 1 << 3; // Overflow
+    const FPU_MASK_UM = 1 << 4; // Underflow
+    const FPU_MASK_PM = 1 << 5; // Precision
+    //src: https://www.website.masmforum.com/tutorials/fptute/fpuchap3.htm#fstcw
+    var control_word: u16 = 0;
+    var cw_ptr = &control_word;
+    asm volatile ("fnstcw (%[cw])"
+        : [cw] "=r" (cw_ptr),
+    );
+    log.debug("FPU -1- control word: 0b{b:0>16}", .{control_word});
+    control_word = FPU_MASK_IM | FPU_MASK_DM | FPU_MASK_ZM | FPU_MASK_OM | FPU_MASK_UM | FPU_MASK_PM;
+    log.debug("FPU -2- control word: 0b{b:0>16}", .{control_word});
+    asm volatile ("fldcw (%[cw])"
+        :
+        : [cw] "r" (cw_ptr),
+    );
+
+    asm volatile ("fwait");
+
+    //read again
+    var x: u16 = 0;
+    asm volatile ("fnstcw %[cw]"
+        : [cw] "=m" (x),
+    );
+    log.debug("FPU -3- control word: 0b{b:0>16}", .{x});
+}
 
 const et = [_]Exception{
     .{ .vec_no = 0x0, .mnemonic = "#DE", .type = .fault, .description = "Division Error" },
@@ -215,6 +247,8 @@ pub fn init(comptime isr_handle_loop_fn: ISRHandleLoopFn) void {
     log.info("Initializing interrupts handling", .{});
     defer log.info("Interrupts handling initialized", .{});
 
+    maskFPUExceptions();
+
     // Remap IRQs to 0x20->0x2F
     //remapPIC(pic_master_cmd_port, pic_master_data_port, pic_master_irq_start); // Remap master PIC (0-7)
     //remapPIC(pic_slave_cmd_port, pic_slave_data_port, pic_slave_irq_start); // Remap slave PIC (7-15)
@@ -223,7 +257,7 @@ pub fn init(comptime isr_handle_loop_fn: ISRHandleLoopFn) void {
     // Update the IDT with the exceptions: 0x0->0x1F
     inline for (0..total_exceptions) |i| {
         switch (i) {
-            0x02, 0x09, 0x15, 0x16...0x1B, 0x1F => |ei| {
+            0x02, 0x09, 0x15, 0x16...0x1B, 0x1F => |ei| { //TODO: unmask 0x16 FPU
                 setDefaultInterruptEntry(ei, isr_handle_loop_fn, true);
                 // idt[ei].setOffset(@intFromPtr(&interruptFnBind(ei)));
                 // idt[ei].segment_selector = gdt.segment_selectors.kernel_code_x64;
