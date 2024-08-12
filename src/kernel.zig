@@ -13,6 +13,7 @@ const pci = @import("drivers/pci.zig");
 const Nvme = @import("drivers/Nvme.zig");
 const int = @import("int.zig");
 const smp = @import("smp.zig");
+const acpi = @import("acpi.zig");
 
 const log = std.log.scoped(.kernel);
 
@@ -75,7 +76,7 @@ export fn _start() callconv(.C) noreturn {
         @panic("Paging initialization error");
     };
 
-    log.debug("Hello, world!", .{});
+    acpi.init();
 
     pmm.init() catch |err| {
         log.err("PMM initialization error: {}", .{err});
