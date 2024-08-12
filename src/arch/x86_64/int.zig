@@ -3,6 +3,7 @@ const dpl = @import("dpl.zig");
 const cpu = @import("cpu.zig");
 const gdt = @import("gdt.zig");
 const testing = @import("testing");
+const apic = @import("apic.zig");
 
 const log = std.log.scoped(.init_x86_64);
 
@@ -85,34 +86,38 @@ pub const Exception = struct {
 
 //TODO: fpu to be updated
 fn maskFPUExceptions() void {
-    const FPU_MASK_IM = 0 << 0; // Invalid Operation (1 means masking)
-    const FPU_MASK_DM = 1 << 1; // Denormalized Operand
-    const FPU_MASK_ZM = 1 << 2; // Zero Divide
-    const FPU_MASK_OM = 1 << 3; // Overflow
-    const FPU_MASK_UM = 1 << 4; // Underflow
-    const FPU_MASK_PM = 1 << 5; // Precision
-    //src: https://www.website.masmforum.com/tutorials/fptute/fpuchap3.htm#fstcw
-    var control_word: u16 = 0;
-    var cw_ptr = &control_word;
-    asm volatile ("fnstcw (%[cw])"
-        : [cw] "=r" (cw_ptr),
-    );
-    log.debug("FPU -1- control word: 0b{b:0>16}", .{control_word});
-    control_word = FPU_MASK_IM | FPU_MASK_DM | FPU_MASK_ZM | FPU_MASK_OM | FPU_MASK_UM | FPU_MASK_PM;
-    log.debug("FPU -2- control word: 0b{b:0>16}", .{control_word});
-    asm volatile ("fldcw (%[cw])"
-        :
-        : [cw] "r" (cw_ptr),
-    );
+    // const FPU_MASK_IM = 0 << 0; // Invalid Operation (1 means masking)
+    // const FPU_MASK_DM = 1 << 1; // Denormalized Operand
+    // const FPU_MASK_ZM = 1 << 2; // Zero Divide
+    // const FPU_MASK_OM = 1 << 3; // Overflow
+    // const FPU_MASK_UM = 1 << 4; // Underflow
+    // const FPU_MASK_PM = 1 << 5; // Precision
+    // //src: https://www.website.masmforum.com/tutorials/fptute/fpuchap3.htm#fstcw
+    // var control_word: u16 = 0;
+    // var cw_ptr = &control_word;
+    // asm volatile ("fnstcw (%[cw])" //musi byc nawias bo oznacza on, to co jest w srodku to jesrt adres, bez tego realizuje ten zapis na(w) rejestrze a nie na pamieci
+    //     : [cw] "=r" (cw_ptr),
+    // );
+    // log.debug("FPU -1- control word: 0b{b:0>16}", .{control_word});
+    // control_word = FPU_MASK_IM | FPU_MASK_DM | FPU_MASK_ZM | FPU_MASK_OM | FPU_MASK_UM | FPU_MASK_PM;
+    // log.debug("FPU -2- control word: 0b{b:0>16}", .{control_word});
+    // asm volatile ("fldcw (%[cw])"
+    //     :
+    //     : [cw] "r" (cw_ptr),
+    // );
+    //
+    // asm volatile ("fwait");
+    //
+    // //read again
+    // var x: u16 = 0;
+    // asm volatile ("fnstcw %[cw]"
+    //     : [cw] "=m" (x),
+    // );
+    // log.debug("FPU -3- control word: 0b{b:0>16}", .{x});
 
-    asm volatile ("fwait");
-
-    //read again
-    var x: u16 = 0;
-    asm volatile ("fnstcw %[cw]"
-        : [cw] "=m" (x),
-    );
-    log.debug("FPU -3- control word: 0b{b:0>16}", .{x});
+    log.debug("FPU control word before modification: 0b{b:0>16}", .{cpu.Fpu.readControlWord()});
+    cpu.Fpu.updateControlWord(cpu.Fpu.mask_zero_divide | cpu.Fpu.mask_overflow | cpu.Fpu.mask_invalid_operation | cpu.Fpu.mask_denormalized_operand | cpu.Fpu.mask_underflow | cpu.Fpu.mask_precision);
+    log.debug("FPU control word after modification: 0b{b:0>16}", .{cpu.Fpu.readControlWord()});
 }
 
 const et = [_]Exception{
@@ -210,7 +215,7 @@ fn bindIRQHandler(comptime _: u5, comptime _: ?ISRHandleLoopFn, comptime _: bool
     @compileError("Not implemented");
 }
 
-fn bindIRQHandlerWithAck(comptime vec_no: VectorIndex, comptime isr_handle_loop_fn: ?ISRHandleLoopFn, comptime logging: bool) HandleFn {
+fn bindPicIrqHandlerWithAck(comptime vec_no: VectorIndex, comptime isr_handle_loop_fn: ?ISRHandleLoopFn, comptime logging: bool) HandleFn {
     return struct {
         fn handle() callconv(.Interrupt) void {
             if (logging) log.debug(std.fmt.comptimePrint("Interrupt: IRQ 0x{x}", .{vec_no}), .{});
@@ -218,6 +223,18 @@ fn bindIRQHandlerWithAck(comptime vec_no: VectorIndex, comptime isr_handle_loop_
                 log.err("Error handling interrupt: vec_no=0x{x}, error={}", .{ vec_no, err });
             };
             if (vec_no >= pic_slave_irq_start) cpu.out(u8, pic_slave_cmd_port, pic_eoi) else cpu.out(u8, pic_master_cmd_port, pic_eoi);
+        }
+    }.handle;
+}
+
+fn bindLapicHandlerWithAck(comptime vec_no: VectorIndex, comptime isr_handle_loop_fn: ?ISRHandleLoopFn, comptime logging: bool) HandleFn {
+    return struct {
+        fn handle() callconv(.Interrupt) void {
+            if (logging) log.debug(std.fmt.comptimePrint("Interrupt: vec_no:0x{x}", .{vec_no}), .{});
+            if (isr_handle_loop_fn) |isr| isr(vec_no) catch |err| {
+                log.err("Error handling interrupt: vec_no=0x{x}, error={}", .{ vec_no, err });
+            };
+            apic.ack();
         }
     }.handle;
 }
@@ -231,8 +248,12 @@ fn setIdtEntry(comptime idx: VectorIndex, handle: HandleFn, gate_type: IdtEntry.
     idt[idx].present = present;
 }
 
-fn setDefaultInterruptEntry(comptime vec_no: VectorIndex, comptime isr_handle_loop_fn: ISRHandleLoopFn, comptime logging: bool) void {
-    setIdtEntry(vec_no, bindIRQHandlerWithAck(vec_no, isr_handle_loop_fn, logging), IdtEntry.GateType.interrupt_gate, dpl.PrivilegeLevel.ring0, true);
+fn setDefaultPicInterruptEntry(comptime vec_no: VectorIndex, comptime isr_handle_loop_fn: ISRHandleLoopFn, comptime logging: bool) void {
+    setIdtEntry(vec_no, bindPicIrqHandlerWithAck(vec_no, isr_handle_loop_fn, logging), IdtEntry.GateType.interrupt_gate, dpl.PrivilegeLevel.ring0, true);
+}
+
+fn setDefaultLapicInterruptEntry(comptime vec_no: VectorIndex, comptime isr_handle_loop_fn: ISRHandleLoopFn, comptime logging: bool) void {
+    setIdtEntry(vec_no, bindLapicHandlerWithAck(vec_no, isr_handle_loop_fn, logging), IdtEntry.GateType.interrupt_gate, dpl.PrivilegeLevel.ring0, true);
 }
 
 fn setDefaultExceptionEntry(comptime idx: u5, comptime gate_type: IdtEntry.GateType) void {
@@ -254,11 +275,17 @@ pub fn init(comptime isr_handle_loop_fn: ISRHandleLoopFn) void {
     //remapPIC(pic_slave_cmd_port, pic_slave_data_port, pic_slave_irq_start); // Remap slave PIC (7-15)
     disablePIC();
 
+    //{ apic
+    apic.init() catch |err| {
+        log.warn("Failed to initialize APIC: {}", .{err});
+    };
+    //}
+
     // Update the IDT with the exceptions: 0x0->0x1F
     inline for (0..total_exceptions) |i| {
         switch (i) {
             0x02, 0x09, 0x15, 0x16...0x1B, 0x1F => |ei| { //TODO: unmask 0x16 FPU
-                setDefaultInterruptEntry(ei, isr_handle_loop_fn, true);
+                setDefaultPicInterruptEntry(ei, isr_handle_loop_fn, true);
                 // idt[ei].setOffset(@intFromPtr(&interruptFnBind(ei)));
                 // idt[ei].segment_selector = gdt.segment_selectors.kernel_code_x64;
                 // idt[ei].interrupt_stack_table = 0;
@@ -305,6 +332,11 @@ pub fn init(comptime isr_handle_loop_fn: ISRHandleLoopFn) void {
     //     //TODO: add
     //
     // }
+
+    // counts from 0x30, do not tuch disabled PIC remapped vectors - see Intel Programming Guide
+    inline for (0x30..0xFF) |int| {
+        setDefaultLapicInterruptEntry(int, isr_handle_loop_fn, false);
+    }
 
     idtd.offset = @intFromPtr(&idt);
     cpu.lidt(&idtd);

@@ -192,6 +192,43 @@ pub fn cpuid(eax_in: u32) struct { eax: u32, ebx: u32, ecx: u32, edx: u32 } {
     return .{ .eax = eax, .ebx = ebx, .ecx = ecx, .edx = edx };
 }
 
+pub const Fpu = struct {
+    // Exception masks as constants
+    pub const mask_invalid_operation = 0 << 0; // Invalid Operation
+    pub const mask_denormalized_operand = 1 << 1; // Denormalized Operand
+    pub const mask_zero_divide = 1 << 2; // Zero Divide
+    pub const mask_overflow = 1 << 3; // Overflow
+    pub const mask_underflow = 1 << 4; // Underflow
+    pub const mask_precision = 1 << 5; // Precision
+
+    // Method to read the current FPU control word
+    pub fn readControlWord() u16 {
+        var control_word: u16 = 0;
+        asm volatile ("fnstcw %[cw]"
+            : [cw] "=m" (control_word),
+        );
+        return control_word;
+    }
+
+    // Method to write a new FPU control word
+    pub fn writeControlWord(control_word: u16) void {
+        const cw_ptr = &control_word;
+        asm volatile ("fldcw (%[ptr])"
+            :
+            : [ptr] "r" (cw_ptr),
+        );
+    }
+
+    // Method to non-authorative change of the FPU control word with masks
+    pub fn updateControlWord(mask: u16) void {
+        const current_cw = readControlWord();
+        const new_cw = current_cw | mask;
+        writeControlWord(new_cw);
+    }
+};
+
+// --- helper functions ---
+
 pub inline fn div0() void {
     asm volatile ("int $0");
 }

@@ -6,3 +6,5 @@ tmp
 .gdbinit*
 
 *.log
+
+qemu-system-x86_64

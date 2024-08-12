@@ -6,9 +6,8 @@ const limine = @import("smp.zig");
 const log = std.log.scoped(.apic);
 
 const apic_base_msr_addr: u32 = 0x1B;
-var allocator: std.mem.Allocator = undefined;
+//var allocator: std.mem.Allocator = undefined;
 const apic_registry_size: usize = 0x1000;
-//var apic_registry: []volatile u8 = undefined; //apic base is apic_regs.ptr
 var apic_default_base_phys: usize = undefined;
 var apic_default_base_virt: usize = undefined;
 const lvt_mask = 0x10000;
@@ -76,7 +75,7 @@ fn enableLapicWithDefaultBase() void {
         apic_base_msr = cpu.rdmsr(apic_base_msr_addr);
     }
 
-    log.debug("Local APIC enabled 0x1B@MSR: 0x{0x}(0b{0b:0>64})", .{apic_base_msr});
+    log.debug("Local APIC enabled 0x1B@MS0x{0x}(0b{0b:0>64})", .{apic_base_msr});
 }
 
 const LapicRegisterOffset = enum(u10) {
@@ -119,11 +118,9 @@ fn logRegistryState() void {
     }
 }
 
-pub fn init(allocr: std.mem.Allocator) !void {
+pub fn init() !void {
     log.info("Initializing APIC", .{});
     defer log.info("APIC initialized", .{});
-
-    allocator = allocr;
 
     const lapic_supported = isLapicSupported();
     log.info("Checking if LAPIC is supported: {}", .{lapic_supported});
@@ -155,11 +152,24 @@ pub fn init(allocr: std.mem.Allocator) !void {
 
     logRegistryState();
 
+    // TODO: tbd - set timer test
+    setTimerTest();
+    logRegistryState();
+
     const id align(16) = readRegister(u32, .id);
     log.info("Local APIC ID: 0x{x}, align:{d}", .{ id, @alignOf(@TypeOf(id)) });
 }
 
-pub fn deinit() void {
-    log.info("Deinitializing APIC", .{});
-    defer log.info("APIC deinitialized", .{});
+// --- helper functions ---
+pub fn ack() void {
+    writeRegister(u32, .eoi, 0);
+}
+
+pub fn setTimerTest() void {
+    // Initialize the timer
+    log.info("Setting up the timer", .{});
+    writeRegister(u32, .timer_divide_config, 0x0011); //divide by 16 (2nd bit is always 0), see Figure 11.10 in the Intel System Programming Guide
+    writeRegister(u32, .timer_initial_count, 0x10000);
+    writeRegister(u32, .lvt_timer, 0x00 << 17 | 0x30); //0x01 - periodic - 17-18 bits,  we do not use 0x20 for PIC even it's masked
+
 }

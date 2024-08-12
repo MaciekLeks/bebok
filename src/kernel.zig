@@ -12,7 +12,6 @@ const term = @import("terminal");
 const pci = @import("drivers/pci.zig");
 const Nvme = @import("drivers/Nvme.zig");
 const int = @import("int.zig");
-const apic = @import("apic.zig");
 const smp = @import("smp.zig");
 
 const log = std.log.scoped(.kernel);
@@ -98,13 +97,9 @@ export fn _start() callconv(.C) noreturn {
     int.initISRMap(arena_allocator.allocator());
     defer int.deinitISRMap();
 
-    //{ apic
-    // TODO: apic instead of pic
-    apic.init(heap.page_allocator) catch |err| {
-        log.warn("Failed to initialize APIC: {}", .{err});
+    int.addISR(0x30, .{ .unique_id = 1234, .func = &testISR2 }) catch |err| {
+        log.err("Failed to add NVMe interrupt handler: {}", .{err});
     };
-    defer apic.deinit();
-    //}
 
     cpu.sti();
     //} init handler list
@@ -117,10 +112,6 @@ export fn _start() callconv(.C) noreturn {
     defer pci.deinit(); //TODO: na pewno?
     //pci test end
 
-    int.addISR(0x21, .{ .unique_id = 1234, .func = &testISR }) catch |err| {
-        log.err("Failed to add NVMe interrupt handler: {}", .{err});
-    };
-
     var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");
     pty.printf("Bebok version: {any}\n", .{config.kernel_version});
 
@@ -129,6 +120,6 @@ export fn _start() callconv(.C) noreturn {
 }
 
 //TODO tbd
-fn testISR() !void {
-    log.warn("----->>>>!!!!", .{});
+fn testISR2() !void {
+    log.warn("apic: 2----->>>>!!!!", .{});
 }

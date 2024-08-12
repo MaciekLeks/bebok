@@ -205,7 +205,7 @@ fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, debug: bool) !*Build.S
         .x86_64 => {
             qemu_iso_action.addArgs(&.{
                 //"-M", "q35", //for PCIe and NVMe support
-                "-M", "ubuntu-q35", //see qemu-system-x86_64 -M help
+                "-M", "q35", //see qemu-system-x86_64 -M help
                 "-m", "2G", //Memory size
                 //"-smp", "1", //one processor only
                 // "-cpu", "qemu64,+apic", // TODO: enable 1GB and 2MB pages, for now we turn them off
