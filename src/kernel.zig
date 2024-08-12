@@ -107,7 +107,10 @@ export fn _start() callconv(.C) noreturn {
     //pci test start
     pci.init();
     Nvme.init();
-    pci.scan();
+    pci.scan() catch |err| {
+        log.err("PCI scan error: {}", .{err});
+        @panic("PCI scan error");
+    };
     defer Nvme.deinit();
     defer pci.deinit(); //TODO: na pewno?
     //pci test end

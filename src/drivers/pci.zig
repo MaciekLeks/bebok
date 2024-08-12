@@ -15,6 +15,13 @@ const assert = std.debug.assert;
 const pci_config_addres_port = 0xCF8;
 const pci_config_data_port = 0xCFC;
 
+pub const PciError = error{
+    CapabilitiesPointerNotFound,
+    PciExpressCapabilityNotFound,
+    MsiXCapabilityNotFound,
+    DriverNotificationFailed,
+};
+
 pub const Driver = union(enum) {
     const Self = @This();
     nvme: *const Nvme,
@@ -25,9 +32,9 @@ pub const Driver = union(enum) {
         };
     }
 
-    pub fn update(self: Self, function_no: u3, slot_no: u5, bus_no: u8, interrupt_no: u8) void {
+    pub fn update(self: Self, function_no: u3, slot_no: u5, bus_no: u8) !void {
         return switch (self) {
-            inline else => |it| it.update(function_no, slot_no, bus_no, interrupt_no),
+            inline else => |it| it.update(function_no, slot_no, bus_no),
         };
     }
 };
@@ -267,24 +274,24 @@ fn determineAddressSpaceSize(bar: BAR, bar_addr: ConfigAddress, bar_value: u32, 
     return bar_size;
 }
 
-fn checkBus(bus: u8) void {
+fn checkBus(bus: u8) PciError!void {
     for (0..32) |slot| {
-        checkSlot(bus, @intCast(slot));
+        try checkSlot(bus, @intCast(slot));
     }
 }
 
-fn checkSlot(bus: u8, slot: u5) void {
+fn checkSlot(bus: u8, slot: u5) PciError!void {
     if (readRegisterWithArgs(u16, .vendor_id, 0, slot, bus) == 0xFFFF) {
         return;
     }
-    checkFunction(bus, slot, 0);
+    try checkFunction(bus, slot, 0);
     _ = if (readRegisterWithArgs(u8, .header_type, 0, slot, bus) & 0x80 == 0) {
         return;
     };
     for (1..8) |function| {
         const function_no: u3 = @truncate(function);
         if (readRegisterWithArgs(u16, .vendor_id, function_no, slot, bus) != 0xFFFF) {
-            checkFunction(bus, slot, function_no);
+            try checkFunction(bus, slot, function_no);
         }
     }
 }
@@ -294,7 +301,7 @@ pub fn uniqueId(bus: u8, slot: u5, function: u3) u32 {
     return (@as(u32, bus) << 16) | (@as(u32, slot) << 8) | function;
 }
 
-fn checkFunction(bus: u8, slot: u5, function: u3) void {
+fn checkFunction(bus: u8, slot: u5, function: u3) PciError!void {
     const class_code = readRegisterWithArgs(u8, .class_code, function, slot, bus);
     const subclass = readRegisterWithArgs(u8, .subclass, function, slot, bus);
     const prog_if = readRegisterWithArgs(u8, .prog_if, function, slot, bus);
@@ -312,7 +319,7 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
     if (class_code == 0x06 and subclass == 0x04) {
         // PCI-to-PCI bridge
         log.debug("PCI-to-PCI bridge", .{});
-        checkBus(bus + 1);
+        try checkBus(bus + 1);
     } else {
         const size_KB = switch (bar.size) {
             .as32 => bar.size.as32 / 1024,
@@ -365,18 +372,21 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
         });
     }
 
-    _ = readPciVersion(function, slot, bus) catch |err| blk: {
-        log.warn("Failed to read PCI version: {}", .{err});
-        break :blk 0;
+    _ = readPciVersion(function, slot, bus) catch |err| {
+        log.err("Error reading PCI Express version: {}", .{err});
+        return;
     };
 
     const msi_x: ?MsiX = readMsiXCap(function, slot, bus) catch |err| blk: {
-        log.warn("Failed to read MSI-X capability: {}", .{err});
+        log.err("Error reading MSI-X: {}", .{err});
         break :blk null;
     };
     log.debug("MSI-X: {any}", .{msi_x});
 
-    notifyDriver(function, slot, bus, class_code, subclass, prog_if, interrupt_line);
+    notifyDriver(function, slot, bus, class_code, subclass, prog_if) catch |err| {
+        log.err("Error notifying driver: {}", .{err});
+        return PciError.DriverNotificationFailed;
+    };
 }
 
 var device_list: ?DeviceList = null;
@@ -386,12 +396,12 @@ pub fn registerDriver(driver: *const Driver) !void {
     try device_list.?.append(driver);
 }
 
-fn notifyDriver(function: u3, slot: u5, bus: u8, class_code: u8, subclass: u8, prog_if: u8, interrupt_line: u8) void {
+fn notifyDriver(function: u3, slot: u5, bus: u8, class_code: u8, subclass: u8, prog_if: u8) !void {
     assert(device_list != null);
     for (device_list.?.items) |d| {
         if (d.interested(class_code, subclass, prog_if)) {
             log.info("interested", .{});
-            d.update(function, slot, bus, interrupt_line);
+            try d.update(function, slot, bus);
         }
     }
 }
@@ -410,8 +420,8 @@ pub fn init() void {
     device_list = DeviceList.init(heap.page_allocator);
 }
 
-pub fn scan() void {
-    checkBus(0);
+pub fn scan() PciError!void {
+    try checkBus(0);
 }
 
 // --- helper function ---
@@ -419,7 +429,7 @@ pub fn scan() void {
 pub fn readPciVersion(function: u3, slot: u5, bus: u8) !u8 {
     const cap_offset = readRegisterWithArgs(u8, .capability_pointer, function, slot, bus);
     if (cap_offset == 0) {
-        return error.CapabilitiesPointerNotFound;
+        return PciError.CapabilitiesPointerNotFound;
     }
 
     var cur_offset = cap_offset;
@@ -436,13 +446,13 @@ pub fn readPciVersion(function: u3, slot: u5, bus: u8) !u8 {
         cur_offset = readRegisterWithRawArgs(u8, cur_offset + 1, function, slot, bus);
     }
 
-    return error.PciExpressCapabilityNotFound;
+    return PciError.PciExpressCapabilityNotFound;
 }
 
-pub fn readMsiXCap(function: u3, slot: u5, bus: u8) !MsiX {
+pub fn readMsiXCap(function: u3, slot: u5, bus: u8) PciError!MsiX {
     const cap_offset = readRegisterWithArgs(u8, .capability_pointer, function, slot, bus);
     if (cap_offset == 0) {
-        return error.CapabilitiesPointerNotFound;
+        return PciError.CapabilitiesPointerNotFound;
     }
 
     var cur_offset = cap_offset;
@@ -460,5 +470,5 @@ pub fn readMsiXCap(function: u3, slot: u5, bus: u8) !MsiX {
         cur_offset = next_cap_offset;
     }
 
-    return error.MsiXCapabilityNotFound;
+    return PciError.MsiXCapabilityNotFound;
 }

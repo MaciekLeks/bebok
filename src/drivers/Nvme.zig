@@ -21,7 +21,7 @@ const nvme_nsqr = 0x1; //number of submission queues requested - TODO only one s
 
 const Self = @This();
 
-const NVMeError = error{ InvalidCommand, InvalidCommandSequence, AdminCommandNoData, AdminCommandFailed };
+const NvmeError = error{ InvalidCommand, InvalidCommandSequence, AdminCommandNoData, AdminCommandFailed, MsiXMisconfigured };
 
 const CSSField = packed struct(u8) {
     nvmcs: u1, //0 NVM Command Set or Discovery Controller
@@ -36,7 +36,7 @@ const ControllerType = enum(u8) {
     admin_controller = 3,
 };
 
-const CAPRegister = packed struct(u64) {
+pub const CAPRegister = packed struct(u64) {
     mqes: u16, //0-15
     cqr: u1, //16
     ams: u2, //17-18
@@ -440,10 +440,10 @@ pub fn interested(_: Self, class_code: u8, subclass: u8, prog_if: u8) bool {
     return class_code == nvme_class_code and subclass == nvme_subclass and prog_if == nvme_prog_if;
 }
 
-pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void {
+pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     drive = .{}; //TODO replace it for more drives
 
-    const VEC_NO: u16 = 0x20 + interrupt_line; //TODO: we need MSI/MSI-X support first - PIC does not work here
+    // const VEC_NO: u16 = 0x20 + interrupt_line; //TODO: we need MSI/MSI-X support first - PIC does not work here
     const bar = pci.readBARWithArgs(.bar0, function, slot, bus);
 
     //  bus-mastering DMA, and memory space access in the PCI configuration space
@@ -611,12 +611,11 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
     //     cq.q_head_dbl = @ptrFromInt(doorbell_base + doorbell_size * (2 * cq_dbl_idx + 1));
     // }
     //
-    log.info("NVMe interrupt line: {x}, vector number: 0x{x}", .{ interrupt_line, VEC_NO });
-    const unique_id = pci.uniqueId(bus, slot, function);
-    //int.addISR(interrupt_line, .{ .unique_id = unique_id, .func = handleInterrupt }) catch |err| {
-    int.addISR(@intCast(VEC_NO), .{ .unique_id = unique_id, .func = handleInterrupt }) catch |err| {
-        log.err("Failed to add NVMe interrupt handler: {}", .{err});
-    };
+    //-log.info("NVMe interrupt line: {x}, vector number: 0x{x}", .{ interrupt_line, VEC_NO });
+    //-const unique_id = pci.uniqueId(bus, slot, function);
+    //-int.addISR(@intCast(VEC_NO), .{ .unique_id = unique_id, .func = handleInterrupt }) catch |err| {
+    //-    log.err("Failed to add NVMe interrupt handler: {}", .{err});
+    //-};
 
     // Allocate one prp1 for all commands
     const prp1 = heap.page_allocator.alloc(u8, pmm.page_size) catch |err| {
@@ -884,14 +883,14 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
 
         // Create I/O Completion Queue -  TODO:  we can create up to ncqr, and nsqr queues, but for not we create only one
 
-        const IS_MASKED = int.isIRQMasked(0x0a);
-        switch (IS_MASKED) {
-            false => {
-                log.info("NVMe interrupt line: {x}, vector number: 0x{x}, is masked: {}", .{ interrupt_line, VEC_NO, IS_MASKED });
-                int.triggerInterrupt(0x2a);
-            },
-            true => log.err("NVMe interrupt line: {x}, vector number: 0x{x}, is masked: {}", .{ interrupt_line, VEC_NO, IS_MASKED }),
-        }
+        //- const IS_MASKED = int.isIRQMasked(0x0a);
+        // switch (IS_MASKED) {
+        //     false => {
+        //         log.info("NVMe interrupt line: {x}, vector number: 0x{x}, is masked: {}", .{ interrupt_line, VEC_NO, IS_MASKED });
+        //         int.triggerInterrupt(0x2a);
+        //     },
+        //     true => log.err("NVMe interrupt line: {x}, vector number: 0x{x}, is masked: {}", .{ interrupt_line, VEC_NO, IS_MASKED }),
+        //- }
 
         for (&drive.iocq, 1..) |*cq, cq_id| {
             cq.* = .{};
@@ -921,7 +920,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8, interrupt_line: u8) void
                 .qid = @intCast(cq_id), // we use only one queue
                 .pc = true, // physically contiguous - the buddy allocator allocs memory in physically contiguous blocks
                 .ien = true, // interrupt enabled
-                .iv = VEC_NO,
+                .iv = 0, //TODO: msi_x
             })) catch |err| {
                 log.err("Failed to execute Create CQ Command: {}", .{err});
                 return;
@@ -982,7 +981,7 @@ fn enableController(bar: pci.BAR) void {
     toggleController(bar, true);
 }
 
-fn executeAdminCommand(bar: pci.BAR, drv: *Drive, cmd: SQEntry) NVMeError!CQEntry {
+fn executeAdminCommand(bar: pci.BAR, drv: *Drive, cmd: SQEntry) NvmeError!CQEntry {
     drv.sqa[drv.sqa_tail_pos] = cmd;
 
     drv.sqa_tail_pos += 1;
@@ -997,21 +996,21 @@ fn executeAdminCommand(bar: pci.BAR, drv: *Drive, cmd: SQEntry) NVMeError!CQEntr
         const csts = readRegister(CSTSRegister, bar, .csts);
         if (csts.cfs == 1) {
             log.err("Command failed", .{});
-            return NVMeError.InvalidCommand;
+            return NvmeError.InvalidCommand;
         }
         if (csts.shst != 0) {
             if (csts.st == 1) log.err("NVE Subsystem is in shutdown state", .{}) else log.err("Controller is in shutdown state", .{});
 
             log.err("Controller is in shutdown state", .{});
-            return NVMeError.InvalidCommand;
+            return NvmeError.InvalidCommand;
         }
         if (csts.nssro == 1) {
             log.err("Controller is not ready", .{});
-            return NVMeError.InvalidCommand;
+            return NvmeError.InvalidCommand;
         }
         if (csts.pp == 1) {
             log.err("Controller is in paused state", .{});
-            return NVMeError.InvalidCommand;
+            return NvmeError.InvalidCommand;
         }
     }
 
@@ -1028,11 +1027,11 @@ fn executeAdminCommand(bar: pci.BAR, drv: *Drive, cmd: SQEntry) NVMeError!CQEntr
     drv.cqa_head_dbl.* = drv.cqa_head_pos;
 
     const cdw0: *const CDW0 = @ptrCast(@alignCast(&cmd));
-    if (cdw0.cid == cqa_entry_ptr.sq_id) return NVMeError.InvalidCommandSequence;
+    if (cdw0.cid == cqa_entry_ptr.sq_id) return NvmeError.InvalidCommandSequence;
 
     if (cqa_entry_ptr.status.sc != 0) {
         log.err("Admin command failed: {}", .{cqa_entry_ptr.*});
-        return NVMeError.AdminCommandFailed;
+        return NvmeError.AdminCommandFailed;
     }
 
     log.info("Admin command executed successfully: CQEntry = {}", .{cqa_entry_ptr.*});
