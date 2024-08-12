@@ -57,7 +57,7 @@ pub const RegisterOffset = enum(u8) {
     subsystem_vendor_id = 0x2C,
     subsystem_id = 0x2E,
     expansion_rom_base_address = 0x30,
-    capabilities_pointer = 0x34,
+    capability_pointer = 0x34, //8 bits offset in the registry (most likely it's 0x40)
     interrupt_line = 0x3C,
     interrupt_pin = 0x3D,
     min_grant = 0x3E,
@@ -85,6 +85,19 @@ pub const BAR = struct {
         as32: u32,
         as64: u64,
     },
+};
+
+pub const MsiX = struct {
+    msg_ctrl: packed struct {
+        table_size: u11,
+        rsrvd: u3,
+        function_mask: u1,
+        enable: bool,
+    },
+    bir: u3,
+    table_offset: u29,
+    pending_bit_bir: u3,
+    pending_bit_offset: u29,
 };
 
 const ConfigData = u32;
@@ -292,7 +305,7 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
     const interrupt_pin = readRegisterWithArgs(u8, .interrupt_pin, function, slot, bus);
     const command = readRegisterWithArgs(u16, .command, function, slot, bus);
     const status = readRegisterWithArgs(u16, .status, function, slot, bus);
-    const capabilities_pointer = readRegisterWithArgs(u8, .capabilities_pointer, function, slot, bus);
+    const capabilities_pointer = readRegisterWithArgs(u8, .capability_pointer, function, slot, bus);
 
     const bar = readBAR(.{ .register_offset = @intFromEnum(RegisterOffset.bar0), .function_no = function, .slot_no = slot, .bus_no = bus });
 
@@ -357,6 +370,12 @@ fn checkFunction(bus: u8, slot: u5, function: u3) void {
         break :blk 0;
     };
 
+    const msi_x: ?MsiX = readMsiXCap(function, slot, bus) catch |err| blk: {
+        log.warn("Failed to read MSI-X capability: {}", .{err});
+        break :blk null;
+    };
+    log.debug("MSI-X: {any}", .{msi_x});
+
     notifyDriver(function, slot, bus, class_code, subclass, prog_if, interrupt_line);
 }
 
@@ -398,24 +417,48 @@ pub fn scan() void {
 // --- helper function ---
 
 pub fn readPciVersion(function: u3, slot: u5, bus: u8) !u8 {
-    const capabilities_pointer = readRegisterWithArgs(u8, .capabilities_pointer, function, slot, bus);
-    if (capabilities_pointer == 0) {
+    const cap_offset = readRegisterWithArgs(u8, .capability_pointer, function, slot, bus);
+    if (cap_offset == 0) {
         return error.CapabilitiesPointerNotFound;
     }
 
-    var current_pointer = capabilities_pointer;
-    while (current_pointer != 0) {
-        const capability_id = readRegisterWithRawArgs(u8, current_pointer, function, slot, bus);
-        if (capability_id == 0x10) { // 0x10 stands for PCI Express
-            const major_version = readRegisterWithRawArgs(u8, current_pointer + 2, function, slot, bus);
-            const minor_version = readRegisterWithRawArgs(u8, current_pointer + 3, function, slot, bus);
+    var cur_offset = cap_offset;
+    while (cur_offset != 0) {
+        const cap_id = readRegisterWithRawArgs(u8, cur_offset, function, slot, bus);
+        if (cap_id == 0x10) { // 0x10 stands for PCI Express
+            const major_version = readRegisterWithRawArgs(u8, cur_offset + 2, function, slot, bus);
+            const minor_version = readRegisterWithRawArgs(u8, cur_offset + 3, function, slot, bus);
 
             log.debug("PCI Express version: {d}.{d}", .{ major_version, minor_version });
 
             return major_version << 4 | minor_version;
         }
-        current_pointer = readRegisterWithRawArgs(u8, current_pointer + 1, function, slot, bus);
+        cur_offset = readRegisterWithRawArgs(u8, cur_offset + 1, function, slot, bus);
     }
 
     return error.PciExpressCapabilityNotFound;
+}
+
+pub fn readMsiXCap(function: u3, slot: u5, bus: u8) !MsiX {
+    const cap_offset = readRegisterWithArgs(u8, .capability_pointer, function, slot, bus);
+    if (cap_offset == 0) {
+        return error.CapabilitiesPointerNotFound;
+    }
+
+    var cur_offset = cap_offset;
+    var next_cap_offset: u8 = 0;
+    while (cur_offset != 0) {
+        const cap0x0 = readRegisterWithRawArgs(u32, cur_offset, function, slot, bus);
+        next_cap_offset = @truncate((cap0x0 >> 8) & 0xFF);
+        if (cap0x0 & 0xFF == 0x11) { // 0x11 stands for MSI-X
+            const cap0x1 = readRegisterWithRawArgs(u32, cur_offset + 4, function, slot, bus);
+            const cap0x2 = readRegisterWithRawArgs(u32, cur_offset + 8, function, slot, bus);
+
+            return .{ .msg_ctrl = @bitCast(@as(u16, @truncate((cap0x0 >> 16) & 0xFFFF))), .bir = @truncate(cap0x1 & 0b111), .table_offset = @truncate(cap0x1 >> 3), .pending_bit_bir = @truncate(cap0x2 & 0b111), .pending_bit_offset = @truncate(cap0x2 >> 3) };
+        }
+
+        cur_offset = next_cap_offset;
+    }
+
+    return error.MsiXCapabilityNotFound;
 }
