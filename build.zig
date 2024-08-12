@@ -210,6 +210,7 @@ fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, debug: bool) !*Build.S
                 //"-smp", "1", //one processor only
                 // "-cpu", "qemu64,+apic", // TODO: enable 1GB and 2MB pages, for now we turn them off
                 // "-enable-kvm", //to be able to use host cpu
+                "-bios", "/usr/share/qemu/OVMF.fd", //we need ACPI >=2.0
             });
             qemu_iso_action.addArg("-no-reboot");
             qemu_iso_action.addArg("-cdrom");
