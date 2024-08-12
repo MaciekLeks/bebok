@@ -433,7 +433,7 @@ pub fn scan() PciError!void {
 
 // --- helper function ---
 
-pub fn readPciVersion(function: u3, slot: u5, bus: u8) !struct { major: u8, minor: u8 } {
+pub fn readPcieVersion(function: u3, slot: u5, bus: u8) !struct { major: u8, minor: u8 } {
     const cap_offset = readRegisterWithArgs(u8, .capability_pointer, function, slot, bus);
     if (cap_offset == 0) {
         return PciError.CapabilitiesPointerNotFound;
