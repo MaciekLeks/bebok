@@ -162,6 +162,7 @@ const DataPointer = packed union {
 // };
 
 const SQEntry = u512;
+
 const IdentifyCommand = packed struct(u512) {
     cdw0: CDW0, //00:03 byte
     nsid: u32 = 0, //04:07 byte - nsid
@@ -443,6 +444,20 @@ pub fn interested(_: Self, class_code: u8, subclass: u8, prog_if: u8) bool {
 pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     drive = .{}; //TODO replace it for more drives
 
+    const pcie_version = try pci.readPciVersion(function, slot, bus); //we need PCIe version 2.0 at least
+    log.info("PCIe version: {}", .{pcie_version});
+
+    //TODO: we need MSI/MSI-X support first - PIC does not work here
+    const msi_x = try pci.readUpdateMsiXCap(function, slot, bus, .{ .enable = true });
+
+    if (msi_x.bir != 0) return NvmeError.MsiXMisconfigured; //it should work at bar0 as the rest of the NVMe config
+
+    log.info("MSI-X: {}", .{msi_x});
+
+    var pci_cmd_reg = pci.readRegisterWithArgs(u16, .command, function, slot, bus);
+    //disable interrupts while using MSI-X
+    pci_cmd_reg |= 1 << 15;
+    pci.writeRegisterWithArgs(u16, .command, function, slot, bus, pci_cmd_reg);
     // const VEC_NO: u16 = 0x20 + interrupt_line; //TODO: we need MSI/MSI-X support first - PIC does not work here
     const bar = pci.readBARWithArgs(.bar0, function, slot, bus);
 

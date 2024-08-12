@@ -12,8 +12,8 @@ const ArrayList = std.ArrayList;
 const native_endian = @import("builtin").target.cpu.arch.endian();
 const assert = std.debug.assert;
 
-const pci_config_addres_port = 0xCF8;
-const pci_config_data_port = 0xCFC;
+const legacy_pci_config_addres_port = 0xCF8;
+const legacy_pci_config_data_port = 0xCFC;
 
 pub const PciError = error{
     CapabilitiesPointerNotFound,
@@ -95,16 +95,23 @@ pub const BAR = struct {
 };
 
 pub const MsiX = struct {
-    msg_ctrl: packed struct {
+    const MessageControl = packed struct(u16) {
         table_size: u11,
         rsrvd: u3,
         function_mask: u1,
         enable: bool,
-    },
+    };
+    msg_ctrl: MessageControl,
     bir: u3,
     table_offset: u29,
     pending_bit_bir: u3,
     pending_bit_offset: u29,
+};
+
+pub const MsiXTableEntry = struct {
+    addr: u64,
+    data: u32,
+    vector_ctrl: u32,
 };
 
 const ConfigData = u32;
@@ -147,9 +154,9 @@ test "PCI register addresses" {
 }
 
 fn readRegister(T: type, config_addr: ConfigAddress) T {
-    cpu.out(u32, pci_config_addres_port, registerAddress(u32, config_addr));
+    cpu.out(u32, legacy_pci_config_addres_port, registerAddress(u32, config_addr));
     const config_data = blk: {
-        var cd = cpu.in(T, @as(cpu.PortNumberType, pci_config_data_port) + (config_addr.register_offset & 0b11)); //use offset on the data config port
+        var cd = cpu.in(T, @as(cpu.PortNumberType, legacy_pci_config_data_port) + (config_addr.register_offset & 0b11)); //use offset on the data config port
         if (native_endian == .big) {
             cd = @byteSwap(cd);
         }
@@ -169,6 +176,7 @@ pub fn readRegisterWithArgs(T: type, register_offset: RegisterOffset, function_n
 
 // With direct register offset
 pub fn readRegisterWithRawArgs(T: type, raw_register_offset: u8, function_no: u3, slot_no: u5, bus_no: u8) T {
+    assert(raw_register_offset & 0b11 == 0);
     return readRegister(T, ConfigAddress{
         .register_offset = raw_register_offset,
         .function_no = function_no,
@@ -178,16 +186,26 @@ pub fn readRegisterWithRawArgs(T: type, raw_register_offset: u8, function_no: u3
 }
 
 fn writeRegister(T: type, config_addr: ConfigAddress, value: T) void {
-    cpu.out(u32, pci_config_addres_port, registerAddress(u32, config_addr));
+    cpu.out(u32, legacy_pci_config_addres_port, registerAddress(u32, config_addr));
     if (native_endian == .big) {
         value = @byteSwap(value);
     }
-    cpu.out(T, @as(cpu.PortNumberType, pci_config_data_port) + (config_addr.register_offset & 0b11), value);
+    cpu.out(T, @as(cpu.PortNumberType, legacy_pci_config_data_port) + (config_addr.register_offset & 0b11), value);
 }
 
 pub fn writeRegisterWithArgs(T: type, register_offset: RegisterOffset, function_no: u3, slot_no: u5, bus_no: u8, value: T) void {
     writeRegister(T, ConfigAddress{
         .register_offset = @intFromEnum(register_offset),
+        .function_no = function_no,
+        .slot_no = slot_no,
+        .bus_no = bus_no,
+    }, value);
+}
+
+pub fn writeRegisterWithRawArgs(T: type, raw_register_offset: u8, function_no: u3, slot_no: u5, bus_no: u8, value: T) void {
+    assert(raw_register_offset & 0b11 == 0);
+    writeRegister(T, ConfigAddress{
+        .register_offset = raw_register_offset,
         .function_no = function_no,
         .slot_no = slot_no,
         .bus_no = bus_no,
@@ -372,17 +390,6 @@ fn checkFunction(bus: u8, slot: u5, function: u3) PciError!void {
         });
     }
 
-    _ = readPciVersion(function, slot, bus) catch |err| {
-        log.err("Error reading PCI Express version: {}", .{err});
-        return;
-    };
-
-    const msi_x: ?MsiX = readMsiXCap(function, slot, bus) catch |err| blk: {
-        log.err("Error reading MSI-X: {}", .{err});
-        break :blk null;
-    };
-    log.debug("MSI-X: {any}", .{msi_x});
-
     notifyDriver(function, slot, bus, class_code, subclass, prog_if) catch |err| {
         log.err("Error notifying driver: {}", .{err});
         return PciError.DriverNotificationFailed;
@@ -426,43 +433,55 @@ pub fn scan() PciError!void {
 
 // --- helper function ---
 
-pub fn readPciVersion(function: u3, slot: u5, bus: u8) !u8 {
+pub fn readPciVersion(function: u3, slot: u5, bus: u8) !struct { major: u8, minor: u8 } {
     const cap_offset = readRegisterWithArgs(u8, .capability_pointer, function, slot, bus);
     if (cap_offset == 0) {
         return PciError.CapabilitiesPointerNotFound;
     }
 
-    var cur_offset = cap_offset;
+    var cur_offset = cap_offset & 0xFC; //4 bits aligned
+    var next_cap_offset: u8 = 0;
     while (cur_offset != 0) {
-        const cap_id = readRegisterWithRawArgs(u8, cur_offset, function, slot, bus);
-        if (cap_id == 0x10) { // 0x10 stands for PCI Express
-            const major_version = readRegisterWithRawArgs(u8, cur_offset + 2, function, slot, bus);
-            const minor_version = readRegisterWithRawArgs(u8, cur_offset + 3, function, slot, bus);
+        const cap0x0 = readRegisterWithRawArgs(u32, cur_offset, function, slot, bus);
+        next_cap_offset = @truncate((cap0x0 >> 8) & 0xFF);
+        if (cap0x0 & 0xFF == 0x10) { // 0x10 stands for PCI Express
+            const major_version: u8 = @truncate((cap0x0 >> 16) & 0xFF);
+            const minor_version: u8 = @truncate((cap0x0 >> 24) & 0xFF);
 
             log.debug("PCI Express version: {d}.{d}", .{ major_version, minor_version });
 
-            return major_version << 4 | minor_version;
+            return .{ .major = major_version, .minor = minor_version };
         }
-        cur_offset = readRegisterWithRawArgs(u8, cur_offset + 1, function, slot, bus);
+        cur_offset = next_cap_offset;
     }
 
     return PciError.PciExpressCapabilityNotFound;
 }
 
-pub fn readMsiXCap(function: u3, slot: u5, bus: u8) PciError!MsiX {
+/// Reads the MSI-X capability of a device and updates it's state in fl
+pub fn readUpdateMsiXCap(function: u3, slot: u5, bus: u8, message_control_config: ?struct { enable: bool }) PciError!MsiX {
     const cap_offset = readRegisterWithArgs(u8, .capability_pointer, function, slot, bus);
     if (cap_offset == 0) {
         return PciError.CapabilitiesPointerNotFound;
     }
 
-    var cur_offset = cap_offset;
+    var cur_offset = cap_offset & 0xFC; //4 bits aigned (0b00 mask)
     var next_cap_offset: u8 = 0;
     while (cur_offset != 0) {
-        const cap0x0 = readRegisterWithRawArgs(u32, cur_offset, function, slot, bus);
+        var cap0x0 = readRegisterWithRawArgs(u32, cur_offset, function, slot, bus);
         next_cap_offset = @truncate((cap0x0 >> 8) & 0xFF);
         if (cap0x0 & 0xFF == 0x11) { // 0x11 stands for MSI-X
             const cap0x1 = readRegisterWithRawArgs(u32, cur_offset + 4, function, slot, bus);
             const cap0x2 = readRegisterWithRawArgs(u32, cur_offset + 8, function, slot, bus);
+
+            if (message_control_config) |config| {
+                if (config.enable) {
+                    const new_cap0x0: u32 = cap0x0 | 1 << 31; // enable bit
+                    writeRegisterWithRawArgs(u32, cur_offset, function, slot, bus, new_cap0x0);
+                }
+
+                cap0x0 = readRegisterWithRawArgs(u32, cur_offset, function, slot, bus);
+            }
 
             return .{ .msg_ctrl = @bitCast(@as(u16, @truncate((cap0x0 >> 16) & 0xFFFF))), .bir = @truncate(cap0x1 & 0b111), .table_offset = @truncate(cap0x1 >> 3), .pending_bit_bir = @truncate(cap0x2 & 0b111), .pending_bit_offset = @truncate(cap0x2 >> 3) };
         }
