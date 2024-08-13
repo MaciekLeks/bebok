@@ -1,6 +1,6 @@
 const std = @import("std");
 const log = std.log.scoped(.nvme);
-const pci = @import("pci.zig");
+const pcie = @import("pcie.zig");
 const paging = @import("../paging.zig");
 const int = @import("../int.zig");
 const pmm = @import("../mem/pmm.zig");
@@ -425,13 +425,13 @@ const Drive = struct {
 
 var drive: Drive = undefined; //TODO only one drive now
 
-fn readRegister(T: type, bar: pci.BAR, register_set_field: @TypeOf(.enum_literal)) T {
+fn readRegister(T: type, bar: pcie.BAR, register_set_field: @TypeOf(.enum_literal)) T {
     return switch (bar.address) {
         inline else => |addr| @as(*volatile T, @ptrFromInt(paging.virtFromMME(addr) + @offsetOf(RegisterSet, @tagName(register_set_field)))).*,
     };
 }
 
-fn writeRegister(T: type, bar: pci.BAR, register_set_field: @TypeOf(.enum_literal), value: T) void {
+fn writeRegister(T: type, bar: pcie.BAR, register_set_field: @TypeOf(.enum_literal), value: T) void {
     switch (bar.address) {
         inline else => |addr| @as(*volatile T, @ptrFromInt(paging.virtFromMME(addr) + @offsetOf(RegisterSet, @tagName(register_set_field)))).* = value,
     }
@@ -444,28 +444,28 @@ pub fn interested(_: Self, class_code: u8, subclass: u8, prog_if: u8) bool {
 pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     drive = .{}; //TODO replace it for more drives
 
-    const pcie_version = try pci.readPcieVersion(function, slot, bus); //we need PCIe version 2.0 at least
+    const pcie_version = try pcie.readPcieVersion(function, slot, bus); //we need PCIe version 2.0 at least
     log.info("PCIe version: {}", .{pcie_version});
 
     //TODO: we need MSI/MSI-X support first - PIC does not work here
-    const msi_x = try pci.readUpdateMsiXCap(function, slot, bus, .{ .enable = true });
+    const msi_x = try pcie.readUpdateMsiXCap(function, slot, bus, .{ .enable = true });
 
     if (msi_x.bir != 0) return NvmeError.MsiXMisconfigured; //it should work at bar0 as the rest of the NVMe config
 
     log.info("MSI-X: {}", .{msi_x});
 
-    var pci_cmd_reg = pci.readRegisterWithArgs(u16, .command, function, slot, bus);
+    var pci_cmd_reg = pcie.readRegisterWithArgs(u16, .command, function, slot, bus);
     //disable interrupts while using MSI-X
     pci_cmd_reg |= 1 << 15;
-    pci.writeRegisterWithArgs(u16, .command, function, slot, bus, pci_cmd_reg);
+    pcie.writeRegisterWithArgs(u16, .command, function, slot, bus, pci_cmd_reg);
     // const VEC_NO: u16 = 0x20 + interrupt_line; //TODO: we need MSI/MSI-X support first - PIC does not work here
-    const bar = pci.readBARWithArgs(.bar0, function, slot, bus);
+    const bar = pcie.readBARWithArgs(.bar0, function, slot, bus);
 
     //  bus-mastering DMA, and memory space access in the PCI configuration space
-    const command = pci.readRegisterWithArgs(u16, .command, function, slot, bus);
+    const command = pcie.readRegisterWithArgs(u16, .command, function, slot, bus);
     log.warn("PCI command register: 0b{b:0>16}", .{command});
     // Enable interrupts, bus-mastering DMA, and memory space access in the PCI configuration space for the function.
-    pci.writeRegisterWithArgs(u16, .command, function, slot, bus, command | 0b110);
+    pcie.writeRegisterWithArgs(u16, .command, function, slot, bus, command | 0b110);
 
     const virt = switch (bar.address) {
         inline else => |addr| paging.virtFromMME(addr),
@@ -954,11 +954,11 @@ fn handleInterrupt() !void {
     log.warn("We've got it: NVMe interrupt", .{});
 }
 
-var driver = &pci.Driver{ .nvme = &Self{} };
+var driver = &pcie.Driver{ .nvme = &Self{} };
 
 pub fn init() void {
     log.info("Initializing NVMe driver", .{});
-    pci.registerDriver(driver) catch |err| {
+    pcie.registerDriver(driver) catch |err| {
         log.err("Failed to register NVMe driver: {}", .{err});
         @panic("Failed to register NVMe driver");
     };
@@ -974,7 +974,7 @@ pub fn deinit() void {
 
 // --- helper functions ---
 
-fn toggleController(bar: pci.BAR, enable: bool) void {
+fn toggleController(bar: pcie.BAR, enable: bool) void {
     var cc = readRegister(CCRegister, bar, .cc);
     log.info("CC register before toggle: {}", .{cc});
     cc.en = if (enable) 1 else 0;
@@ -988,15 +988,15 @@ fn toggleController(bar: pci.BAR, enable: bool) void {
     log.info("NVMe controller is {s}", .{if (enable) "enabled" else "disabled"});
 }
 
-fn disableController(bar: pci.BAR) void {
+fn disableController(bar: pcie.BAR) void {
     toggleController(bar, false);
 }
 
-fn enableController(bar: pci.BAR) void {
+fn enableController(bar: pcie.BAR) void {
     toggleController(bar, true);
 }
 
-fn executeAdminCommand(bar: pci.BAR, drv: *Drive, cmd: SQEntry) NvmeError!CQEntry {
+fn executeAdminCommand(bar: pcie.BAR, drv: *Drive, cmd: SQEntry) NvmeError!CQEntry {
     drv.sqa[drv.sqa_tail_pos] = cmd;
 
     drv.sqa_tail_pos += 1;

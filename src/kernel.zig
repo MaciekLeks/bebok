@@ -9,7 +9,7 @@ const paging = @import("paging.zig");
 const pmm = @import("mem/pmm.zig");
 const heap = @import("mem/heap.zig").heap;
 const term = @import("terminal");
-const pci = @import("drivers/pci.zig");
+const pcie = @import("drivers/pcie.zig");
 const Nvme = @import("drivers/Nvme.zig");
 const int = @import("int.zig");
 const smp = @import("smp.zig");
@@ -109,14 +109,14 @@ export fn _start() callconv(.C) noreturn {
     //} init handler list
 
     //pci test start
-    pci.init();
+    pcie.init();
     Nvme.init();
-    pci.scan() catch |err| {
+    pcie.scan() catch |err| {
         log.err("PCI scan error: {}", .{err});
         @panic("PCI scan error");
     };
     defer Nvme.deinit();
-    defer pci.deinit(); //TODO: na pewno?
+    defer pcie.deinit(); //TODO: na pewno?
     //pci test end
 
     var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");
