@@ -195,7 +195,7 @@ fn installDiskImgFileAction(b: *Build, disk_img_build_task: *Build.Step, disk_im
     return b.addInstallFile(disk_img_artifact_path, bebok_disk_img_filename);
 }
 
-fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, debug: bool) !*Build.Step.Run {
+fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, debug: bool, bios_path: []const u8) !*Build.Step.Run {
     const qemu_iso_action = b.addSystemCommand(&.{switch (target.result.cpu.arch) {
         .x86_64 => "qemu-system-x86_64",
         else => return error.UnsupportedArch,
@@ -210,7 +210,7 @@ fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, debug: bool) !*Build.S
                 //"-smp", "1", //one processor only
                 // "-cpu", "qemu64,+apic", // TODO: enable 1GB and 2MB pages, for now we turn them off
                 // "-enable-kvm", //to be able to use host cpu
-                "-bios", "/usr/share/qemu/OVMF.fd", //we need ACPI >=2.0
+                "-bios", bios_path, //we need ACPI >=2.0
             });
             qemu_iso_action.addArg("-no-reboot");
             qemu_iso_action.addArg("-cdrom");
@@ -254,6 +254,7 @@ pub fn build(b: *Build) !void {
         .arch = b.option(std.Target.Cpu.Arch, "arch", "The architecture to build for") orelse b.host.result.cpu.arch,
         .mem_page_size = b.option(enum(u32) { ps4k = 4096, ps2m = 512 * 4096, ps1g = 1024 * 1024 * 1024 }, "page-size", "Choose the page size: 'ps4k' stands for 4096 bytes, 'ps1m' means 2MB pages, and 'ps1g' is a 1GB page. ") orelse .ps4k,
         .mem_bit_tree_max_levels = b.option(u8, "mem-bit-tree-max-levels", "Maximum number of the bit tree levels to manage memory, calculated as log2(total_memory_in_bytes/page_size_in_bytes)+ 1; defaults to 32") orelse 32,
+        .bios_path = b.option([]const u8, "bios-path", "Aboslute path to BIOS file") orelse "/usr/share/qemu/OVMF.fd",
     };
 
     const target = try resolveTarget(b, build_options.arch);
@@ -306,7 +307,7 @@ pub fn build(b: *Build) !void {
     const qemu_install_disk_img_file_task = &qemu_install_disk_img_file_action.step;
 
     //const qemu_iso_action = try qemuIsoAction(b, target, build_iso_file_action_output, qemu_disk_img_file_action_output, false); //run with the cached iso file
-    const qemu_iso_action = try qemuIsoAction(b, target, false); //run with the cached iso file
+    const qemu_iso_action = try qemuIsoAction(b, target, false, build_options.bios_path); //run with the cached iso file
     const qemu_iso_task = &qemu_iso_action.step;
     qemu_iso_task.dependOn(qemu_install_disk_img_file_task);
     qemu_iso_task.dependOn(install_iso_file_task);
@@ -314,7 +315,7 @@ pub fn build(b: *Build) !void {
     qemu_iso_stage.dependOn(qemu_iso_task);
 
     // debug mode
-    const qemu_iso_debug_action = try qemuIsoAction(b, target, true); //run with the cached iso file
+    const qemu_iso_debug_action = try qemuIsoAction(b, target, true, build_options.bios_path); //run with the cached iso file
     const qemu_iso_debug_task = &qemu_iso_debug_action.step;
     qemu_iso_debug_task.dependOn(qemu_install_disk_img_file_task);
     qemu_iso_debug_task.dependOn(install_iso_file_task);

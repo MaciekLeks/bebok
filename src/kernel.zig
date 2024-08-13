@@ -76,7 +76,10 @@ export fn _start() callconv(.C) noreturn {
         @panic("Paging initialization error");
     };
 
-    acpi.init();
+    acpi.init() catch |err| {
+        log.err("ACPI initialization error: {}", .{err});
+        @panic("ACPI initialization error");
+    };
 
     pmm.init() catch |err| {
         log.err("PMM initialization error: {}", .{err});
