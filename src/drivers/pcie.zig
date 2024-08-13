@@ -1,12 +1,20 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const cpu = @import("../cpu.zig");
 const heap = @import("../mem/heap.zig").heap;
 //contollers
 const Nvme = @import("./Nvme.zig");
 //end of controllers
 
-const t = std.testing;
 const log = std.log.scoped(.pci);
+const Pcie = @This();
+
+pub usingnamespace switch (builtin.cpu.arch) {
+    .x86_64 => @import("../arch/x86_64/pcie.zig"),
+    else => |other| @compileError("Unimplemented for " ++ @tagName(other)),
+};
+
+const t = std.testing;
 const ArrayList = std.ArrayList;
 
 const native_endian = @import("builtin").target.cpu.arch.endian();
