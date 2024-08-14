@@ -76,10 +76,10 @@ export fn _start() callconv(.C) noreturn {
         @panic("Paging initialization error");
     };
 
-    acpi.init() catch |err| {
-        log.err("ACPI initialization error: {}", .{err});
-        @panic("ACPI initialization error");
-    };
+    // acpi.init() catch |err| {
+    //     log.err("ACPI initialization error: {}", .{err});
+    //     @panic("ACPI initialization error");
+    // };
 
     pmm.init() catch |err| {
         log.err("PMM initialization error: {}", .{err});
@@ -101,7 +101,10 @@ export fn _start() callconv(.C) noreturn {
     int.initISRMap(arena_allocator.allocator());
     defer int.deinitISRMap();
 
-    int.addISR(0x30, .{ .unique_id = 1234, .func = &testISR2 }) catch |err| {
+    int.addISR(0x30, .{ .unique_id = 0x01, .func = &testISR2 }) catch |err| {
+        log.err("Failed to add Timer interrupt handler: {}", .{err});
+    };
+    int.addISR(0x31, .{ .unique_id = 0x02, .func = &testISR2 }) catch |err| {
         log.err("Failed to add NVMe interrupt handler: {}", .{err});
     };
 

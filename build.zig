@@ -201,6 +201,7 @@ fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, debug: bool, bios_path
         else => return error.UnsupportedArch,
     }});
 
+    _ = bios_path; //TODO: use it
     switch (target.result.cpu.arch) {
         .x86_64 => {
             qemu_iso_action.addArgs(&.{
@@ -210,7 +211,8 @@ fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, debug: bool, bios_path
                 //"-smp", "1", //one processor only
                 // "-cpu", "qemu64,+apic", // TODO: enable 1GB and 2MB pages, for now we turn them off
                 // "-enable-kvm", //to be able to use host cpu
-                "-bios", bios_path, //we need ACPI >=2.0
+                //"-bios", bios_path, //we need ACPI >=2.0
+                // "-drive", "if=pflash,format=raw,readonly=on,file=/usr/share/ovmf/OVMF.fd",
             });
             qemu_iso_action.addArg("-no-reboot");
             qemu_iso_action.addArg("-cdrom");

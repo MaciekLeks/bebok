@@ -11,8 +11,8 @@ const nvme_class_code = 0x01;
 const nvme_subclass = 0x08;
 const nvme_prog_if = 0x02;
 
-const nvme_iosqs = 0x2; //submisstion queue size(length)
-const nvme_iocqs = 0x2; //completion queue size
+const nvme_iosqs = 0x4; //submisstion queue size(length)
+const nvme_iocqs = 0x4; //completion queue size
 const nvme_ioasqs = 0x2; //admin submission queue size
 const nvme_ioacqs = 0x2; //admin completion queue size
 
@@ -131,7 +131,7 @@ const AdminOpcode = enum(u8) {
     create_io_sq = 0x01,
     delete_io_sq = 0x02,
     create_io_cq = 0x05,
-    delete_io_cq = 0x07,
+    delete_io_cq = 0x04,
 };
 
 const NSID = u32;
@@ -223,6 +223,60 @@ const SetFeatures0x19Command = packed struct(u512) {
     uuid: u7 = 0, //00-06 in cdw14 - UUID
     rsrvd_c: u25 = 0, //07-31 in cdw14
     ignrd_h: u32 = 0, //60-63 in cdw15
+};
+
+const SetFeatures0x07Command = packed struct(u512) {
+    cdw0: CDW0, //00:03 byte
+    ignrd_a: u32 = 0, //04:07 byte - nsid
+    ignrd_b: u32 = 0, //08:11 byte - cdw2
+    ignrd_c: u32 = 0, //12:15 byte = cdw3
+    ignrd_e: u64 = 0, //16:23 byte = mptr
+    dptr: DataPointer, //24:39 byte = prp1, prp2
+    fid: u8, //00:07 id cdw10 - Feature Identifier
+    rsrv_a: u24 = 0, //08:30 in cdw10
+    ncqr: u16, //cdw11 - I/O Command Set Combination Index
+    nsqr: u16 = 0, // cdw11
+    ignrd_g: u32 = 0, //48-52 in cdw12
+    ignrd_h: u32 = 0, //52-55 in cdw13
+    uuid: u7 = 0, //00-06 in cdw14 - UUID
+    rsrvd_i: u25 = 0, //07-31 in cdw14
+    ignrd_j: u32 = 0, //60-63 in cdw15
+};
+
+const IOQueueCommand = packed union {
+    createCQ: packed struct(u512) {
+        cdw0: CDW0, //cdw0
+        ignrd_a: u32 = 0, // nsid
+        ignrd_b: u32 = 0, //cdw2
+        ignrd_c: u32 = 0, //cdw3
+        ignrd_e: u64 = 0, // mptr
+        dptr: DataPointer, //prp1, prp2
+        qid: u16, //cdw10 - Queue Identifier
+        qsize: u16, //cdw10 - Queue Size
+        pc: bool, //cdw11 - Physically Contiguous
+        ien: bool, //cdw11 - Interrupt Enable
+        rsrvd_a: u14 = 0, // cdw11
+        iv: u16, //cdw11- Interrupt Vector
+        ignrd_f: u32 = 0, //cdw12
+        ignrd_g: u32 = 0, //cdw13
+        ignrd_h: u32 = 0, //cdw14
+        ignrd_i: u32 = 0, //cdw15
+    },
+    deleteCQ: packed struct(u512) {
+        cdw0: CDW0, //cdw0
+        ignrd_a: u32 = 0, //nsid in cdw1
+        ignrd_b: u32 = 0, //cdw2
+        ignrd_c: u32 = 0, //cdw3
+        ignrd_e: u64 = 0, //mptr
+        ignrd_f: u128 = 0, //prp1, prp2
+        qid: u16, //Queue Identifier
+        rsrvd: u16 = 0, //cdw10
+        ignrd_h: u32 = 0, //cdw11
+        ignrd_i: u32 = 0, //cdw12
+        ignrd_j: u32 = 0, //cdw13
+        ignrd_k: u32 = 0, //cdw14
+        ignrd_l: u32 = 0, //cdw15
+    },
 };
 
 // Create I/O Completion Queue Command
@@ -454,12 +508,16 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
 
     log.info("MSI-X: {}", .{msi_x});
 
-    var pci_cmd_reg = pcie.readRegisterWithArgs(u16, .command, function, slot, bus);
+    //- var pci_cmd_reg = pcie.readRegisterWithArgs(u16, .command, function, slot, bus);
     //disable interrupts while using MSI-X
-    pci_cmd_reg |= 1 << 15;
-    pcie.writeRegisterWithArgs(u16, .command, function, slot, bus, pci_cmd_reg);
+    //-pci_cmd_reg |= 1 << 15;
+    //-pcie.writeRegisterWithArgs(u16, .command, function, slot, bus, pci_cmd_reg);
     // const VEC_NO: u16 = 0x20 + interrupt_line; //TODO: we need MSI/MSI-X support first - PIC does not work here
+
     const bar = pcie.readBARWithArgs(.bar0, function, slot, bus);
+
+    //MSI-X
+    pcie.addMsiXMessageTableEntry(msi_x, bar, 0); //add 0x31
 
     //  bus-mastering DMA, and memory space access in the PCI configuration space
     const command = pcie.readRegisterWithArgs(u16, .command, function, slot, bus);
@@ -614,6 +672,42 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     log.info("CC register post-modification: {}", .{readRegister(CCRegister, bar, .cc)});
 
     enableController(bar);
+
+    // log.info("------------1", .{});
+    // // Set Number of Completion Queues and Number of Submission Queues
+    // const prpxxx = heap.page_allocator.alloc(u8, pmm.page_size) catch |err| {
+    //     log.err("Failed to allocate memory for identify command: {}", .{err});
+    //     return;
+    // };
+    // @memset(prpxxx, 0);
+    // defer heap.page_allocator.free(prpxxx);
+    // const prpxxx_phys = paging.physFromPtr(prpxxx.ptr) catch |err| {
+    //     log.err("Failed to get physical address of identify command: {}", .{err});
+    //     return;
+    // };
+    //
+    // log.info("------------2 0x{x}", .{prpxxx_phys});
+    // // Set Number of Completion Queues and Number of Submission Queues
+    // _ = executeAdminCommand(bar, &drive, @bitCast(SetFeatures0x07Command{
+    //     .cdw0 = .{
+    //         .opc = .set_features,
+    //         .cid = 0x0a, //our id
+    //     },
+    //     .dptr = .{
+    //         .prp = .{
+    //             .prp1 = prpxxx_phys,
+    //             .prp2 = 0,
+    //         },
+    //     },
+    //     .fid = 0x07, //Number of Queues
+    //     .nsqr = 10,
+    //     .ncqr = 10,
+    // })) catch |err| {
+    //     log.err("Failed to execute Set Features Command(fid: 0x0a): {}", .{err});
+    //     return;
+    // };
+    //
+    // log.info("------------4", .{});
 
     const doorbell_base: usize = virt + 0x1000;
     const doorbell_size = math.pow(u32, 2, 2 + cap.dstrd);
@@ -862,9 +956,32 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
             }
         } // nsids
 
-        // Set I/O Command Set Profile with Command Set Combination index
+        // Get current I/O number of completion/submission queues
         @memset(prp1, 0);
-        const get_features_0x07_res = executeAdminCommand(bar, &drive, @bitCast(GetFeaturesCommand{
+        const get_features_0x07_current_res = executeAdminCommand(bar, &drive, @bitCast(GetFeaturesCommand{
+            .cdw0 = .{
+                .opc = .get_features,
+                .cid = 0x09, //our id
+            },
+            .dptr = .{
+                .prp = .{
+                    .prp1 = prp1_phys,
+                },
+            },
+            .fid = 0x07, //I/O Command Set Profile
+            .sel = .current,
+        })) catch |err| {
+            log.err("Failed to execute Get Features Command(fid: 0x07): {}", .{err});
+            return;
+        };
+
+        const current_ncqr: u16 = @truncate(get_features_0x07_current_res.cmd_res0 >> 16);
+        const current_nsqr: u16 = @truncate(get_features_0x07_current_res.cmd_res0);
+        log.info("Get Features Command(fid: 0x07): Current Number Of Completion/Submission Queues: {d}/{d}", .{ current_ncqr, current_nsqr });
+
+        // Get default I/O number of completion/submission queues
+        @memset(prp1, 0);
+        const get_features_0x07_default_res = executeAdminCommand(bar, &drive, @bitCast(GetFeaturesCommand{
             .cdw0 = .{
                 .opc = .get_features,
                 .cid = 0x09, //our id
@@ -881,20 +998,21 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
             return;
         };
 
-        const supported_ncqr: u16 = @truncate(get_features_0x07_res.cmd_res0 >> 16);
-        const supported_nsqr: u16 = @truncate(get_features_0x07_res.cmd_res0);
-        log.info("Get Features Command(fid: 0x07): Default Number Of Completion/Submission Queues: {d}/{d}", .{ supported_ncqr, supported_nsqr });
+        const supported_ncqr: u16 = @truncate(get_features_0x07_default_res.cmd_res0 >> 16);
+        const supported_nsqr: u16 = @truncate(get_features_0x07_default_res.cmd_res0);
+        log.info("Get Features Command(fid: 0x07): Default(supported) Number Of Completion/Submission Queues: {d}/{d}", .{ supported_ncqr, supported_nsqr });
 
         if (drive.ncqr > supported_ncqr or drive.nsqr > supported_nsqr) {
             log.err("Requested number of completion/submission queues is not supported", .{});
         }
 
         // log intms and intmc registers
-        log.info("NVMe INTMS Register: 0b{b:0>32}, INTMC Register: 0b{b:0>32}", .{ intms_reg_ptr.*, intmc_reg_ptr.* });
+        //-log.info("NVMe INTMS Register: 0b{b:0>32}, INTMC Register: 0b{b:0>32}", .{ intms_reg_ptr.*, intmc_reg_ptr.* });
 
-        //set bit 42 to 1 to enable interrupt
-        intmc_reg_ptr.* = 0x00000400;
-        log.info("NVMe INTMS Register post-modification: 0b{b:0>32}", .{intmc_reg_ptr.*});
+        // we use MSI-X, so we should not touch it - Host software shall not access this property when configured for MSI-X; any accesses
+        //when configured for MSI-X is undefined.  set bit 42 to 1 to enable interrupt
+        //- intmc_reg_ptr.* = 0x00000400;
+        //- log.info("NVMe INTMS Register post-modification: 0b{b:0>32}", .{intmc_reg_ptr.*});
 
         // Create I/O Completion Queue -  TODO:  we can create up to ncqr, and nsqr queues, but for not we create only one
 
@@ -907,10 +1025,30 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
         //     true => log.err("NVMe interrupt line: {x}, vector number: 0x{x}, is masked: {}", .{ interrupt_line, VEC_NO, IS_MASKED }),
         //- }
 
+        // Delete existing I/O Completion Queue
+
+        log.debug("Delete existing I/O Completion Queues", .{});
+        for (1..(current_ncqr + 1)) |qid| {
+            @memset(prp1, 0);
+            _ = executeAdminCommand(bar, &drive, @bitCast(IOQueueCommand{
+                .deleteCQ = .{
+                    .cdw0 = .{
+                        .opc = .delete_io_cq,
+                        .cid = @intCast(0x100 + qid), //our id
+                    },
+                    .qid = @intCast(qid),
+                },
+            })) catch |err| {
+                log.err("Failed to execute Delete CQ Command for CQ qid={d}: {}", .{ qid, err });
+                return;
+            };
+        }
+
+        log.info("Create I/O Completion Queues", .{});
         for (&drive.iocq, 1..) |*cq, cq_id| {
             cq.* = .{};
 
-            cq.entries = heap.page_allocator.alloc(CQEntry, nvme_ncqr) catch |err| {
+            cq.entries = heap.page_allocator.alloc(CQEntry, nvme_iocqs) catch |err| {
                 log.err("Failed to allocate memory for completion queue entries: {}", .{err});
                 return;
             };
@@ -921,21 +1059,23 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
             };
             @memset(cq.entries, .{});
 
-            const create_iocq_res = executeAdminCommand(bar, &drive, @bitCast(CreateIOCQCommand{
-                .cdw0 = .{
-                    .opc = .create_io_cq,
-                    .cid = @intCast(0x100 + cq_id), //our id
-                },
-                .dptr = .{
-                    .prp = .{
-                        .prp1 = cq_phys,
+            const create_iocq_res = executeAdminCommand(bar, &drive, @bitCast(IOQueueCommand{
+                .createCQ = .{
+                    .cdw0 = .{
+                        .opc = .create_io_cq,
+                        .cid = @intCast(0x200 + cq_id), //our id
                     },
+                    .dptr = .{
+                        .prp = .{
+                            .prp1 = cq_phys,
+                        },
+                    },
+                    .qsize = nvme_iocqs,
+                    .qid = 2, //@intCast(cq_id), // we use only one queue
+                    .pc = true, // physically contiguous - the buddy allocator allocs memory in physically contiguous blocks
+                    .ien = true, // interrupt enabled
+                    .iv = 0x0, //TODO: msi_x - message table entry index
                 },
-                .qsize = nvme_iocqs,
-                .qid = @intCast(cq_id), // we use only one queue
-                .pc = true, // physically contiguous - the buddy allocator allocs memory in physically contiguous blocks
-                .ien = true, // interrupt enabled
-                .iv = 0, //TODO: msi_x
             })) catch |err| {
                 log.err("Failed to execute Create CQ Command: {}", .{err});
                 return;
@@ -945,6 +1085,8 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
 
             _ = create_iocq_res; //TODO
         }
+
+        log.info("Configuration is done", .{});
 
         //for (drive.iosq, 0..) |sq, sq_idx| {}
     }
@@ -970,6 +1112,9 @@ pub fn deinit() void {
 
     heap.page_allocator.free(drive.sqa);
     heap.page_allocator.free(drive.cqa);
+
+    for (&drive.iocq) |*cq| heap.page_allocator.free(cq.entries);
+    for (&drive.iosq) |*sq| heap.page_allocator.free(sq.entries);
 }
 
 // --- helper functions ---
@@ -1049,6 +1194,6 @@ fn executeAdminCommand(bar: pcie.BAR, drv: *Drive, cmd: SQEntry) NvmeError!CQEnt
         return NvmeError.AdminCommandFailed;
     }
 
-    log.info("Admin command executed successfully: CQEntry = {}", .{cqa_entry_ptr.*});
+    log.debug("Admin command executed successfully: CQEntry = {}", .{cqa_entry_ptr.*});
     return cqa_entry_ptr.*;
 }

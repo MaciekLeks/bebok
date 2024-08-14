@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const cpu = @import("../cpu.zig");
 const heap = @import("../mem/heap.zig").heap;
+const paging = @import("../paging.zig");
 //contollers
 const Nvme = @import("./Nvme.zig");
 //end of controllers
@@ -116,10 +117,10 @@ pub const MsiX = struct {
     pending_bit_offset: u29,
 };
 
-pub const MsiXTableEntry = struct {
-    addr: u64,
-    data: u32,
-    vector_ctrl: u32,
+pub const MsiXTableEntry = extern struct {
+    msg_addr: u64 align(1),
+    msg_data: u32 align(1),
+    vector_ctrl: u32 align(1),
 };
 
 const ConfigData = u32;
@@ -498,4 +499,31 @@ pub fn readUpdateMsiXCap(function: u3, slot: u5, bus: u8, message_control_config
     }
 
     return PciError.MsiXCapabilityNotFound;
+}
+
+pub fn addMsiXMessageTableEntry(msi_x: MsiX, bar: BAR, id: u11) void {
+    assert(msi_x.msg_ctrl.table_size > id);
+
+    const virt = switch (bar.address) {
+        inline else => |addr| paging.virtFromMME(addr),
+    };
+
+    const msi_x_te: *volatile MsiXTableEntry = @ptrFromInt(virt + msi_x.table_offset + id * @sizeOf(MsiXTableEntry));
+
+    msi_x_te.* = .{
+        .msg_addr = paging.virtFromMME(@as(u32, @bitCast(Pcie.MsiMessageAddressRegister{
+            .destination_id = 0,
+            .redirection_hint = 0,
+            .destination_mode = 0, //ignored
+        }))),
+        .msg_data = @bitCast(Pcie.MsiMessageDataRegister{
+            .vec_no = 0x31,
+            .delivery_mode = .fixed,
+            .trigger_mode = .edge,
+            .level = 0,
+        }),
+        .vector_ctrl = 0,
+    };
+
+    log.debug("MSI-X table entry added: {} @ {*}", .{ msi_x_te.*, msi_x_te });
 }
