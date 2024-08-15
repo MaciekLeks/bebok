@@ -117,7 +117,7 @@ pub const MsiX = struct {
     pending_bit_offset: u29,
 };
 
-pub const MsiXTableEntry = extern struct {
+pub const MsixTableEntry = extern struct {
     msg_addr: u64 align(1),
     msg_data: u32 align(1),
     vector_ctrl: u32 align(1),
@@ -508,7 +508,7 @@ pub fn addMsiXMessageTableEntry(msi_x: MsiX, bar: BAR, id: u11) void {
         inline else => |addr| paging.virtFromMME(addr),
     };
 
-    const msi_x_te: *volatile MsiXTableEntry = @ptrFromInt(virt + msi_x.table_offset + id * @sizeOf(MsiXTableEntry));
+    const msi_x_te: *volatile MsixTableEntry = @ptrFromInt(virt + msi_x.table_offset + id * @sizeOf(MsixTableEntry));
 
     msi_x_te.* = .{
         .msg_addr = paging.virtFromMME(@as(u32, @bitCast(Pcie.MsiMessageAddressRegister{

@@ -224,7 +224,8 @@ fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, debug: bool, bios_path
             });
             qemu_iso_action.addArgs(&.{ //NVMe controller
                 "-device",
-                "nvme,drive=drv0,serial=1,bus=pcie_port0,use-intel-id=on",
+                "nvme,drive=drv0,serial=1,bus=pcie_port0,use-intel-id=on,max_ioqpairs=1",
+                //"nvme,serial=1,bus=pcie_port0,use-intel-id=on",
             });
             qemu_iso_action.addArg("-drive");
             //> TODO: can't take installed artifact LazyPAth, see my issue: https://stackoverflow.com/questions/78499409/buid-system-getting-installed-relative-path

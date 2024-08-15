@@ -98,7 +98,7 @@ fn setPagePAT(page_entry_info: GenericEntryInfo, req_pat: PATType) void {
     }
 }
 
-pub fn adjustPagePAT(virt: usize, page_entry_info: GenericEntryInfo, req_pat: PATType) void {
+fn adjustPagePAT(virt: usize, page_entry_info: GenericEntryInfo, req_pat: PATType) void {
     log.debug("Adjusting Page PAT: {any}", .{page_entry_info});
     if (page_entry_info.entry_ptr == null) {
         @panic("NVMe BAR is not mapped");
