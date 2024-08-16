@@ -479,13 +479,13 @@ pub fn readCapability(comptime TCap: type, function: u3, slot: u5, bus: u8) !TCa
 
     const cap_offset = try findCapabilityOffset(cap_id_ptr.*, function, slot, bus);
 
-    const tcap_size = @sizeOf(TCap);
+    const val_size = @sizeOf(TCap);
     const reg_size = @sizeOf(u32);
-    if (tcap_size % reg_size != 0) @compileError("TCap size must be a multiple of the u32 size");
-    const read_no = tcap_size / reg_size;
+    if (val_size % reg_size != 0) @compileError("TCap size must be a multiple of the u32 size");
+    const reg_no = val_size / reg_size;
 
     const val_ptr: [*]u32 = @ptrCast(@alignCast(&val));
-    inline for (0..read_no) |i| {
+    inline for (0..reg_no) |i| {
         const reg_value = readRegisterWithRawArgs(u32, @intCast(cap_offset + i * reg_size), function, slot, bus);
         //map the register to the struct
         val_ptr[i] = @bitCast(reg_value);
@@ -501,13 +501,13 @@ pub fn writeCapability(comptime TCap: type, val: TCap, function: u3, slot: u5, b
 
     const cap_offset = try findCapabilityOffset(cap_id_ptr.*, function, slot, bus);
 
-    const tcap_size = @sizeOf(TCap);
+    const val_size = @sizeOf(TCap);
     const reg_size = @sizeOf(u32);
-    if (tcap_size % reg_size != 0) @compileError("TCap size must be a multiple of the u32 size");
-    const read_no = tcap_size / reg_size;
+    if (val_size % reg_size != 0) @compileError("TCap size must be a multiple of the u32 size");
+    const reg_no = val_size / reg_size;
 
     const val_ptr: [*]const u32 = @ptrCast(@alignCast(&val));
-    inline for (0..read_no) |i| {
+    inline for (0..reg_no) |i| {
         const reg_value = readRegisterWithRawArgs(u32, @intCast(cap_offset + i * reg_size), function, slot, bus);
         //map the register to the struct
         if (reg_value != val_ptr[i]) {
