@@ -103,18 +103,11 @@ pub const BAR = struct {
     },
 };
 
-pub const Msix = struct {
-    const MessageControl = packed struct(u16) {
-        table_size: u11,
-        rsrvd: u3,
-        function_mask: u1,
-        enable: bool,
-    };
-    msg_ctrl: MessageControl,
-    bir: u3,
-    table_offset: u29,
-    pending_bit_bir: u3,
-    pending_bit_offset: u29,
+pub const VersionCap = packed struct(u32) {
+    id: u8 = 0x10, //must be 0x01
+    next_cap_offset: u8,
+    major: u8,
+    minor: u8,
 };
 
 pub const MsixCap = packed struct(u96) {
@@ -456,110 +449,6 @@ pub fn scan() PciError!void {
     try checkBus(0);
 }
 
-// --- helper function ---
-
-pub fn readPcieVersion(function: u3, slot: u5, bus: u8) !struct { major: u8, minor: u8 } {
-    const cap_offset = readRegisterWithArgs(u8, .capability_pointer, function, slot, bus);
-    if (cap_offset == 0) {
-        return PciError.CapabilitiesPointerNotFound;
-    }
-
-    var cur_offset = cap_offset & 0xFC; //4 bits aligned
-    var next_cap_offset: u8 = 0;
-    while (cur_offset != 0) {
-        const cap0x0 = readRegisterWithRawArgs(u32, cur_offset, function, slot, bus);
-        next_cap_offset = @truncate((cap0x0 >> 8) & 0xFF);
-        if (cap0x0 & 0xFF == 0x10) { // 0x10 stands for PCI Express
-            const major_version: u8 = @truncate((cap0x0 >> 16) & 0xFF);
-            const minor_version: u8 = @truncate((cap0x0 >> 24) & 0xFF);
-
-            log.debug("PCI Express version: {d}.{d}", .{ major_version, minor_version });
-
-            return .{ .major = major_version, .minor = minor_version };
-        }
-        cur_offset = next_cap_offset;
-    }
-
-    return PciError.PciExpressCapabilityNotFound;
-}
-
-// const CapRegisterField = struct {
-//     name: @TypeOf(.enum_literal),
-//     offset: u5, //offset inside of the register
-//     type: type,
-// };
-//
-// const CapRegisterLayout = struct {
-//     register: []CapRegisterField,
-// };
-//
-// fn CapMeta(Dest: type) type {
-//     return struct {
-//         id: u8,
-//         dest: Dest,
-//         layout: []CapRegisterLayout,
-//     };
-// }
-//
-// const MsixCapMeta = CapMeta{
-//     .id = 0x11,
-//     .layout = []CapRegisterLayout{
-//         .{
-//             .register = []CapRegisterField{
-//                 .{ .name = .id, .offset = 0, .type = u8 },
-//                 .{ .name = .next_cap_offset, .offset = 8, .type = u8 },
-//                 .{ .name = .message_ctrl, .offset = 16, .type = u16 },
-//             },
-//         },
-//         .{
-//             .register = []CapRegisterField{
-//                 .{ .name = .bir, .offset = 0, .type = u2 },
-//                 .{ .name = .table_offset, .offset = 2, .type = u30 },
-//             },
-//         },
-//         .{
-//             .register = []CapRegisterField{
-//                 .{ .name = .pending_bit_bir, .offset = 0, .type = u2 },
-//                 .{ .name = .pending_bit_offset, .offset = 2, .type = u30 },
-//             },
-//         },
-//     },
-// };
-
-/// Reads the MSI-X capability of a device and updates it's state in fl
-pub fn readUpdateMsiXCap(function: u3, slot: u5, bus: u8, message_control_config: ?struct { enable: bool }) PciError!Msix {
-    const cap_offset = readRegisterWithArgs(u8, .capability_pointer, function, slot, bus);
-    if (cap_offset == 0) {
-        return PciError.CapabilitiesPointerNotFound;
-    }
-
-    var cur_offset = cap_offset & 0xFC; //4 bits aigned (0b00 mask)
-    var next_cap_offset: u8 = 0;
-    while (cur_offset != 0) {
-        var cap0x0 = readRegisterWithRawArgs(u32, cur_offset, function, slot, bus);
-        next_cap_offset = @truncate((cap0x0 >> 8) & 0xFF);
-        if (cap0x0 & 0xFF == 0x11) { // 0x11 stands for MSI-X
-            const cap0x1 = readRegisterWithRawArgs(u32, cur_offset + 4, function, slot, bus);
-            const cap0x2 = readRegisterWithRawArgs(u32, cur_offset + 8, function, slot, bus);
-
-            if (message_control_config) |config| {
-                if (config.enable) {
-                    const new_cap0x0: u32 = cap0x0 | 1 << 31; // enable bit
-                    writeRegisterWithRawArgs(u32, cur_offset, function, slot, bus, new_cap0x0);
-                }
-
-                cap0x0 = readRegisterWithRawArgs(u32, cur_offset, function, slot, bus);
-            }
-
-            return .{ .msg_ctrl = @bitCast(@as(u16, @truncate((cap0x0 >> 16) & 0xFFFF))), .bir = @truncate(cap0x1 & 0b111), .table_offset = @truncate(cap0x1 >> 3), .pending_bit_bir = @truncate(cap0x2 & 0b111), .pending_bit_offset = @truncate(cap0x2 >> 3) };
-        }
-
-        cur_offset = next_cap_offset;
-    }
-
-    return PciError.MsiXCapabilityNotFound;
-}
-
 fn findCapabilityOffset(cap_id: u8, function: u3, slot: u5, bus: u8) !u8 {
     const cap_offset = readRegisterWithArgs(u8, .capability_pointer, function, slot, bus);
     if (cap_offset == 0) {
@@ -582,7 +471,7 @@ fn findCapabilityOffset(cap_id: u8, function: u3, slot: u5, bus: u8) !u8 {
 }
 
 pub fn readCapability(comptime TCap: type, function: u3, slot: u5, bus: u8) !TCap {
-    var tcap: TCap = undefined;
+    var val: TCap = undefined;
 
     const cap_id_field = std.meta.fieldInfo(TCap, .id);
     const default_val_ptr = cap_id_field.default_value orelse @compileError("TCap.id must have a default value");
@@ -595,24 +484,46 @@ pub fn readCapability(comptime TCap: type, function: u3, slot: u5, bus: u8) !TCa
     if (tcap_size % reg_size != 0) @compileError("TCap size must be a multiple of the u32 size");
     const read_no = tcap_size / reg_size;
 
-    const tcap_ptr: [*]u32 = @ptrCast(@alignCast(&tcap));
+    const val_ptr: [*]u32 = @ptrCast(@alignCast(&val));
     inline for (0..read_no) |i| {
         const reg_value = readRegisterWithRawArgs(u32, @intCast(cap_offset + i * reg_size), function, slot, bus);
         //map the register to the struct
-        tcap_ptr[i] = @bitCast(reg_value);
+        val_ptr[i] = @bitCast(reg_value);
     }
 
-    return tcap;
+    return val;
 }
 
-pub fn addMsiXMessageTableEntry(msi_x: Msix, bar: BAR, id: u11) void {
-    assert(msi_x.msg_ctrl.table_size > id);
+pub fn writeCapability(comptime TCap: type, val: TCap, function: u3, slot: u5, bus: u8) !void {
+    const cap_id_field = std.meta.fieldInfo(TCap, .id);
+    const default_val_ptr = cap_id_field.default_value orelse @compileError("TCap.id must have a default value");
+    const cap_id_ptr: *const u8 = @ptrCast(default_val_ptr);
+
+    const cap_offset = try findCapabilityOffset(cap_id_ptr.*, function, slot, bus);
+
+    const tcap_size = @sizeOf(TCap);
+    const reg_size = @sizeOf(u32);
+    if (tcap_size % reg_size != 0) @compileError("TCap size must be a multiple of the u32 size");
+    const read_no = tcap_size / reg_size;
+
+    const val_ptr: [*]const u32 = @ptrCast(@alignCast(&val));
+    inline for (0..read_no) |i| {
+        const reg_value = readRegisterWithRawArgs(u32, @intCast(cap_offset + i * reg_size), function, slot, bus);
+        //map the register to the struct
+        if (reg_value != val_ptr[i]) {
+            writeRegisterWithRawArgs(u32, @intCast(cap_offset + i * reg_size), function, slot, bus, val_ptr[i]);
+        }
+    }
+}
+
+pub fn addMsixMessageTableEntry(msix_cap: MsixCap, bar: BAR, id: u11) void {
+    assert(msix_cap.message_ctrl.table_size > id);
 
     const virt = switch (bar.address) {
         inline else => |addr| paging.virtFromMME(addr),
     };
 
-    const msi_x_te: *volatile MsixTableEntry = @ptrFromInt(virt + msi_x.table_offset + id * @sizeOf(MsixTableEntry));
+    const msi_x_te: *volatile MsixTableEntry = @ptrFromInt(virt + msix_cap.table_offset + id * @sizeOf(MsixTableEntry));
 
     msi_x_te.* = .{
         .msg_addr = paging.virtFromMME(@as(u32, @bitCast(Pcie.MsiMessageAddressRegister{

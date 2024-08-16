@@ -11,13 +11,13 @@ In Silesian language, a creature from our (Upper Silesians) demonology.
 - Ready-to-use features provided by Limine
 - PMM (Physical Memory Manager) using Buddy Allocator for memory slices and AVL tree for the whole regions
 - Custom GDT (Global Descriptor Table) with kernel code and data segments, in addition to the default one provided by Limine
-- IDT (Interrupt Descriptor Table) with basic handlers for the Exceptions and PIC (Programmable Interrupt Controller) IRQs
+- IDT (Interrupt Descriptor Table) with basic handlers for the Exceptions and LAPIC (Local Programmable Interrupt Controller)
 - Basic terminal support in graphical mode with the PC Screen Fonts (version 1 and 2)
-- PCI (Peripheral Component Interconnect) driver  
-- NVMe (Non-Volatile Memory Express) driver in progress (70% ready)
+- PCI Express (Peripheral Component Interconnect Express) driver  
+- MSI-X (Message Signaled Interrupts - Extended) support
+- NVMe (Non-Volatile Memory Express) driver in progress (75% ready)
 
 # In progress
-- [ ] APIC and MSI/MSI-X to handle NVMe interrupts
 - [ ] NVMe driver (I/O operations - read, write)
 
 # How to run

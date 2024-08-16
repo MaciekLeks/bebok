@@ -482,21 +482,26 @@ pub fn interested(_: Self, class_code: u8, subclass: u8, prog_if: u8) bool {
 pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     drive = .{}; //TODO replace it for more drives
 
-    const pcie_version = try pcie.readPcieVersion(function, slot, bus); //we need PCIe version 2.0 at least
+    //const pcie_version = try pcie.readPcieVersion(function, slot, bus); //we need PCIe version 2.0 at least
+    const pcie_version = try pcie.readCapability(pcie.VersionCap, function, slot, bus);
     log.info("PCIe version: {}", .{pcie_version});
 
-    //TODO: we need MSI/MSI-X support first - PIC does not work here
-    const msi_x = try pcie.readUpdateMsiXCap(function, slot, bus, .{ .enable = true });
+    if (pcie_version.major < 2) {
+        log.err("Unsupported PCIe version: {}.{}", .{ pcie_version.major, pcie_version.minor });
+        return;
+    }
 
-    if (msi_x.bir != 0) return NvmeError.MsiXMisconfigured; //it should work at bar0 as the rest of the NVMe config
+    var msix_cap = try pcie.readCapability(pcie.MsixCap, function, slot, bus);
+    log.debug("MSI-X capability pre-modification: {}", .{msix_cap});
 
-    log.info("MSI-X: {}", .{msi_x});
+    if (msix_cap.bir != 0) return NvmeError.MsiXMisconfigured; //TODO: it should work on any of the bar but for now we support only bar0
 
-    //----------------------------------------------------------------------------------
-    log.info("new read test-------[", .{});
-    const msix_test = try pcie.readCapability(pcie.MsixCap, function, slot, bus);
-    log.info("MSI-X test: {}", .{msix_test});
-    log.info("new read test-------]", .{});
+    //enable MSI-X
+    msix_cap.message_ctrl.enable = true;
+    try pcie.writeCapability(pcie.MsixCap, msix_cap, function, slot, bus);
+
+    msix_cap = try pcie.readCapability(pcie.MsixCap, function, slot, bus); //TODO: could
+    log.info("MSI-X capability post-modification: {}", .{msix_cap});
 
     //- var pci_cmd_reg = pcie.readRegisterWithArgs(u16, .command, function, slot, bus);
     //disable interrupts while using MSI-X
@@ -507,7 +512,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     const bar = pcie.readBARWithArgs(.bar0, function, slot, bus);
 
     //MSI-X
-    pcie.addMsiXMessageTableEntry(msi_x, bar, 0); //add 0x31
+    pcie.addMsixMessageTableEntry(msix_cap, bar, 0); //add 0x31
 
     //  bus-mastering DMA, and memory space access in the PCI configuration space
     const command = pcie.readRegisterWithArgs(u16, .command, function, slot, bus);
