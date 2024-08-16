@@ -492,6 +492,12 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
 
     log.info("MSI-X: {}", .{msi_x});
 
+    //----------------------------------------------------------------------------------
+    log.info("new read test-------[", .{});
+    const msix_test = try pcie.readCapability(pcie.MsixCap, function, slot, bus);
+    log.info("MSI-X test: {}", .{msix_test});
+    log.info("new read test-------]", .{});
+
     //- var pci_cmd_reg = pcie.readRegisterWithArgs(u16, .command, function, slot, bus);
     //disable interrupts while using MSI-X
     //-pci_cmd_reg |= 1 << 15;
