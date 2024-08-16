@@ -119,8 +119,7 @@ pub inline fn rdmsr(msr: u32) usize {
     asm volatile ("rdmsr"
         : [low] "={eax}" (low),
           [high] "={edx}" (high),
-        : [msr] "N{ecx}" (msr),
-        : "ecx", "eax", "edx"
+        : [msr] "{ecx}" (msr),
     );
     return (@as(u64, high) << 32) | low;
 }
@@ -131,10 +130,9 @@ pub inline fn wrmsr(msr: u32, value: usize) void {
     asm volatile (
         \\ wrmsr
         :
-        : [msr] "N{ecx}" (msr),
+        : [msr] "{ecx}" (msr),
           [low] "{eax}" (low),
           [high] "{edx}" (high),
-        : "eax", "ecx", "edx"
     );
 }
 
@@ -176,6 +174,60 @@ pub inline fn lgdt(gdtd: *const gdt.Gdtd, code_selector: usize, data_selector: u
         : "rax"
     );
 }
+
+pub fn cpuid(eax_in: u32) struct { eax: u32, ebx: u32, ecx: u32, edx: u32 } {
+    var eax: u32 = 0;
+    var ebx: u32 = 0;
+    var ecx: u32 = 0;
+    var edx: u32 = 0;
+
+    asm volatile ("cpuid"
+        : [eax] "={eax}" (eax),
+          [ebx] "={ebx}" (ebx),
+          [ecx] "={ecx}" (ecx),
+          [edx] "={edx}" (edx),
+        : [eax_in] "{eax}" (eax_in),
+        : "eax", "ebx", "ecx", "edx"
+    );
+    return .{ .eax = eax, .ebx = ebx, .ecx = ecx, .edx = edx };
+}
+
+pub const Fpu = struct {
+    // Exception masks as constants
+    pub const mask_invalid_operation = 0 << 0; // Invalid Operation
+    pub const mask_denormalized_operand = 1 << 1; // Denormalized Operand
+    pub const mask_zero_divide = 1 << 2; // Zero Divide
+    pub const mask_overflow = 1 << 3; // Overflow
+    pub const mask_underflow = 1 << 4; // Underflow
+    pub const mask_precision = 1 << 5; // Precision
+
+    // Method to read the current FPU control word
+    pub fn readControlWord() u16 {
+        var control_word: u16 = 0;
+        asm volatile ("fnstcw %[cw]"
+            : [cw] "=m" (control_word),
+        );
+        return control_word;
+    }
+
+    // Method to write a new FPU control word
+    pub fn writeControlWord(control_word: u16) void {
+        const cw_ptr = &control_word;
+        asm volatile ("fldcw (%[ptr])"
+            :
+            : [ptr] "r" (cw_ptr),
+        );
+    }
+
+    // Method to non-authorative change of the FPU control word with masks
+    pub fn updateControlWord(mask: u16) void {
+        const current_cw = readControlWord();
+        const new_cw = current_cw | mask;
+        writeControlWord(new_cw);
+    }
+};
+
+// --- helper functions ---
 
 pub inline fn div0() void {
     asm volatile ("int $0");

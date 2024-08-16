@@ -9,9 +9,11 @@ const paging = @import("paging.zig");
 const pmm = @import("mem/pmm.zig");
 const heap = @import("mem/heap.zig").heap;
 const term = @import("terminal");
-const pci = @import("drivers/pci.zig");
+const pcie = @import("drivers/pcie.zig");
 const Nvme = @import("drivers/Nvme.zig");
 const int = @import("int.zig");
+const smp = @import("smp.zig");
+const acpi = @import("acpi.zig");
 
 const log = std.log.scoped(.kernel);
 
@@ -64,6 +66,8 @@ export fn _start() callconv(.C) noreturn {
         cpu.halt();
     }
 
+    smp.init();
+
     cpu.cli();
     segmentation.init();
 
@@ -72,7 +76,10 @@ export fn _start() callconv(.C) noreturn {
         @panic("Paging initialization error");
     };
 
-    log.debug("Hello, world!", .{});
+    // acpi.init() catch |err| {
+    //     log.err("ACPI initialization error: {}", .{err});
+    //     @panic("ACPI initialization error");
+    // };
 
     pmm.init() catch |err| {
         log.err("PMM initialization error: {}", .{err});
@@ -93,20 +100,27 @@ export fn _start() callconv(.C) noreturn {
     var arena_allocator = std.heap.ArenaAllocator.init(heap.page_allocator);
     int.initISRMap(arena_allocator.allocator());
     defer int.deinitISRMap();
+
+    int.addISR(0x30, .{ .unique_id = 0x01, .func = &testISR2 }) catch |err| {
+        log.err("Failed to add Timer interrupt handler: {}", .{err});
+    };
+    int.addISR(0x31, .{ .unique_id = 0x02, .func = &testISR2 }) catch |err| {
+        log.err("Failed to add NVMe interrupt handler: {}", .{err});
+    };
+
     cpu.sti();
     //} init handler list
 
     //pci test start
-    pci.init();
+    pcie.init();
     Nvme.init();
-    pci.scan();
-    defer Nvme.deinit();
-    defer pci.deinit(); //TODO: na pewno?
-    //pci test end
-
-    int.addISR(0x21, .{ .unique_id = 1234, .func = &testISR }) catch |err| {
-        log.err("Failed to add NVMe interrupt handler: {}", .{err});
+    pcie.scan() catch |err| {
+        log.err("PCI scan error: {}", .{err});
+        @panic("PCI scan error");
     };
+    defer Nvme.deinit();
+    defer pcie.deinit(); //TODO: na pewno?
+    //pci test end
 
     var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");
     pty.printf("Bebok version: {any}\n", .{config.kernel_version});
@@ -115,8 +129,7 @@ export fn _start() callconv(.C) noreturn {
     cpu.halt();
 }
 
-
 //TODO tbd
-fn testISR() !void {
-    log.warn("----->>>>!!!!", .{});
+fn testISR2() !void {
+    log.warn("apic: 2----->>>>!!!!", .{});
 }

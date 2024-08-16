@@ -1,12 +1,12 @@
 //! This is paging solely for 4-Level Paging, but it also supports 4-Kilobyte, 2-Megabyte, and 1-Gigabyte pages.
 //! For now this code supports both recursive page table mapping and CR3-based page table mapping.
 //! For recursive mapping, it uses 510 (not 511) in the PML4 table.
-//! Virtual Address for	Address Structure (octal)
-//! Page                                   	0o_SSSSSS_AAA_BBB_CCC_DDD_EEEE
-//! Level 1 Table Entry   PML4   0o_SSSSSS_RRR_AAA_BBB_CCC_DDDD
-//! Level 2 Table Entry  PDPT    0o_SSSSSS_RRR_RRR_AAA_BBB_CCCC
-//! Level 3 Table Entry  PD        0o_SSSSSS_RRR_RRR_RRR_AAA_BBBB
-//! Level 4 Table Entry  PT	    0o_SSSSSS_RRR_RRR_RRR_RRR_AAAA,
+//! Virtual Address for Address Structure (octal)
+//! Page 0o_SSSSSS_AAA_BBB_CCC_DDD_EEEE
+//! Level 1 Table Entry PML4 0o_SSSSSS_RRR_AAA_BBB_CCC_DDDD
+//! Level 2 Table Entry PDPT 0o_SSSSSS_RRR_RRR_AAA_BBB_CCCC
+//! Level 3 Table Entry PD   0o_SSSSSS_RRR_RRR_RRR_AAA_BBBB
+//! Level 4 Table Entry PT   0o_SSSSSS_RRR_RRR_RRR_RRR_AAAA,
 //! where: SSSSSS is the sign extension of the 48-bit address
 //! RRR is the index of the recursive entry, which means that they are all copies of bit 47
 //! AAA is the index into the PML4 (lvl4) table
@@ -98,8 +98,8 @@ fn setPagePAT(page_entry_info: GenericEntryInfo, req_pat: PATType) void {
     }
 }
 
-pub fn adjustPagePAT(virt: usize, page_entry_info: GenericEntryInfo, req_pat: PATType) void {
-    log.debug("NVMe BAR Page Entry Info: {any}", .{page_entry_info});
+fn adjustPagePAT(virt: usize, page_entry_info: GenericEntryInfo, req_pat: PATType) void {
+    log.debug("Adjusting Page PAT: {any}", .{page_entry_info});
     if (page_entry_info.entry_ptr == null) {
         @panic("NVMe BAR is not mapped");
     }
@@ -758,7 +758,7 @@ pub fn init() !void {
     // log.warn("phys_buddy_virt: 0x{x}", .{phys_buddy.phys});
     //
     // //wite loop to iterate over each element of address in the table
-    const vt = [_]usize{ virtFromMME(0x4d00), virtFromMME(0x10_0000), virtFromMME(0x7fa61000), virtFromMME(0x7fa63000) };
+    const vt = [_]usize{ virtFromMME(0x4d00), virtFromMME(0x10_0000), virtFromMME(0x7fa61000), virtFromMME(0x7fa63000), virtFromMME(0xfee0_0000) };
     for (vt) |vaddr| {
         log.err("------: 0x{x}", .{vaddr});
 
