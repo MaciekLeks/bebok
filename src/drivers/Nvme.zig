@@ -427,29 +427,33 @@ const CQEntry = packed struct(u128) {
 fn Queue(EntryType: type) type {
     return struct {
         entries: []volatile EntryType = undefined,
-        tail_pos: u32 = 0,
-        tail_dbl: *volatile u32 = undefined,
+        tail_pos: u32 = 0, // private counter to keep track and update tail_dbl
+        tail_dbl: *volatile u32 = undefined, //each doorbell value is u32, minmal doorbell stride is 4 (2^(2+CAP.DSTRD))
         head_pos: u32 = 0,
-        head_dbl: *volatile u32 = undefined,
+        head_dbl: *volatile u32 = undefined, //each doorbell value is u32, minmal doorbell stride is 4 (2^(2+CAP.DSTRD))
+
         expected_phase: u1 = 1,
     };
 }
 
 const Drive = struct {
-    sqa: []volatile SQEntry = undefined,
-    cqa: []volatile CQEntry = undefined,
+    //!    sqa: []volatile SQEntry = undefined,
+    //!    cqa: []volatile CQEntry = undefined,
     //sq: []volatile SQEntry = undefined,
     //cq: []volatile CQEntry = undefined,
 
-    sqa_tail_pos: u32 = 0, // private counter to keep track and update sqa_tail_dbl
-    sqa_header_pos: u32 = 0, //contoller position retuned in CQEntry as sq_header_pos
-    sqa_tail_dbl: *volatile u32 = undefined, //each doorbell value is u32, minmal doorbell stride is 4 (2^(2+CAP.DSTRD))
-    cqa_head_pos: u32 = 0,
-    cqa_head_dbl: *volatile u32 = undefined, //each doorbell value is u32, minmal doorbell stride is 4 (2^(2+CAP.DSTRD))
+    //!   sqa_tail_pos: u32 = 0, // private counter to keep track and update sqa_tail_dbl
+    //!   sqa_header_pos: u32 = 0, //contoller position retuned in CQEntry as sq_header_pos
+    //!   sqa_tail_dbl: *volatile u32 = undefined, //each doorbell value is u32, minmal doorbell stride is 4 (2^(2+CAP.DSTRD))
+    //!   cqa_head_pos: u32 = 0,
+    //!   cqa_head_dbl: *volatile u32 = undefined, //each doorbell value is u32, minmal doorbell stride is 4 (2^(2+CAP.DSTRD))
 
     //sq_tail_pos: u32 = 0, //private counter to keep track and update sq_tail_dbl
     //sq_tail_dbl: *volatile u32 = undefined,
     //cq_head_dbl: *volatile u32 = undefined,
+
+    acq: Queue(CQEntry) = undefined,
+    asq: Queue(SQEntry) = undefined,
 
     expected_phase: u1 = 1, //private counter to keep track of the expected phase
     mdts_bytes: u32 = 0, // Maximum Data Transfer Size in bytes
@@ -616,27 +620,27 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     log.info("NVMe AQA Register post-modification: {}", .{aqa});
 
     // ASQ and ACQ setup
-    drive.sqa = heap.page_allocator.alloc(SQEntry, nvme_ioasqs) catch |err| {
+    drive.asq.entries = heap.page_allocator.alloc(SQEntry, nvme_ioasqs) catch |err| {
         log.err("Failed to allocate memory for admin submission queue entries: {}", .{err});
         return;
     };
-    @memset(drive.sqa, 0);
-    drive.cqa = heap.page_allocator.alloc(CQEntry, nvme_ioacqs) catch |err| {
+    @memset(drive.asq.entries, 0);
+    drive.acq.entries = heap.page_allocator.alloc(CQEntry, nvme_ioacqs) catch |err| {
         log.err("Failed to allocate memory for admin completion queue entries: {}", .{err});
         return;
     };
 
-    const sqa_phys = paging.physFromPtr(drive.sqa.ptr) catch |err| {
+    const sqa_phys = paging.physFromPtr(drive.asq.entries.ptr) catch |err| {
         log.err("Failed to get physical address of admin submission queue: {}", .{err});
         return;
     };
-    const cqa_phys = paging.physFromPtr(drive.cqa.ptr) catch |err| {
+    const cqa_phys = paging.physFromPtr(drive.acq.entries.ptr) catch |err| {
         log.err("Failed to get physical address of admin completion queue: {}", .{err});
         return;
     };
-    @memset(drive.cqa, .{});
+    @memset(drive.acq.entries, .{});
 
-    log.debug("ASQ: virt: {*}, phys:0x{x}; ACQ: virt:{*}, phys:0x{x}", .{ drive.sqa, sqa_phys, drive.cqa, cqa_phys });
+    log.debug("ASQ: virt: {*}, phys:0x{x}; ACQ: virt:{*}, phys:0x{x}", .{ drive.asq.entries, sqa_phys, drive.acq.entries, cqa_phys });
 
     var asq = readRegister(ASQEntry, bar, .asq);
     log.info("ASQ Register pre-modification: 0x{x}", .{@shlExact(asq.asqb, 12)});
@@ -670,8 +674,8 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
 
     const doorbell_base: usize = virt + 0x1000;
     const doorbell_size = math.pow(u32, 2, 2 + cap.dstrd);
-    drive.sqa_tail_dbl = @ptrFromInt(doorbell_base + doorbell_size * 0);
-    drive.cqa_head_dbl = @ptrFromInt(doorbell_base + doorbell_size * 1);
+    drive.asq.tail_dbl = @ptrFromInt(doorbell_base + doorbell_size * 0);
+    drive.acq.head_dbl = @ptrFromInt(doorbell_base + doorbell_size * 1);
     // for (&drive.iosq, 1..) |*sq, sq_dbl_idx| {
     //     sq.tail_dbl = @ptrFromInt(doorbell_base + doorbell_size * (2 * sq_dbl_idx));
     // }
@@ -1077,7 +1081,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
             return;
         };
 
-        const cq_phys = paging.physFromPtr(drive.cqa.ptr) catch |err| {
+        const cq_phys = paging.physFromPtr(drive.acq.entries.ptr) catch |err| {
             log.err("Failed to get physical address of I/O Completion Queue: {}", .{err});
             return;
         };
@@ -1119,7 +1123,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
             return;
         };
 
-        const sq_phys = paging.physFromPtr(drive.cqa.ptr) catch |err| {
+        const sq_phys = paging.physFromPtr(drive.acq.entries.ptr) catch |err| {
             log.err("Failed to get physical address of I/O Submission Queue: {}", .{err});
             return;
         };
@@ -1212,15 +1216,15 @@ fn enableController(bar: pcie.BAR) void {
 }
 
 fn executeAdminCommand(bar: pcie.BAR, drv: *Drive, cmd: SQEntry) NvmeError!CQEntry {
-    drv.sqa[drv.sqa_tail_pos] = cmd;
+    drv.asq.entries[drv.asq.tail_pos] = cmd;
 
-    drv.sqa_tail_pos += 1;
-    if (drv.sqa_tail_pos >= drv.sqa.len) drv.sqa_tail_pos = 0;
+    drv.asq.tail_pos += 1;
+    if (drv.asq.tail_pos >= drv.asq.entries.len) drv.asq.tail_pos = 0;
 
-    const cqa_entry_ptr = &drv.cqa[drv.cqa_head_pos];
+    const cqa_entry_ptr = &drv.acq.entries[drv.acq.head_pos];
 
     // press the doorbell
-    drv.sqa_tail_dbl.* = drv.sqa_tail_pos;
+    drv.asq.tail_dbl.* = drv.asq.tail_pos;
 
     while (cqa_entry_ptr.phase != drv.expected_phase) {
         const csts = readRegister(CSTSRegister, bar, .csts);
@@ -1244,17 +1248,18 @@ fn executeAdminCommand(bar: pcie.BAR, drv: *Drive, cmd: SQEntry) NvmeError!CQEnt
         }
     }
 
-    drv.sqa_header_pos = cqa_entry_ptr.sq_header_pos; //the controller position retuned in CQEntry as sq_header_pos
+    // TODO: do we need to check if conntroller is ready to accept new commands?
+    //--  drv.asqa.header_pos = cqa_entry_ptr.sq_header_pos; //the controller position retuned in CQEntry as sq_header_pos
 
-    drv.cqa_head_pos += 1;
-    if (drv.cqa_head_pos >= drv.cqa.len) {
-        drv.cqa_head_pos = 0;
+    drv.acq.head_pos += 1;
+    if (drv.acq.head_pos >= drv.acq.entries.len) {
+        drv.acq.head_pos = 0;
         // every new cycle we need to toggle the phase
         drv.expected_phase = ~drv.expected_phase;
     }
 
     //press the doorbell
-    drv.cqa_head_dbl.* = drv.cqa_head_pos;
+    drv.acq.head_dbl.* = drv.acq.head_pos;
 
     const cdw0: *const CDW0 = @ptrCast(@alignCast(&cmd));
     if (cdw0.cid == cqa_entry_ptr.sq_id) return NvmeError.InvalidCommandSequence;
