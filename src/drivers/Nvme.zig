@@ -16,8 +16,8 @@ const nvme_iocqs = 0x4; //completion queue size
 const nvme_ioacqs = 0x2; //admin completion queue size
 const nvme_ioasqs = 0x2; //admin submission queue size
 
-const nvme_ncqr = 0x1 + 0x1; //number of completion queues requested (+1 is admin cq)
-const nvme_nsqr = nvme_ncqr; //number of submission queues requested
+//const nvme_ncqr = 0x1 + 0x1; //number of completion queues requested (+1 is admin cq)
+//const nvme_nsqr = nvme_ncqr; //number of submission queues requested
 
 const Self = @This();
 
@@ -134,9 +134,9 @@ const AdminOpcode = enum(u8) {
     delete_io_cq = 0x04,
 };
 
-const NSID = u32;
+const NsId = u32;
 
-const CDW0 = packed struct(u32) {
+const CDw0 = packed struct(u32) {
     opc: AdminOpcode,
     fuse: u2 = 0, //0 for nromal operation
     rsvd: u4 = 0,
@@ -164,7 +164,7 @@ const DataPointer = packed union {
 const SQEntry = u512;
 
 const IdentifyCommand = packed struct(u512) {
-    cdw0: CDW0, //00:03 byte
+    cdw0: CDw0, //00:03 byte
     nsid: u32 = 0, //04:07 byte - nsid
     ignrd_b: u32 = 0, //08:11 byte - cdw2
     ignrd_c: u32 = 0, //12:15 byte = cdw3
@@ -185,7 +185,7 @@ const IdentifyCommand = packed struct(u512) {
 };
 
 const GetFeaturesCommand = packed struct(u512) {
-    cdw0: CDW0, //00:03 byte
+    cdw0: CDw0, //00:03 byte
     ignrd_a: u32 = 0, //04:07 byte - nsid
     ignrd_b: u32 = 0, //08:11 byte - cdw2
     ignrd_c: u32 = 0, //12:15 byte = cdw3
@@ -207,7 +207,7 @@ const GetFeaturesCommand = packed struct(u512) {
 };
 
 const SetFeatures0x19Command = packed struct(u512) {
-    cdw0: CDW0, //00:03 byte
+    cdw0: CDw0, //00:03 byte
     ignrd_a: u32 = 0, //04:07 byte - nsid
     ignrd_b: u32 = 0, //08:11 byte - cdw2
     ignrd_c: u32 = 0, //12:15 byte = cdw3
@@ -226,7 +226,7 @@ const SetFeatures0x19Command = packed struct(u512) {
 };
 
 const SetFeatures0x07Command = packed struct(u512) {
-    cdw0: CDW0, //00:03 byte
+    cdw0: CDw0, //00:03 byte
     ignrd_a: u32 = 0, //04:07 byte - nsid
     ignrd_b: u32 = 0, //08:11 byte - cdw2
     ignrd_c: u32 = 0, //12:15 byte = cdw3
@@ -242,9 +242,28 @@ const SetFeatures0x07Command = packed struct(u512) {
     ignrd_j: u32 = 0, //cdw15
 };
 
+const IONvmCommandSetCommand = packed union {
+    read: packed struct(u512) {
+        cdw0: CDw0, //cdw0 - 00:03 byte
+        nsid: NsId, //cdw1 - 04:07 byte - nsid
+        slba: u64, //08:15 byte - Starting LBA
+        nlb: u16, //16-31 byte - Number of Logical Blocks
+        ignrd_a: u32 = 0, //32-35 byte - cdw3
+        ignrd_b: u64 = 0, //36-43 byte - mptr
+        dptr: DataPointer, //44-59 byte - prp1, prp2
+        prinfo: u8, //00-07 in cdw10 - Protection Information
+        fua: u1, //08 in cdw10 - Force Unit Access
+        lr: u1, //09 in cdw10 - Limited Retry
+        dsm: u1, //10 in cdw10 - Directives
+        rsvd_a: u5 = 0, //11-15 in cdw10
+        iod: u16, //16-31 in cdw10 - I/O Determination
+        rsrvd_b: u32 = 0, //32-63 in cdw11
+    },
+};
+
 const IOQueueCommand = packed union {
     createCQ: packed struct(u512) {
-        cdw0: CDW0, //cdw0
+        cdw0: CDw0, //cdw0
         ignrd_a: u32 = 0, // nsid
         ignrd_b: u32 = 0, //cdw2
         ignrd_c: u32 = 0, //cdw3
@@ -262,7 +281,7 @@ const IOQueueCommand = packed union {
         ignrd_i: u32 = 0, //cdw15
     },
     deleteQ: packed struct(u512) {
-        cdw0: CDW0, //cdw0
+        cdw0: CDw0, //cdw0
         ignrd_a: u32 = 0, //nsid in cdw1
         ignrd_b: u32 = 0, //cdw2
         ignrd_c: u32 = 0, //cdw3
@@ -277,7 +296,7 @@ const IOQueueCommand = packed union {
         ignrd_l: u32 = 0, //cdw15
     },
     createSQ: packed struct(u512) {
-        cdw0: CDW0, //cdw0
+        cdw0: CDw0, //cdw0
         ignrd_a: u32 = 0, //nsid - cdw1
         ignrd_b: u32 = 0, //cdw2
         ignrd_c: u32 = 0, //cdw3
@@ -329,6 +348,8 @@ const Identify0x00Info = extern struct {
     //fill gap to the 4096 bytes
     // ignrd_b: [4096 - 384]u8,
 };
+
+const NsInfo = Identify0x00Info; //alias for Identify0x00Info
 
 const Identify0x01Info = extern struct {
     vid: u16, // 2bytes
@@ -437,6 +458,9 @@ fn Queue(EntryType: type) type {
 }
 
 const Drive = struct {
+    const nvme_ncqr = 0x1; //number of completion queues requested (+1 is admin cq)
+    const nvme_nsqr = nvme_ncqr; //number of submission queues requested
+
     //-    sqa: []volatile SQEntry = undefined,
     //-    cqa: []volatile CQEntry = undefined,
     //sq: []volatile SQEntry = undefined,
@@ -458,11 +482,14 @@ const Drive = struct {
     expected_phase: u1 = 1, //private counter to keep track of the expected phase
     mdts_bytes: u32 = 0, // Maximum Data Transfer Size in bytes
 
-    ncqr: u16 = 1, //number of completion queues requested - TODO only one cq now
-    nsqr: u16 = 1, //number of submission queues requested - TODO only one sq now
+    ncqr: u16 = nvme_ncqr, //number of completion queues requested - TODO only one cq now
+    nsqr: u16 = nvme_nsqr, //number of submission queues requested - TODO only one sq now
 
-    cq: [nvme_ncqr]Queue(CQEntry) = undefined,
-    sq: [nvme_nsqr]Queue(SQEntry) = undefined,
+    cq: [nvme_ncqr + 1]Queue(CQEntry) = undefined, //+1 for admin cq
+    sq: [nvme_nsqr + 1]Queue(SQEntry) = undefined, //+1 for admin sq
+
+    //slice of NsInfo
+    ns_info: []NsInfo = undefined,
 };
 
 var drive: Drive = undefined; //TODO only one drive now
@@ -812,7 +839,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
             return;
         };
 
-        const io_command_set_active_nsid_lst: *const [1024]NSID = @ptrCast(@alignCast(prp1));
+        const io_command_set_active_nsid_lst: *const [1024]NsId = @ptrCast(@alignCast(prp1));
         for (io_command_set_active_nsid_lst, 0..) |nsid, j| {
             //stop on first non-zero nsid
             //log.info("Identify I/O Command Set Active Namespace ID List(0x07): command set idx:{d} nsid idx:{d}, nsid:{d}", .{ i, j, nsid });
@@ -1271,7 +1298,7 @@ fn executeCommand(bar: pcie.BAR, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) 
     //press the doorbell
     drv.cq[cqn].head_dbl.* = drv.cq[cqn].head_pos;
 
-    const cdw0: *const CDW0 = @ptrCast(@alignCast(&cmd));
+    const cdw0: *const CDw0 = @ptrCast(@alignCast(&cmd));
     if (cdw0.cid == cqa_entry_ptr.sq_id) return NvmeError.InvalidCommandSequence;
 
     if (cqa_entry_ptr.status.sc != 0) {
@@ -1285,4 +1312,47 @@ fn executeCommand(bar: pcie.BAR, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) 
 
 fn executeAdminCommand(bar: pcie.BAR, drv: *Drive, cmd: SQEntry) NvmeError!CQEntry {
     return executeCommand(bar, drv, cmd, 0, 0);
+}
+//--- public functions ---
+
+/// Read from the NVMe drive
+/// @param allocator : Allocator
+/// @param slba : Start Logical Block Address
+/// @param nlb : Number of Logical Blocks
+pub fn read(allocator: std.mem.Allocator, drv: Drive, slba: u64, nlb: u16) ![]u8 {
+    _ = drv;
+    _ = allocator;
+    _ = slba;
+    _ = nlb;
+
+    @compileError("not implemented");
+    // const prp1 = allocator.alloc(u8, drv.mdts_bytes) catch |err| {
+    //     log.err("Failed to allocate memory for read command: {}", .{err});
+    //     return;
+    // };
+    // @memset(prp1, 0);
+    // defer allocator.free(prp1);
+    // const prp1_phys = paging.physFromPtr(prp1.ptr) catch |err| {
+    //     log.err("Failed to get physical address of read command: {}", .{err});
+    //     return;
+    // };
+    // const cmd = @bitCast(ReadCommand{
+    //     .cdw0 = .{
+    //         .opc = .read,
+    //         .cid = 0x01, //our id
+    //     },
+    //     .nsid = 1, //TODO: we need to get it from somewhere
+    //     .slba = slba,
+    //     .nlb = nlb,
+    //     .dptr = .{
+    //         .prp = .{
+    //             .prp1 = prp1_phys,
+    //         },
+    //     },
+    // });
+    // const cqe = executeCommand(drv.bar, &drv, cmd, 1, 1) catch |err| {
+    //     log.err("Failed to execute Read Command: {}", .{err});
+    //     return;
+    // };
+    // return prp1;
 }
