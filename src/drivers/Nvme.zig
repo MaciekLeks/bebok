@@ -465,6 +465,8 @@ fn Queue(EntryType: type) type {
     };
 }
 
+const NsInfoList = std.ArrayList(NsInfo);
+
 const Drive = struct {
     const nvme_ncqr = 0x1; //number of completion queues requested (+1 is admin cq)
     const nvme_nsqr = nvme_ncqr; //number of submission queues requested
@@ -497,7 +499,7 @@ const Drive = struct {
     sq: [nvme_nsqr + 1]Queue(SQEntry) = undefined, //+1 for admin sq
 
     //slice of NsInfo
-    ns_info: []NsInfo = undefined,
+    ns_info_list: NsInfoList = undefined,
 };
 
 var drive: Drive = undefined; //TODO only one drive now
@@ -519,7 +521,9 @@ pub fn interested(_: Self, class_code: u8, subclass: u8, prog_if: u8) bool {
 }
 
 pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
-    drive = .{}; //TODO replace it for more drives
+    drive = .{
+        .ns_info_list = NsInfoList.init(heap.page_allocator),
+    }; //TODO replace it for more drives
 
     //const pcie_version = try pcie.readPcieVersion(function, slot, bus); //we need PCIe version 2.0 at least
     const pcie_version = try pcie.readCapability(pcie.VersionCap, function, slot, bus);
@@ -641,10 +645,10 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
         return;
     }
 
-    // Reset the controller
+    // Reset the controllerg
     disableController(bar);
 
-    // The host configures the Admin Queue by setting the Admin Queue Attributes (AQA), Admin Submission Queue Base Address (ASQ), and Admin Completion Queue Base Address (ACQ) the appropriate values;
+    // The host configures the Admin gQueue by setting the Admin Queue Attributes (AQA), Admin Submission Queue Base Address (ASQ), and Admin Completion Queue Base Address (ACQ) the appropriate values;
     //set AQA queue sizes
     var aqa = readRegister(AQARegister, bar, .aqa);
     log.info("NVMe AQA Register pre-modification: {}", .{aqa});
@@ -659,11 +663,15 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
         log.err("Failed to allocate memory for admin submission queue entries: {}", .{err});
         return;
     };
+    defer heap.page_allocator.free(@volatileCast(drive.sq[0].entries));
     @memset(drive.sq[0].entries, 0);
+
     drive.cq[0].entries = heap.page_allocator.alloc(CQEntry, nvme_ioacqs) catch |err| {
         log.err("Failed to allocate memory for admin completion queue entries: {}", .{err});
         return;
     };
+    defer heap.page_allocator.free(@volatileCast(drive.cq[0].entries));
+    @memset(drive.cq[0].entries, .{});
 
     const sqa_phys = paging.physFromPtr(drive.sq[0].entries.ptr) catch |err| {
         log.err("Failed to get physical address of admin submission queue: {}", .{err});
@@ -673,7 +681,6 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
         log.err("Failed to get physical address of admin completion queue: {}", .{err});
         return;
     };
-    @memset(drive.cq[0].entries, .{});
 
     log.debug("ASQ: virt: {*}, phys:0x{x}; ACQ: virt:{*}, phys:0x{x}", .{ drive.sq[0].entries, sqa_phys, drive.cq[0].entries, cqa_phys });
 
@@ -875,6 +882,8 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
 
                 const ns_info: *const Identify0x00Info = @ptrCast(@alignCast(prp1));
                 log.info("Identify Namespace Data Structure(cns: 0x00): nsid:{d}, info:{}", .{ nsid, ns_info.* });
+
+                try drive.ns_info_list.append(ns_info.*);
 
                 log.debug("vs: {}", .{vs});
                 if (vs.mjn == 2) {
@@ -1223,9 +1232,7 @@ pub fn deinit() void {
     log.info("Deinitializing NVMe driver", .{});
     // TODO: for now we don't have a way to unregister the driver
 
-    heap.page_allocator.free(drive.sqa);
-    heap.page_allocator.free(drive.cqa);
-
+    // TODO: admin queue has been freed already - waiting for an error?
     for (&drive.iocq) |*cq| heap.page_allocator.free(cq.entries);
     for (&drive.iosq) |*sq| heap.page_allocator.free(sq.entries);
 }
@@ -1327,13 +1334,12 @@ fn executeAdminCommand(bar: pcie.BAR, drv: *Drive, cmd: SQEntry) NvmeError!CQEnt
 /// @param allocator : Allocator
 /// @param slba : Start Logical Block Address
 /// @param nlb : Number of Logical Blocks
-pub fn read(allocator: std.mem.Allocator, drv: Drive, slba: u64, nlb: u16) ![]u8 {
+pub fn readtoOwnedSlice(allocator: std.mem.Allocator, drv: Drive, slba: u64, nlb: u16) ![]u8 {
     _ = drv;
     _ = allocator;
     _ = slba;
     _ = nlb;
 
-    @compileError("not implemented");
     // const prp1 = allocator.alloc(u8, drv.mdts_bytes) catch |err| {
     //     log.err("Failed to allocate memory for read command: {}", .{err});
     //     return;
