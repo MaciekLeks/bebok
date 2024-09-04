@@ -338,10 +338,17 @@ const LBAFormatInfo = packed struct(u32) {
 };
 
 const Identify0x00Info = extern struct {
-    nsize: u64, //8bytes - Namespace Size
-    ncap: u64, //8bytes - Namespace Capacity
+    nsize: u64, //8bytes - Namespace Size - host can't base on this value
+    ncap: u64, //8bytes - Namespace Capacity - host can you this value
     nuse: u64, //8bytes - Namespace Utilization
-    nsfeat: u8, //1byte - Namespace Features
+    nsfeat: packed struct(u8) {
+        thinp: u1, //0 - Thin Provisioning
+        nsabp: u1, //1
+        dae: u1, //2
+        uidreuse: u1, //3
+        optperf: u1, //4
+        rsrv: u3, //5-7
+    }, //1byte - Namespace Features
     nlbaf: u8, //1byte - Number of LBA Formats
     flbas: u8, //1byte - Formatted LBA Size
     mc: u8, //1byte - Metadata Capabilities
@@ -1339,6 +1346,9 @@ pub fn readtoOwnedSlice(allocator: std.mem.Allocator, drv: Drive, slba: u64, nlb
     _ = allocator;
     _ = slba;
     _ = nlb;
+
+    //find the namespace id by slba
+    // const nsid = drv.ns_info_list.find |ns_info| ns_info.nsze > slba;
 
     // const prp1 = allocator.alloc(u8, drv.mdts_bytes) catch |err| {
     //     log.err("Failed to allocate memory for read command: {}", .{err});
