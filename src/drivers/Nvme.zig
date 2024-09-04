@@ -244,20 +244,28 @@ const SetFeatures0x07Command = packed struct(u512) {
 
 const IONvmCommandSetCommand = packed union {
     read: packed struct(u512) {
+        const DatasetManagement = packed struct(u8) { access_frequency: u4, access_latency: u2, sequential_request: u1, incompressible: u1 };
+
         cdw0: CDw0, //cdw0 - 00:03 byte
         nsid: NsId, //cdw1 - 04:07 byte - nsid
-        slba: u64, //08:15 byte - Starting LBA
-        nlb: u16, //16-31 byte - Number of Logical Blocks
-        ignrd_a: u32 = 0, //32-35 byte - cdw3
-        ignrd_b: u64 = 0, //36-43 byte - mptr
-        dptr: DataPointer, //44-59 byte - prp1, prp2
-        prinfo: u8, //00-07 in cdw10 - Protection Information
-        fua: u1, //08 in cdw10 - Force Unit Access
-        lr: u1, //09 in cdw10 - Limited Retry
-        dsm: u1, //10 in cdw10 - Directives
-        rsvd_a: u5 = 0, //11-15 in cdw10
-        iod: u16, //16-31 in cdw10 - I/O Determination
-        rsrvd_b: u32 = 0, //32-63 in cdw11
+        rsrv_a: u16, //cdw2
+        elbst_eilbst_a: u48, //cdw2,cdw3 - Expected Logical Block Storage Tag and Expected Initial Logical Block Storage Tag
+        mptr: u64, //cdw4,cdw5 - Metadata Pointer
+        dptr: DataPointer, //cdw6/cdw7 - Data Pointer
+        ignrd_a: u32 = 0, //cdw8
+        ignrd_b: u32 = 0, //cdw9
+        slba: u64, //cdw10,cdw11 - Starting LBA
+        nlb: u16, //cdw12 - Number of Logical Blocks
+        rsrv_b: u8 = 0, //cdw12 - Reserved
+        stc: u1, //cdw12 - Storage Tag Check
+        rsrv_c: u1 = 0, //cdw12 - Reserved
+        prinfo: u4, //cdw12 - Protection Information Field
+        fua: u1, //cdw12 - Force Unit Access
+        lr: u1, //cdw12 - Limited Retry
+        dsm: DatasetManagement, //cdw13 - Dataset Management
+        rsrv_d: u24 = 0, //cdw13 - Reserved
+        elbst_eilbst_b: u32, //cdw14 - Expected Logical Block Storage Tag and Expected Initial Logical Block Storage Tag
+        ignrd_c: u32 = 0, //cdw15
     },
 };
 
