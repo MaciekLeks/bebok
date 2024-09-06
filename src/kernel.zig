@@ -122,6 +122,10 @@ export fn _start() callconv(.C) noreturn {
     defer pcie.deinit(); //TODO: na pewno?
     //pci test end
 
+    _ = Nvme.readToOwnedSlice(null, Nvme.drive, 1, 10) catch |err| {
+        log.err("Nvme read error: {}", .{err});
+    };
+
     var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");
     pty.printf("Bebok version: {any}\n", .{config.kernel_version});
 

@@ -21,7 +21,7 @@ const nvme_ioasqs = 0x2; //admin submission queue size
 
 const Self = @This();
 
-const NvmeError = error{ InvalidCommand, InvalidCommandSequence, AdminCommandNoData, AdminCommandFailed, MsiXMisconfigured };
+const NvmeError = error{ InvalidCommand, InvalidCommandSequence, AdminCommandNoData, AdminCommandFailed, MsiXMisconfigured, InvalidLBA };
 
 const CSSField = packed struct(u8) {
     nvmcs: u1, //0 NVM Command Set or Discovery Controller
@@ -509,7 +509,7 @@ const Drive = struct {
     ns_info_list: NsInfoList = undefined,
 };
 
-var drive: Drive = undefined; //TODO only one drive now
+pub var drive: Drive = undefined; //TODO only one drive now, make not public
 
 fn readRegister(T: type, bar: pcie.BAR, register_set_field: @TypeOf(.enum_literal)) T {
     return switch (bar.address) {
@@ -1341,11 +1341,18 @@ fn executeAdminCommand(bar: pcie.BAR, drv: *Drive, cmd: SQEntry) NvmeError!CQEnt
 /// @param allocator : Allocator
 /// @param slba : Start Logical Block Address
 /// @param nlb : Number of Logical Blocks
-pub fn readtoOwnedSlice(allocator: std.mem.Allocator, drv: Drive, slba: u64, nlb: u16) ![]u8 {
-    _ = drv;
+pub fn readToOwnedSlice(allocator: ?std.mem.Allocator, drv: Drive, slba: u64, nlb: u16) ![]u8 {
     _ = allocator;
-    _ = slba;
     _ = nlb;
+
+    // Iterate over all namespaces
+    for (drv.ns_info_list.items, 0..) |ns_info, i| {
+        log.info("Namespace {d} info: {}", .{ i, ns_info });
+
+        if (slba > ns_info.nsize) return NvmeError.InvalidLBA;
+    }
+
+    //Check if slba is within the namespace size
 
     //find the namespace id by slba
     // const nsid = drv.ns_info_list.find |ns_info| ns_info.nsze > slba;
@@ -1355,7 +1362,7 @@ pub fn readtoOwnedSlice(allocator: std.mem.Allocator, drv: Drive, slba: u64, nlb
     //     return;
     // };
     // @memset(prp1, 0);
-    // defer allocator.free(prp1);
+    // defer allocator.free(prp1); ee
     // const prp1_phys = paging.physFromPtr(prp1.ptr) catch |err| {
     //     log.err("Failed to get physical address of read command: {}", .{err});
     //     return;
@@ -1379,4 +1386,5 @@ pub fn readtoOwnedSlice(allocator: std.mem.Allocator, drv: Drive, slba: u64, nlb
     //     return;
     // };
     // return prp1;
+    return error.NotImplemented;
 }
