@@ -496,6 +496,8 @@ const Drive = struct {
     //-acq: Queue(CQEntry) = undefined,
     //-asq: Queue(SQEntry) = undefined,
 
+    bar: pcie.BAR = undefined,
+
     expected_phase: u1 = 1, //private counter to keep track of the expected phase
     mdts_bytes: u32 = 0, // Maximum Data Transfer Size in bytes
 
@@ -528,9 +530,6 @@ pub fn interested(_: Self, class_code: u8, subclass: u8, prog_if: u8) bool {
 }
 
 pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
-    drive = .{
-        .ns_info_map = NsInfoMap.init(heap.page_allocator),
-    }; //TODO replace it for more drives
 
     //const pcie_version = try pcie.readPcieVersion(function, slot, bus); //we need PCIe version 2.0 at least
     const pcie_version = try pcie.readCapability(pcie.VersionCap, function, slot, bus);
@@ -559,10 +558,10 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     //-pcie.writeRegisterWithArgs(u16, .command, function, slot, bus, pci_cmd_reg);
     // const VEC_NO: u16 = 0x20 + interrupt_line; //TODO: we need MSI/MSI-X support first - PIC does not work here
 
-    const bar = pcie.readBARWithArgs(.bar0, function, slot, bus);
+    drive = .{ .ns_info_map = NsInfoMap.init(heap.page_allocator), .bar = pcie.readBARWithArgs(.bar0, function, slot, bus) }; //TODO replace it for more drives
 
     //MSI-X
-    pcie.addMsixMessageTableEntry(msix_cap, bar, 0); //add 0x31
+    pcie.addMsixMessageTableEntry(msix_cap, drive.bar, 0); //add 0x31
 
     //  bus-mastering DMA, and memory space access in the PCI configuration space
     const command = pcie.readRegisterWithArgs(u16, .command, function, slot, bus);
@@ -570,7 +569,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     // Enable interrupts, bus-mastering DMA, and memory space access in the PCI configuration space for the function.
     pcie.writeRegisterWithArgs(u16, .command, function, slot, bus, command | 0b110);
 
-    const virt = switch (bar.address) {
+    const virt = switch (drive.bar.address) {
         inline else => |addr| paging.virtFromMME(addr),
     };
 
@@ -587,9 +586,9 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     const register_set_ptr: *volatile RegisterSet = @ptrFromInt(virt);
 
     // Adjust if needed page PAT to write-through
-    const size: usize = switch (bar.size) {
-        .as32 => bar.size.as32,
-        .as64 => bar.size.as64,
+    const size: usize = switch (drive.bar.size) {
+        .as32 => drive.bar.size.as32,
+        .as64 => drive.bar.size.as64,
     };
     paging.adjustPageAreaPAT(virt, size, .write_through) catch |err| {
         log.err("Failed to adjust page area PAT for NVMe BAR: {}", .{err});
@@ -608,7 +607,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
         \\cc: 0b{b:0>32}, csts: 0b{b:0>32}
         \\aqa: 0b{b:0>32}, asq: 0b{b:0>64}, acq: 0b{b:0>64}
     , .{
-        bar,
+        drive.bar,
         virt,
         cap_reg_ptr.*,
         vs_reg_ptr.*,
@@ -622,7 +621,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     });
 
     // Check the controller version
-    const vs = readRegister(VSRegister, bar, .vs);
+    const vs = readRegister(VSRegister, drive.bar, .vs);
     log.info("NVMe controller version: {}.{}.{}", .{ vs.mjn, vs.mnr, vs.tet });
 
     // support only NVMe 1.4 and 2.0
@@ -632,7 +631,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     }
 
     // Check if the controller supports NVM Command Set and Admin Command Set
-    const cap = readRegister(CAPRegister, bar, .cap);
+    const cap = readRegister(CAPRegister, drive.bar, .cap);
     log.info("NVME CAP Register: {}", .{cap});
     if (cap.css.nvmcs == 0) {
         log.err("NVMe controller does not support NVM Command Set", .{});
@@ -653,16 +652,16 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     }
 
     // Reset the controllerg
-    disableController(bar);
+    disableController(drive.bar);
 
     // The host configures the Admin gQueue by setting the Admin Queue Attributes (AQA), Admin Submission Queue Base Address (ASQ), and Admin Completion Queue Base Address (ACQ) the appropriate values;
     //set AQA queue sizes
-    var aqa = readRegister(AQARegister, bar, .aqa);
+    var aqa = readRegister(AQARegister, drive.bar, .aqa);
     log.info("NVMe AQA Register pre-modification: {}", .{aqa});
     aqa.asqs = nvme_ioasqs;
     aqa.acqs = nvme_ioacqs;
-    writeRegister(AQARegister, bar, .aqa, aqa);
-    aqa = readRegister(AQARegister, bar, .aqa);
+    writeRegister(AQARegister, drive.bar, .aqa, aqa);
+    aqa = readRegister(AQARegister, drive.bar, .aqa);
     log.info("NVMe AQA Register post-modification: {}", .{aqa});
 
     // ASQ and ACQ setup
@@ -691,21 +690,21 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
 
     log.debug("ASQ: virt: {*}, phys:0x{x}; ACQ: virt:{*}, phys:0x{x}", .{ drive.sq[0].entries, sqa_phys, drive.cq[0].entries, cqa_phys });
 
-    var asq = readRegister(ASQEntry, bar, .asq);
+    var asq = readRegister(ASQEntry, drive.bar, .asq);
     log.info("ASQ Register pre-modification: 0x{x}", .{@shlExact(asq.asqb, 12)});
     asq.asqb = @intCast(@shrExact(sqa_phys, 12)); // 4kB aligned
-    writeRegister(ASQEntry, bar, .asq, asq);
-    asq = readRegister(ASQEntry, bar, .asq);
+    writeRegister(ASQEntry, drive.bar, .asq, asq);
+    asq = readRegister(ASQEntry, drive.bar, .asq);
     log.info("ASQ Register post-modification: 0x{x}", .{@shlExact(asq.asqb, 12)});
 
-    var acq = readRegister(ACQEntry, bar, .acq);
+    var acq = readRegister(ACQEntry, drive.bar, .acq);
     log.info("ACQ Register pre-modification: 0x{x}", .{@shlExact(acq.acqb, 12)});
     acq.acqb = @intCast(@shrExact(cqa_phys, 12)); // 4kB aligned
-    writeRegister(ACQEntry, bar, .acq, acq);
-    acq = readRegister(ACQEntry, bar, .acq);
+    writeRegister(ACQEntry, drive.bar, .acq, acq);
+    acq = readRegister(ACQEntry, drive.bar, .acq);
     log.info("ACQ Register post-modification: 0x{x}", .{@shlExact(acq.acqb, 12)});
 
-    var cc = readRegister(CCRegister, bar, .cc);
+    var cc = readRegister(CCRegister, drive.bar, .cc);
     log.info("CC register pre-modification: {}", .{cc});
     //CC.css settings
     if (cap.css.acs == 1) cc.css = 0b111;
@@ -716,10 +715,10 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     cc.ams = .round_robin;
     cc.iosqes = 6; // 64 bytes - set to recommened value
     cc.iocqes = 4; // 16 bytes - set to
-    writeRegister(CCRegister, bar, .cc, cc);
-    log.info("CC register post-modification: {}", .{readRegister(CCRegister, bar, .cc)});
+    writeRegister(CCRegister, drive.bar, .cc, cc);
+    log.info("CC register post-modification: {}", .{readRegister(CCRegister, drive.bar, .cc)});
 
-    enableController(bar);
+    enableController(drive.bar);
 
     const doorbell_base: usize = virt + 0x1000;
     const doorbell_size = math.pow(u32, 2, 2 + cap.dstrd);
@@ -749,7 +748,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
         log.err("Failed to get physical address of identify command: {}", .{err});
         return;
     };
-    _ = executeAdminCommand(bar, &drive, @bitCast(IdentifyCommand{
+    _ = executeAdminCommand(&drive, @bitCast(IdentifyCommand{
         .cdw0 = .{
             .opc = .identify,
             .cid = 0x01, //our id
@@ -780,7 +779,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
 
     //Reusing prp1
     @memset(prp1, 0);
-    _ = executeAdminCommand(bar, &drive, @bitCast(IdentifyCommand{
+    _ = executeAdminCommand(&drive, @bitCast(IdentifyCommand{
         .cdw0 = .{
             .opc = .identify,
             .cid = 0x02, //our id
@@ -815,7 +814,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
 
     // Set I/O Command Set Profile with Command Set Combination index
     @memset(prp1, 0);
-    _ = executeAdminCommand(bar, &drive, @bitCast(SetFeatures0x19Command{
+    _ = executeAdminCommand(&drive, @bitCast(SetFeatures0x19Command{
         .cdw0 = .{
             .opc = .set_features,
             .cid = 0x03, //our id
@@ -844,7 +843,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
         if (csi == 0) continue;
         log.info("I/O Command Set specific Active Namespace ID list(0x07): command set idx:{d} -> csi:{d}", .{ i, csi });
         @memset(prp1, 0);
-        _ = executeAdminCommand(bar, &drive, @bitCast(IdentifyCommand{
+        _ = executeAdminCommand(&drive, @bitCast(IdentifyCommand{
             .cdw0 = .{
                 .opc = .identify,
                 .cid = 0x04, //our id
@@ -870,7 +869,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
 
                 // Identify Namespace Data Structure (CNS 0x00)
                 @memset(prp1, 0);
-                _ = executeAdminCommand(bar, &drive, @bitCast(IdentifyCommand{
+                _ = executeAdminCommand(&drive, @bitCast(IdentifyCommand{
                     .cdw0 = .{
                         .opc = .identify,
                         .cid = 0x05, //our id
@@ -900,7 +899,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
                     log.debug("vs2: {}", .{vs});
                     // CNS 05h: I/O Command Set specific Identify Namespace data structure
                     @memset(prp1, 0);
-                    _ = executeAdminCommand(bar, &drive, @bitCast(IdentifyCommand{
+                    _ = executeAdminCommand(&drive, @bitCast(IdentifyCommand{
                         .cdw0 = .{
                             .opc = .identify,
                             .cid = 0x06, //our id
@@ -923,7 +922,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
 
                     // CNS 06h: I/O Command Set specific Identify Controller data structure
                     @memset(prp1, 0);
-                    _ = executeAdminCommand(bar, &drive, @bitCast(IdentifyCommand{
+                    _ = executeAdminCommand(&drive, @bitCast(IdentifyCommand{
                         .cdw0 = .{
                             .opc = .identify,
                             .cid = 0x07, //our id
@@ -946,7 +945,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
 
                     // CNS 08h: I/O Command Set independent Identify Namespace data structure
                     @memset(prp1, 0);
-                    _ = executeAdminCommand(bar, &drive, @bitCast(IdentifyCommand{
+                    _ = executeAdminCommand(&drive, @bitCast(IdentifyCommand{
                         .cdw0 = .{
                             .opc = .identify,
                             .cid = 0x08, //our id
@@ -973,7 +972,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
 
     // Get current I/O number of completion/submission queues
     @memset(prp1, 0);
-    const get_features_0x07_current_res = executeAdminCommand(bar, &drive, @bitCast(GetFeaturesCommand{
+    const get_features_0x07_current_res = executeAdminCommand(&drive, @bitCast(GetFeaturesCommand{
         .cdw0 = .{
             .opc = .get_features,
             .cid = 0x09, //our id
@@ -996,7 +995,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
 
     // Get default I/O number of completion/submission queues
     @memset(prp1, 0);
-    const get_features_0x07_default_res = executeAdminCommand(bar, &drive, @bitCast(GetFeaturesCommand{
+    const get_features_0x07_default_res = executeAdminCommand(&drive, @bitCast(GetFeaturesCommand{
         .cdw0 = .{
             .opc = .get_features,
             .cid = 0x09, //our id
@@ -1140,7 +1139,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
         };
         @memset(cq.entries, .{});
 
-        const create_iocq_res = executeAdminCommand(bar, &drive, @bitCast(IOQueueCommand{
+        const create_iocq_res = executeAdminCommand(&drive, @bitCast(IOQueueCommand{
             .createCQ = .{
                 .cdw0 = .{
                     .opc = .create_io_cq,
@@ -1184,7 +1183,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
         };
         @memset(sq.entries, 0);
 
-        const create_iosq_res = executeAdminCommand(bar, &drive, @bitCast(IOQueueCommand{
+        const create_iosq_res = executeAdminCommand(&drive, @bitCast(IOQueueCommand{
             .createSQ = .{
                 .cdw0 = .{
                     .opc = .create_io_sq,
@@ -1269,12 +1268,11 @@ fn enableController(bar: pcie.BAR) void {
 }
 
 /// Execute an admin command
-/// @param bar : pcie.BAR
 /// @param drv: Drive
 /// @param cmd: SQEntry
 /// @param sq_no: Submission Queue number
 /// @param cq_no: Completion Queue number
-fn executeCommand(bar: pcie.BAR, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEntry {
+fn executeCommand(drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEntry {
     drv.sq[sqn].entries[drv.sq[sqn].tail_pos] = cmd;
 
     drv.sq[sqn].tail_pos += 1;
@@ -1286,7 +1284,7 @@ fn executeCommand(bar: pcie.BAR, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) 
     drv.sq[sqn].tail_dbl.* = drv.sq[sqn].tail_pos;
 
     while (cqa_entry_ptr.phase != drv.expected_phase) {
-        const csts = readRegister(CSTSRegister, bar, .csts);
+        const csts = readRegister(CSTSRegister, drv.bar, .csts);
         if (csts.cfs == 1) {
             log.err("Command failed", .{});
             return NvmeError.InvalidCommand;
@@ -1332,8 +1330,8 @@ fn executeCommand(bar: pcie.BAR, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) 
     return cqa_entry_ptr.*;
 }
 
-fn executeAdminCommand(bar: pcie.BAR, drv: *Drive, cmd: SQEntry) NvmeError!CQEntry {
-    return executeCommand(bar, drv, cmd, 0, 0);
+fn executeAdminCommand(drv: *Drive, cmd: SQEntry) NvmeError!CQEntry {
+    return executeCommand(drv, cmd, 0, 0);
 }
 //--- public functions ---
 
