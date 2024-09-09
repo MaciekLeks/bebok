@@ -21,7 +21,7 @@ const nvme_ioasqs = 0x2; //admin submission queue size
 
 const Self = @This();
 
-const NvmeError = error{ InvalidCommand, InvalidCommandSequence, AdminCommandNoData, AdminCommandFailed, MsiXMisconfigured, InvalidLBA };
+const NvmeError = error{ InvalidCommand, InvalidCommandSequence, AdminCommandNoData, AdminCommandFailed, MsiXMisconfigured, InvalidLBA, InvalidNsid };
 
 const CSSField = packed struct(u8) {
     nvmcs: u1, //0 NVM Command Set or Discovery Controller
@@ -350,7 +350,7 @@ const Identify0x00Info = extern struct {
         rsrv: u3, //5-7
     }, //1byte - Namespace Features
     nlbaf: u8, //1byte - Number of LBA Formats
-    flbas: u8, //1byte - Formatted LBA Size
+    flbas: u8, //1byte - Formatted LBA Size (lbaf array index)
     mc: u8, //1byte - Metadata Capabilities
     dpc: u8, //1byte - End-to-end Data Protection Capabilities
     dps: u8, //1byte - End-to-end Data Protection Type Settings
@@ -472,7 +472,7 @@ fn Queue(EntryType: type) type {
     };
 }
 
-const NsInfoList = std.ArrayList(NsInfo);
+const NsInfoMap = std.AutoHashMap(u32, NsInfo);
 
 const Drive = struct {
     const nvme_ncqr = 0x1; //number of completion queues requested (+1 is admin cq)
@@ -506,7 +506,7 @@ const Drive = struct {
     sq: [nvme_nsqr + 1]Queue(SQEntry) = undefined, //+1 for admin sq
 
     //slice of NsInfo
-    ns_info_list: NsInfoList = undefined,
+    ns_info_map: NsInfoMap = undefined,
 };
 
 pub var drive: Drive = undefined; //TODO only one drive now, make not public
@@ -529,7 +529,7 @@ pub fn interested(_: Self, class_code: u8, subclass: u8, prog_if: u8) bool {
 
 pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     drive = .{
-        .ns_info_list = NsInfoList.init(heap.page_allocator),
+        .ns_info_map = NsInfoMap.init(heap.page_allocator),
     }; //TODO replace it for more drives
 
     //const pcie_version = try pcie.readPcieVersion(function, slot, bus); //we need PCIe version 2.0 at least
@@ -890,7 +890,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
                 const ns_info: *const Identify0x00Info = @ptrCast(@alignCast(prp1));
                 log.info("Identify Namespace Data Structure(cns: 0x00): nsid:{d}, info:{}", .{ nsid, ns_info.* });
 
-                try drive.ns_info_list.append(ns_info.*);
+                try drive.ns_info_map.put(nsid, ns_info.*);
 
                 log.debug("vs: {}", .{vs});
                 if (vs.mjn == 2) {
@@ -1341,50 +1341,32 @@ fn executeAdminCommand(bar: pcie.BAR, drv: *Drive, cmd: SQEntry) NvmeError!CQEnt
 /// @param allocator : Allocator
 /// @param slba : Start Logical Block Address
 /// @param nlb : Number of Logical Blocks
-pub fn readToOwnedSlice(allocator: ?std.mem.Allocator, drv: Drive, slba: u64, nlb: u16) ![]u8 {
-    _ = allocator;
-    _ = nlb;
+pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: Drive, nsid: u32, slba: u64, nlba: u16) ![]T {
+    const ns: NsInfo = drv.ns_info_map.get(nsid) orelse {
+        log.err("Namespace {d} not found", .{nsid});
+        return NvmeError.InvalidNsid;
+    };
 
-    // Iterate over all namespaces
-    for (drv.ns_info_list.items, 0..) |ns_info, i| {
-        log.info("Namespace {d} info: {}", .{ i, ns_info });
+    log.debug("Namespace {d} info: {}", .{ nsid, ns });
 
-        if (slba > ns_info.nsize) return NvmeError.InvalidLBA;
-    }
+    if (slba > ns.nsize) return NvmeError.InvalidLBA;
 
-    //Check if slba is within the namespace size
+    const flbaf = ns.lbaf[ns.flbas];
+    log.debug("LBA Format Index: {d}, LBA Format: {}", .{ ns.flbas, flbaf });
 
-    //find the namespace id by slba
-    // const nsid = drv.ns_info_list.find |ns_info| ns_info.nsze > slba;
+    const lbads_bytes = math.pow(u32, 2, flbaf.lbads);
+    log.debug("LBA Data Size: {d} bytes", .{lbads_bytes});
 
-    // const prp1 = allocator.alloc(u8, drv.mdts_bytes) catch |err| {
-    //     log.err("Failed to allocate memory for read command: {}", .{err});
-    //     return;
-    // };
-    // @memset(prp1, 0);
-    // defer allocator.free(prp1); ee
-    // const prp1_phys = paging.physFromPtr(prp1.ptr) catch |err| {
-    //     log.err("Failed to get physical address of read command: {}", .{err});
-    //     return;
-    // };
-    // const cmd = @bitCast(ReadCommand{
-    //     .cdw0 = .{
-    //         .opc = .read,
-    //         .cid = 0x01, //our id
-    //     },
-    //     .nsid = 1, //TODO: we need to get it from somewhere
-    //     .slba = slba,
-    //     .nlb = nlb,
-    //     .dptr = .{
-    //         .prp = .{
-    //             .prp1 = prp1_phys,
-    //         },
-    //     },
-    // });
-    // const cqe = executeCommand(drv.bar, &drv, cmd, 1, 1) catch |err| {
-    //     log.err("Failed to execute Read Command: {}", .{err});
-    //     return;
-    // };
-    // return prp1;
-    return error.NotImplemented;
+    //calculate number of pages to allocate
+    const total_bytes = nlba * lbads_bytes;
+    const page_count = try std.math.divCeil(usize, total_bytes, pmm.page_size);
+    log.debug("Number of pages to allocate: {d} to load: {d} bytes", .{ page_count, nlba * lbads_bytes });
+
+    // calculate the physical address of the data buffer
+    const data = allocator.alloc(T, total_bytes / @sizeOf(T)) catch |err| {
+        log.err("Failed to allocate memory for data buffer: {}", .{err});
+        return error.OutOfMemory;
+    };
+
+    return data;
 }
