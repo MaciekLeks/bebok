@@ -122,7 +122,7 @@ export fn _start() callconv(.C) noreturn {
     defer pcie.deinit(); //TODO: na pewno?
     //pci test end
 
-    const data = Nvme.readToOwnedSlice(u16, heap.page_allocator, Nvme.drive, 1, 1, 10) catch |err| blk: {
+    const data = Nvme.readToOwnedSlice(u16, heap.page_allocator, &Nvme.drive, 1, 1, 24) catch |err| blk: {
         log.err("Nvme read error: {}", .{err});
         break :blk null;
     };

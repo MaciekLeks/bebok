@@ -1341,7 +1341,7 @@ fn executeAdminCommand(bar: pcie.BAR, drv: *Drive, cmd: SQEntry) NvmeError!CQEnt
 /// @param allocator : Allocator
 /// @param slba : Start Logical Block Address
 /// @param nlb : Number of Logical Blocks
-pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: Drive, nsid: u32, slba: u64, nlba: u16) ![]T {
+pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: *Drive, nsid: u32, slba: u64, nlba: u16) ![]T {
     const ns: NsInfo = drv.ns_info_map.get(nsid) orelse {
         log.err("Namespace {d} not found", .{nsid});
         return NvmeError.InvalidNsid;
@@ -1367,6 +1367,74 @@ pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: Drive, nsid:
         log.err("Failed to allocate memory for data buffer: {}", .{err});
         return error.OutOfMemory;
     };
+
+    const prp1_phys = paging.physFromPtr(data.ptr) catch |err| {
+        log.err("Failed to get physical address: {}", .{err});
+        return error.PageToPhysFailed;
+    };
+
+    var prp_list: ?[]usize = null;
+    const prp2_phys: usize = switch (page_count) {
+        0 => {
+            log.err("No pages to allocate", .{});
+            return error.PageFault;
+        },
+        1 => 0,
+        2 => try paging.physFromPtr(data.ptr + pmm.page_size),
+        else => blk: {
+            const entry_size = @sizeOf(usize);
+            const entry_count = page_count - 1;
+            if (entry_count * entry_size > pmm.page_size) {
+                //TODO: implement the logic to allocate more than one page for PRP list
+                log.err("More than one PRP list not implemented", .{});
+                return error.NotImplemented;
+            }
+
+            prp_list = allocator.alloc(usize, entry_count) catch |err| {
+                log.err("Failed to allocate memory for PRP list: {}", .{err});
+                return error.OutOfMemory;
+            };
+
+            for (0..entry_count) |i| {
+                prp_list.?[i] = prp1_phys + pmm.page_size * (i + 1);
+            }
+
+            // log all entries in prp_list
+            for (0..entry_count) |j| {
+                log.debug("PRP list entry {d}: 0x{x}", .{ j, prp_list.?[j] });
+            }
+
+            break :blk try paging.physFromPtr(&prp_list.?[0]);
+        },
+    };
+    defer if (prp_list) |pl| allocator.free(pl);
+
+    log.debug("PRP1: 0x{x}, PRP2: 0x{x}", .{ prp1_phys, prp2_phys });
+
+    // choose sqn and cqn for the operation
+    // TODO: implwement the logic to choose the right queue
+    //const sqn = 1;
+    //const cqn = 1;
+
+    //TODO sq and cq s
+    // const get_features_0x07_default_res = executeCommand(bar, &drv, @bitCast(IONvmCommandSetCommand{
+    //     .cdw0 = .{
+    //         .opc = .get_features,
+    //         .cid = 0x09, //our id
+    //     },
+    //     .dptr = .{
+    //         .prp = .{
+    //             .prp1 = prp1_phys,
+    //             .prp2 = prp2_phys
+    //         },
+    //     },
+    //     .fid = 0x07, //I/O Command Set Profile
+    //     .sel = .default,
+    // }), sqn, cqn) catch |err| {
+    //     log.err("Failed to execute Get Features Command(fid: 0x07): {}", .{err});
+    //     return;
+    // };
+    //
 
     return data;
 }
