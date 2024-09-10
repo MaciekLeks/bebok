@@ -21,7 +21,7 @@ const nvme_ioasqs = 0x2; //admin submission queue size
 
 const Self = @This();
 
-const NvmeError = error{ InvalidCommand, InvalidCommandSequence, AdminCommandNoData, AdminCommandFailed, MsiXMisconfigured, InvalidLBA, InvalidNsid };
+const NvmeError = error{ InvalidCommand, InvalidCommandSequence, AdminCommandNoData, AdminCommandFailed, MsiXMisconfigured, InvalidLBA, InvalidNsid, IONvmReadFailed };
 
 const CSSField = packed struct(u8) {
     nvmcs: u1, //0 NVM Command Set or Discovery Controller
@@ -134,15 +134,33 @@ const AdminOpcode = enum(u8) {
     delete_io_cq = 0x04,
 };
 
+const IONvmOpcode = enum(u8) {
+    write = 0x01,
+    read = 0x02,
+};
+
 const NsId = u32;
 
-const CDw0 = packed struct(u32) {
-    opc: AdminOpcode,
-    fuse: u2 = 0, //0 for nromal operation
-    rsvd: u4 = 0,
-    psdt: u2 = 0, //0 for PRP tranfer
-    cid: u16,
-};
+fn GenNCDw0(OpcodeType: type) type {
+    return packed struct(u32) {
+        opc: OpcodeType,
+        fuse: u2 = 0, //0 for nromal operation
+        rsvd: u4 = 0,
+        psdt: u2 = 0, //0 for PRP tranfer
+        cid: u16,
+    };
+}
+
+// const CDw0 = packed struct(u32) {
+//     opc: AdminOpcode,
+//     fuse: u2 = 0, //0 for nromal operation
+//     rsvd: u4 = 0,
+//     psdt: u2 = 0, //0 for PRP tranfer
+//     cid: u16,
+// };
+
+const AdminCDw0 = GenNCDw0(AdminOpcode);
+const IONvmCDw0 = GenNCDw0(IONvmOpcode);
 
 const DataPointer = packed union {
     prp: packed struct(u128) {
@@ -164,7 +182,7 @@ const DataPointer = packed union {
 const SQEntry = u512;
 
 const IdentifyCommand = packed struct(u512) {
-    cdw0: CDw0, //00:03 byte
+    cdw0: AdminCDw0, //00:03 byte
     nsid: u32 = 0, //04:07 byte - nsid
     ignrd_b: u32 = 0, //08:11 byte - cdw2
     ignrd_c: u32 = 0, //12:15 byte = cdw3
@@ -185,7 +203,7 @@ const IdentifyCommand = packed struct(u512) {
 };
 
 const GetFeaturesCommand = packed struct(u512) {
-    cdw0: CDw0, //00:03 byte
+    cdw0: AdminCDw0, //00:03 byte
     ignrd_a: u32 = 0, //04:07 byte - nsid
     ignrd_b: u32 = 0, //08:11 byte - cdw2
     ignrd_c: u32 = 0, //12:15 byte = cdw3
@@ -207,7 +225,7 @@ const GetFeaturesCommand = packed struct(u512) {
 };
 
 const SetFeatures0x19Command = packed struct(u512) {
-    cdw0: CDw0, //00:03 byte
+    cdw0: AdminCDw0, //00:03 byte
     ignrd_a: u32 = 0, //04:07 byte - nsid
     ignrd_b: u32 = 0, //08:11 byte - cdw2
     ignrd_c: u32 = 0, //12:15 byte = cdw3
@@ -226,7 +244,7 @@ const SetFeatures0x19Command = packed struct(u512) {
 };
 
 const SetFeatures0x07Command = packed struct(u512) {
-    cdw0: CDw0, //00:03 byte
+    cdw0: AdminCDw0, //00:03 byte
     ignrd_a: u32 = 0, //04:07 byte - nsid
     ignrd_b: u32 = 0, //08:11 byte - cdw2
     ignrd_c: u32 = 0, //12:15 byte = cdw3
@@ -243,17 +261,14 @@ const SetFeatures0x07Command = packed struct(u512) {
 };
 
 const IONvmCommandSetCommand = packed union {
+    const DatasetManagement = packed struct(u8) { access_frequency: u4, access_latency: u2, sequential_request: u1, incompressible: u1 };
     read: packed struct(u512) {
-        const DatasetManagement = packed struct(u8) { access_frequency: u4, access_latency: u2, sequential_request: u1, incompressible: u1 };
-
-        cdw0: CDw0, //cdw0 - 00:03 byte
+        cdw0: IONvmCDw0, //cdw0 - 00:03 byte
         nsid: NsId, //cdw1 - 04:07 byte - nsid
-        rsrv_a: u16, //cdw2
         elbst_eilbst_a: u48, //cdw2,cdw3 - Expected Logical Block Storage Tag and Expected Initial Logical Block Storage Tag
+        rsrv_a: u16 = 0, //cdw3
         mptr: u64, //cdw4,cdw5 - Metadata Pointer
-        dptr: DataPointer, //cdw6/cdw7 - Data Pointer
-        ignrd_a: u32 = 0, //cdw8
-        ignrd_b: u32 = 0, //cdw9
+        dptr: DataPointer, //cdw6,cdw7,cdw8,cdw9 - Data Pointer
         slba: u64, //cdw10,cdw11 - Starting LBA
         nlb: u16, //cdw12 - Number of Logical Blocks
         rsrv_b: u8 = 0, //cdw12 - Reserved
@@ -265,13 +280,14 @@ const IONvmCommandSetCommand = packed union {
         dsm: DatasetManagement, //cdw13 - Dataset Management
         rsrv_d: u24 = 0, //cdw13 - Reserved
         elbst_eilbst_b: u32, //cdw14 - Expected Logical Block Storage Tag and Expected Initial Logical Block Storage Tag
-        ignrd_c: u32 = 0, //cdw15
+        elbat: u16, //cdw15 - Expected Logical Block Application Tag
+        elbatm: u16, //cdw15 - Expected Logical Block Application Tag Mask
     },
 };
 
 const IOQueueCommand = packed union {
     createCQ: packed struct(u512) {
-        cdw0: CDw0, //cdw0
+        cdw0: AdminCDw0, //cdw0
         ignrd_a: u32 = 0, // nsid
         ignrd_b: u32 = 0, //cdw2
         ignrd_c: u32 = 0, //cdw3
@@ -289,7 +305,7 @@ const IOQueueCommand = packed union {
         ignrd_i: u32 = 0, //cdw15
     },
     deleteQ: packed struct(u512) {
-        cdw0: CDw0, //cdw0
+        cdw0: AdminCDw0, //cdw0
         ignrd_a: u32 = 0, //nsid in cdw1
         ignrd_b: u32 = 0, //cdw2
         ignrd_c: u32 = 0, //cdw3
@@ -304,7 +320,7 @@ const IOQueueCommand = packed union {
         ignrd_l: u32 = 0, //cdw15
     },
     createSQ: packed struct(u512) {
-        cdw0: CDw0, //cdw0
+        cdw0: AdminCDw0, //cdw0
         ignrd_a: u32 = 0, //nsid - cdw1
         ignrd_b: u32 = 0, //cdw2
         ignrd_c: u32 = 0, //cdw3
@@ -1272,18 +1288,21 @@ fn enableController(bar: pcie.BAR) void {
 /// @param cmd: SQEntry
 /// @param sq_no: Submission Queue number
 /// @param cq_no: Completion Queue number
-fn executeCommand(drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEntry {
+fn executeCommand(CDw0Type: type, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEntry {
+    const cdw0: *const CDw0Type = @ptrCast(@alignCast(&cmd));
+    log.debug("Executing command: CDw0: {}", .{cdw0.*});
+
     drv.sq[sqn].entries[drv.sq[sqn].tail_pos] = cmd;
 
     drv.sq[sqn].tail_pos += 1;
     if (drv.sq[sqn].tail_pos >= drv.sq[sqn].entries.len) drv.sq[sqn].tail_pos = 0;
 
-    const cqa_entry_ptr = &drv.cq[cqn].entries[drv.cq[cqn].head_pos];
+    const cq_entry_ptr = &drv.cq[cqn].entries[drv.cq[cqn].head_pos];
 
     // press the doorbell
     drv.sq[sqn].tail_dbl.* = drv.sq[sqn].tail_pos;
 
-    while (cqa_entry_ptr.phase != drv.expected_phase) {
+    while (cq_entry_ptr.phase != drv.expected_phase) {
         const csts = readRegister(CSTSRegister, drv.bar, .csts);
         if (csts.cfs == 1) {
             log.err("Command failed", .{});
@@ -1318,20 +1337,23 @@ fn executeCommand(drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEnt
     //press the doorbell
     drv.cq[cqn].head_dbl.* = drv.cq[cqn].head_pos;
 
-    const cdw0: *const CDw0 = @ptrCast(@alignCast(&cmd));
-    if (cdw0.cid == cqa_entry_ptr.sq_id) return NvmeError.InvalidCommandSequence;
+    if (sqn != cq_entry_ptr.sq_id) return NvmeError.InvalidCommandSequence;
 
-    if (cqa_entry_ptr.status.sc != 0) {
-        log.err("Admin command failed: {}", .{cqa_entry_ptr.*});
+    if (cq_entry_ptr.status.sc != 0) {
+        log.err("Command failed: {}", .{cq_entry_ptr.*});
         return NvmeError.AdminCommandFailed;
     }
 
-    log.debug("Admin command executed successfully: CQEntry = {}", .{cqa_entry_ptr.*});
-    return cqa_entry_ptr.*;
+    log.debug("Command executed successfully: CDw0: {}, CQEntry = {}", .{ cdw0, cq_entry_ptr.* });
+    return cq_entry_ptr.*;
 }
 
 fn executeAdminCommand(drv: *Drive, cmd: SQEntry) NvmeError!CQEntry {
-    return executeCommand(drv, cmd, 0, 0);
+    return executeCommand(AdminCDw0, drv, cmd, 0, 0);
+}
+
+fn executeIONvmCommand(drv: *Drive, cmd: IONvmCommandSetCommand, sqn: u16, cqn: u16) NvmeError!CQEntry {
+    return executeCommand(IONvmCDw0, drv, @bitCast(cmd), sqn, cqn);
 }
 //--- public functions ---
 
@@ -1406,33 +1428,57 @@ pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: *Drive, nsid
         },
     };
     defer if (prp_list) |pl| allocator.free(pl);
-
     log.debug("PRP1: 0x{x}, PRP2: 0x{x}", .{ prp1_phys, prp2_phys });
+
+    // allotate memory for Metadata buffer
+    const metadata = allocator.alloc(u8, nlba * flbaf.ms) catch |err| {
+        log.err("Failed to allocate memory for metadata buffer: {}", .{err});
+        return error.OutOfMemory;
+    };
+
+    const mptr_phys = paging.physFromPtr(metadata.ptr) catch |err| {
+        log.err("Failed to get physical address: {}", .{err});
+        return error.PageToPhysFailed;
+    };
 
     // choose sqn and cqn for the operation
     // TODO: implwement the logic to choose the right queue
-    //const sqn = 1;
-    //const cqn = 1;
+    const sqn = 1;
+    const cqn = 1;
 
-    //TODO sq and cq s
-    // const get_features_0x07_default_res = executeCommand(bar, &drv, @bitCast(IONvmCommandSetCommand{
-    //     .cdw0 = .{
-    //         .opc = .get_features,
-    //         .cid = 0x09, //our id
-    //     },
-    //     .dptr = .{
-    //         .prp = .{
-    //             .prp1 = prp1_phys,
-    //             .prp2 = prp2_phys
-    //         },
-    //     },
-    //     .fid = 0x07, //I/O Command Set Profile
-    //     .sel = .default,
-    // }), sqn, cqn) catch |err| {
-    //     log.err("Failed to execute Get Features Command(fid: 0x07): {}", .{err});
-    //     return;
-    // };
-    //
+    log.debug("Executing I/O NVM Command Set Read command", .{});
+    _ = executeIONvmCommand(drv, @bitCast(IONvmCommandSetCommand{
+        .read = .{
+            .cdw0 = .{
+                .opc = .read,
+                .cid = 255, //our id
+            },
+            .nsid = nsid,
+            .elbst_eilbst_a = 0, //no extended LBA
+            .mptr = mptr_phys,
+            .dptr = .{
+                .prp = .{ .prp1 = prp1_phys, .prp2 = prp2_phys },
+            },
+            .slba = slba,
+            .nlb = nlba,
+            .stc = 0, //no streaming
+            .prinfo = 0, //no protection info
+            .fua = 0, //no force unit access
+            .lr = 0, //no limited retry
+            .dsm = .{
+                .access_frequency = 0, //no dataset management
+                .access_latency = 0, //no dataset management
+                .sequential_request = 0, //no dataset management
+                .incompressible = 0, //no dataset management
+            }, //no dataset management
+            .elbst_eilbst_b = 0, //no extended LBA
+            .elbat = 0, //no extended LBA
+            .elbatm = 0, //no extended LBA
+        },
+    }), sqn, cqn) catch |err| {
+        log.err("Failed to execute IO NVM Command Set Read command: {}", .{err});
+        return NvmeError.IONvmReadFailed;
+    };
 
     return data;
 }
