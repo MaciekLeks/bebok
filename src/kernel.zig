@@ -101,10 +101,10 @@ export fn _start() callconv(.C) noreturn {
     int.initISRMap(arena_allocator.allocator());
     defer int.deinitISRMap();
 
-    int.addISR(0x30, .{ .unique_id = 0x01, .func = &testISR2 }) catch |err| {
+    int.addISR(0x30, .{ .unique_id = 0x01, .func = &testISR0 }) catch |err| {
         log.err("Failed to add Timer interrupt handler: {}", .{err});
     };
-    int.addISR(0x31, .{ .unique_id = 0x02, .func = &testISR2 }) catch |err| {
+    int.addISR(0x31, .{ .unique_id = 0x02, .func = &testISR1 }) catch |err| {
         log.err("Failed to add NVMe interrupt handler: {}", .{err});
     };
 
@@ -122,7 +122,7 @@ export fn _start() callconv(.C) noreturn {
     defer pcie.deinit(); //TODO: na pewno?
     //pci test end
 
-    const data = Nvme.readToOwnedSlice(u16, heap.page_allocator, &Nvme.drive, 1, 1, 24) catch |err| blk: {
+    const data = Nvme.readToOwnedSlice(u16, heap.page_allocator, &Nvme.drive, 1, 1, 1) catch |err| blk: {
         log.err("Nvme read error: {}", .{err});
         break :blk null;
     };
@@ -136,6 +136,9 @@ export fn _start() callconv(.C) noreturn {
 }
 
 //TODO tbd
-fn testISR2() !void {
-    log.warn("apic: 2----->>>>!!!!", .{});
+fn testISR0() !void {
+    log.warn("apic: 0----->>>>!!!!", .{});
+}
+fn testISR1() !void {
+    log.warn("apic: 1----->>>>!!!!", .{});
 }

@@ -516,14 +516,16 @@ pub fn writeCapability(comptime TCap: type, val: TCap, function: u3, slot: u5, b
     }
 }
 
-pub fn addMsixMessageTableEntry(msix_cap: MsixCap, bar: BAR, id: u11) void {
+pub fn addMsixMessageTableEntry(msix_cap: MsixCap, bar: BAR, id: u11, vec_no: u8) void {
     assert(msix_cap.message_ctrl.table_size > id);
 
     const virt = switch (bar.address) {
         inline else => |addr| paging.virtFromMME(addr),
     };
 
-    const msi_x_te: *volatile MsixTableEntry = @ptrFromInt(virt + msix_cap.table_offset + id * @sizeOf(MsixTableEntry));
+    const aligned_table_offset: u32 = msix_cap.table_offset << 3;
+
+    const msi_x_te: *volatile MsixTableEntry = @ptrFromInt(virt + aligned_table_offset + id * @sizeOf(MsixTableEntry));
 
     msi_x_te.* = .{
         .msg_addr = paging.virtFromMME(@as(u32, @bitCast(Pcie.MsiMessageAddressRegister{
@@ -532,7 +534,7 @@ pub fn addMsixMessageTableEntry(msix_cap: MsixCap, bar: BAR, id: u11) void {
             .destination_mode = 0, //ignored
         }))),
         .msg_data = @bitCast(Pcie.MsiMessageDataRegister{
-            .vec_no = 0x31,
+            .vec_no = vec_no, //TODO promote to a parameter
             .delivery_mode = .fixed,
             .trigger_mode = .edge,
             .level = 0,
@@ -540,5 +542,13 @@ pub fn addMsixMessageTableEntry(msix_cap: MsixCap, bar: BAR, id: u11) void {
         .vector_ctrl = 0,
     };
 
-    log.debug("MSI-X table entry added: {} @ {*}", .{ msi_x_te.*, msi_x_te });
+    //log iterates over all MsiXTableEntries
+    const msix_entry_list: [*]volatile MsixTableEntry = @ptrFromInt(virt + aligned_table_offset);
+    var i: u16 = 0;
+    while (i < msix_cap.message_ctrl.table_size) : (i += 1) {
+        log.debug("MSI-X table entry[{d}]: addr: 0x{x}, msd_data: {}", .{ i, msix_entry_list[i].msg_addr, @as(Pcie.MsiMessageDataRegister, @bitCast(msix_entry_list[i].msg_data)) });
+    }
+    //logging ends
+
+    //log.debug("MSI-X table entry added: {} @ {*}", .{ msi_x_te.*, msi_x_te });
 }
