@@ -32,7 +32,7 @@ const log = std.log.scoped(.terminal);
 pub fn GenericTerminal(comptime FontInfo: type) type {
     return struct {
         const Self = @This();
-        const font_info = FontInfo.init();
+        const fi = FontInfo.init();
         row: usize,
         column: usize,
         max_row: usize,
@@ -57,8 +57,8 @@ pub fn GenericTerminal(comptime FontInfo: type) type {
                 // Get the first framebuffer's information.
                 const fbi = 0; //TODO: this should be a parameter.
                 const fb = framebuffer_response.framebuffers()[fbi];
-                const max_row = fb.height / font_info.glyph_height;
-                const max_column = fb.width / font_info.glyph_width;
+                const max_row = fb.height / fi.glyph_height;
+                const max_column = fb.width / fi.glyph_width;
 
                 log.info("Framebuffer:  addr:0x{x}   {}x{}x{} @ {}bpp", .{ &fb.address[0], fb.width, fb.height, fb.pitch, fb.bpp });
 
@@ -69,12 +69,12 @@ pub fn GenericTerminal(comptime FontInfo: type) type {
                     .max_column = max_column,
                     .bytes_per_row = fb.pitch,
                     .bytes_per_pixel = fb.bpp / 8,
-                    .font_height = font_info.glyph_height,
-                    .font_width = font_info.glyph_width,
+                    .font_height = fi.glyph_height,
+                    .font_width = fi.glyph_width,
                     .color = pixelColor(red, @truncate(fb.red_mask_shift), green, @truncate(fb.green_mask_shift), blue, @truncate(fb.blue_mask_shift), alpha),
                     .fb = fb,
                     .fbi = fbi, //TOOD: this should be a parameter.
-                    .font_info = font_info,
+                    .font_info = fi,
                 };
                 self.writer = Writer(*Self, error{}, callback){ .context = &self };
                 return self;

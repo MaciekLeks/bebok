@@ -110,7 +110,7 @@ inline fn writeRegister(T: type, offset: LapicRegisterOffset, val: T) void {
 
 fn logRegistryState() void {
     // Log all registers
-    const fields = @typeInfo(LapicRegisterOffset).Enum.fields;
+    const fields = @typeInfo(LapicRegisterOffset).@"enum".fields;
     log.info("Local APIC Register State", .{});
     inline for (fields) |field| {
         const val align(128) = readRegister(u32, @enumFromInt(field.value));

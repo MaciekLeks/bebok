@@ -509,7 +509,7 @@ fn Queue(EntryType: type) type {
 const NsInfoMap = std.AutoHashMap(u32, NsInfo);
 
 const Drive = struct {
-    const nvme_ncqr = 0x1; //number of completion queues requested (+1 is admin cq)
+    const nvme_ncqr = 0x2; //number of completion queues requested (+1 is admin cq)
     const nvme_nsqr = nvme_ncqr; //number of submission queues requested
 
     //-    sqa: []volatile SQEntry = undefined,
@@ -538,8 +538,9 @@ const Drive = struct {
     ncqr: u16 = nvme_ncqr, //number of completion queues requested - TODO only one cq now
     nsqr: u16 = nvme_nsqr, //number of submission queues requested - TODO only one sq now
 
-    cq: [nvme_ncqr + 1]Queue(CQEntry) = undefined, //+1 for admin cq
-    sq: [nvme_nsqr + 1]Queue(SQEntry) = undefined, //+1 for admin sq
+    cq: [nvme_ncqr]Queue(CQEntry) = undefined, //+1 for admin cq
+    //cq: [nvme_ncqr + 1]Queue(CQEntry) = undefined, //+1 for admin
+    sq: [nvme_nsqr]Queue(SQEntry) = undefined, //+1 for admin sq
 
     //slice of NsInfo
     ns_info_map: NsInfoMap = undefined,
@@ -594,7 +595,13 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     //-pcie.writeRegisterWithArgs(u16, .command, function, slot, bus, pci_cmd_reg);
     // const VEC_NO: u16 = 0x20 + interrupt_line; //TODO: we need MSI/MSI-X support first - PIC does not work here
 
-    drive = .{ .ns_info_map = NsInfoMap.init(heap.page_allocator), .bar = pcie.readBARWithArgs(.bar0, function, slot, bus) }; //TODO replace it for more drives
+    drive = .{
+        .ns_info_map = NsInfoMap.init(heap.page_allocator),
+        .bar = pcie.readBARWithArgs(.bar0, function, slot, bus),
+        //.cq = [_]Queue(CQEntry){} ** (Drive.nvme_ncqr + 1), //+1 for admin cq
+        //.cq = .{} ** 2, //+1 for admin cq
+        //.sq = .{} ** 2, //+1 for admin sq
+    }; //TODO replace it for more drives
 
     //MSI-X
     pcie.addMsixMessageTableEntry(msix_cap, drive.bar, 0x1, 0x31); //add 0x31 at 0x01 offset
@@ -689,6 +696,16 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
 
     // Reset the controllerg
     disableController(drive.bar);
+
+    // Initialize queues to the default values
+    for (&drive.sq) |*sq| {
+        //Add code here if needed
+        sq.* = .{};
+    }
+    for (&drive.cq) |*cq| {
+        //Add code here if needed
+        cq.* = .{};
+    }
 
     // The host configures the Admin gQueue by setting the Admin Queue Attributes (AQA), Admin Submission Queue Base Address (ASQ), and Admin Completion Queue Base Address (ACQ) the appropriate values;
     //set AQA queue sizes
@@ -1319,7 +1336,11 @@ fn execAdminCommand(CDw0Type: type, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u1
     // press the doorbell
     drv.sq[sqn].tail_dbl.* = drv.sq[sqn].tail_pos;
 
+    log.debug("Phase mismatch: CQEntry: {}, expected phase: {}", .{ cq_entry_ptr.phase, drv.cq[cqn].expected_phase });
     while (cq_entry_ptr.phase != drv.cq[cqn].expected_phase) {
+        //log phase mismatch
+        //log.debug("Phase mismatch(loop): CQEntry: {}, expected phase: {}", .{ cq_entry_ptr.*, drv.cq[cqn].expected_phase });
+
         const csts = readRegister(CSTSRegister, drv.bar, .csts);
         if (csts.cfs == 1) {
             log.err("Command failed", .{});
@@ -1341,7 +1362,7 @@ fn execAdminCommand(CDw0Type: type, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u1
         }
     }
 
-    if (cdw0.cid != cq_entry_ptr.*.cmd_id) {
+    if (cdw0.cid != cq_entry_ptr.cmd_id) {
         log.err("Invalid CID in CQEntry: {} for CDw0: {}", .{ cq_entry_ptr.*, cdw0 });
         return NvmeError.InvalidCommandSequence;
     }

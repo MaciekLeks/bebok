@@ -26,7 +26,8 @@ pub const std_options = .{
     },
 };
 
-pub fn logFn(comptime message_level: std.log.Level, comptime scope: @Type(.EnumLiteral), comptime format: []const u8, args: anytype) void {
+//pub fn logFn(comptime message_level: std.log.Level, comptime scope: @Type(.EnumLiteral), comptime format: []const u8, args: anytype) void {
+pub fn logFn(comptime message_level: std.log.Level, comptime scope: @Type(.enum_literal), comptime format: []const u8, args: anytype) void {
     var log_allocator_buf: [4096 * 8]u8 = undefined;
     var log_fba = std.heap.FixedBufferAllocator.init(&log_allocator_buf);
     const log_allocator = log_fba.allocator();
@@ -53,8 +54,6 @@ pub fn logFn(comptime message_level: std.log.Level, comptime scope: @Type(.EnumL
 }
 
 pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
-    @setCold(true);
-
     log.err("{s}", .{msg});
 
     cpu.halt();
