@@ -603,6 +603,16 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
         //.sq = .{} ** 2, //+1 for admin sq
     }; //TODO replace it for more drives
 
+    // Initialize queues to the default values
+    for (&drive.sq) |*sq| {
+        //Add code here if needed
+        sq.* = .{};
+    }
+    for (&drive.cq) |*cq| {
+        //Add code here if needed
+        cq.* = .{};
+    }
+
     //MSI-X
     pcie.addMsixMessageTableEntry(msix_cap, drive.bar, 0x1, 0x31); //add 0x31 at 0x01 offset
 
@@ -696,16 +706,6 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
 
     // Reset the controllerg
     disableController(drive.bar);
-
-    // Initialize queues to the default values
-    for (&drive.sq) |*sq| {
-        //Add code here if needed
-        sq.* = .{};
-    }
-    for (&drive.cq) |*cq| {
-        //Add code here if needed
-        cq.* = .{};
-    }
 
     // The host configures the Admin gQueue by setting the Admin Queue Attributes (AQA), Admin Submission Queue Base Address (ASQ), and Admin Completion Queue Base Address (ACQ) the appropriate values;
     //set AQA queue sizes
