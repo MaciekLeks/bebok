@@ -616,10 +616,10 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     drive.msix_cap = try pcie.readCapability(pcie.MsixCap, function, slot, bus);
     log.debug("MSI-X capability pre-modification: {}", .{drive.msix_cap});
 
-    if (drive.msix_cap.bir != 0) return NvmeError.MsiXMisconfigured; //TODO: it should work on any of the bar but for now we support only bar0
+    if (drive.msix_cap.tbir != 0) return NvmeError.MsiXMisconfigured; //TODO: it should work on any of the bar but for now we support only bar0
 
     //enable MSI-X
-    drive.msix_cap.message_ctrl.mxe = true;
+    drive.msix_cap.mc.mxe = true;
     try pcie.writeCapability(pcie.MsixCap, drive.msix_cap, function, slot, bus);
 
     drive.msix_cap = try pcie.readCapability(pcie.MsixCap, function, slot, bus); //TODO: could be removed

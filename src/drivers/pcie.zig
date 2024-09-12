@@ -104,8 +104,8 @@ pub const BAR = struct {
 };
 
 pub const VersionCap = packed struct(u32) {
-    id: u8 = 0x10, //must be 0x01
-    next_cap_offset: u8,
+    cid: u8 = 0x10, //must be 0x01
+    next: u8, //Next Capability Offset
     major: u8,
     minor: u8,
 };
@@ -119,12 +119,12 @@ pub const MsiCap = packed struct(u192) {
         pvm: bool,
         rsvd: u7,
     };
-    id: u8 = 0x05, //must be 0x05
-    next_cap_offset: u8,
-    message_ctrl: MessageControl,
-    message_addr_low: u32,
-    message_addr_high: u32,
-    message_data: u16,
+    cid: u8 = 0x05, //must be 0x05
+    next: u8, //Next Capability Offset
+    mc: MessageControl,
+    ma: u32, //Message Address
+    mua: u32, //Message Upper Address
+    md: u16, //Message Data
     rsrv: u16,
     mask: u32,
     pending: u32,
@@ -137,13 +137,13 @@ pub const MsixCap = packed struct(u96) {
         fm: u1, //Function Mask
         mxe: bool, //MSI-X Enable
     };
-    id: u8 = 0x11, //must be 0x11
-    next_cap_offset: u8,
-    message_ctrl: MessageControl,
-    bir: u3,
-    table_offset: u29,
-    pending_bit_bir: u3,
-    pending_bit_offset: u29,
+    cid: u8 = 0x11, //must be 0x11
+    next: u8, //Next Capability Offset
+    mc: MessageControl,
+    tbir: u3, //Table BIR
+    to: u29, //Table Offset
+    pbir: u3, //Pending Bit Array BIR
+    pbao: u29, //Pending Bit Array Offset
 };
 
 pub const MsixTableEntry = extern struct {
@@ -493,7 +493,7 @@ fn findCapabilityOffset(cap_id: u8, function: u3, slot: u5, bus: u8) !u8 {
 pub fn readCapability(comptime TCap: type, function: u3, slot: u5, bus: u8) !TCap {
     var val: TCap = undefined;
 
-    const cap_id_field = std.meta.fieldInfo(TCap, .id);
+    const cap_id_field = std.meta.fieldInfo(TCap, .cid);
     const default_val_ptr = cap_id_field.default_value orelse @compileError("TCap.id must have a default value");
     const cap_id_ptr: *const u8 = @ptrCast(default_val_ptr);
 
@@ -515,7 +515,7 @@ pub fn readCapability(comptime TCap: type, function: u3, slot: u5, bus: u8) !TCa
 }
 
 pub fn writeCapability(comptime TCap: type, val: TCap, function: u3, slot: u5, bus: u8) !void {
-    const cap_id_field = std.meta.fieldInfo(TCap, .id);
+    const cap_id_field = std.meta.fieldInfo(TCap, .cid);
     const default_val_ptr = cap_id_field.default_value orelse @compileError("TCap.id must have a default value");
     const cap_id_ptr: *const u8 = @ptrCast(default_val_ptr);
 
@@ -537,13 +537,13 @@ pub fn writeCapability(comptime TCap: type, val: TCap, function: u3, slot: u5, b
 }
 
 pub fn addMsixMessageTableEntry(msix_cap: MsixCap, bar: BAR, id: u11, vec_no: u8) void {
-    assert(msix_cap.message_ctrl.ts > id);
+    assert(msix_cap.mc.ts > id);
 
     const virt = switch (bar.address) {
         inline else => |addr| paging.virtFromMME(addr),
     };
 
-    const aligned_table_offset: u32 = msix_cap.table_offset << 3;
+    const aligned_table_offset: u32 = msix_cap.to << 3;
 
     const msi_x_te: *volatile MsixTableEntry = @ptrFromInt(virt + aligned_table_offset + id * @sizeOf(MsixTableEntry));
 
@@ -565,7 +565,7 @@ pub fn addMsixMessageTableEntry(msix_cap: MsixCap, bar: BAR, id: u11, vec_no: u8
     //log iterates over all MsiXTableEntries
     const msix_entry_list: [*]volatile MsixTableEntry = @ptrFromInt(virt + aligned_table_offset);
     var i: u16 = 0;
-    while (i < msix_cap.message_ctrl.ts) : (i += 1) {
+    while (i < msix_cap.mc.ts) : (i += 1) {
         log.debug("MSI-X table entry[{d}]: addr: 0x{x}, msd_data: {}", .{ i, msix_entry_list[i].msg_addr, @as(Pcie.MsiMessageDataRegister, @bitCast(msix_entry_list[i].msg_data)) });
     }
     //logging ends
@@ -577,7 +577,7 @@ pub fn readMsixPendingBit(msix_cap: MsixCap, bar: BAR, id: u11) bool {
     const virt = switch (bar.address) {
         inline else => |addr| paging.virtFromMME(addr),
     };
-    const aligned_pending_bit_offset: u32 = msix_cap.pending_bit_offset << 3;
+    const aligned_pending_bit_offset: u32 = msix_cap.pbao << 3;
 
     //pending bit array is an aray of bit values, e.g. id=9 means the 1st bit in the second byte
     const byte_no = id / 8;
