@@ -202,63 +202,122 @@ const IdentifyCommand = packed struct(u512) {
     ignrd_j: u32 = 0, //60-63 in cdw15
 };
 
-const GetFeaturesCommand = packed struct(u512) {
-    cdw0: AdminCDw0, //00:03 byte
-    ignrd_a: u32 = 0, //04:07 byte - nsid
-    ignrd_b: u32 = 0, //08:11 byte - cdw2
-    ignrd_c: u32 = 0, //12:15 byte = cdw3
-    ignrd_e: u64 = 0, //16:23 byte = mptr
-    dptr: DataPointer, //24:39 byte = prp1, prp2
-    fid: u8, //00:07 id cdw10 - Feature Identifier
-    sel: enum(u3) {
+const GetSetFeaturesCommand = packed union {
+    const FeatureSelect = enum(u3) {
         current = 0b000,
         default = 0b001,
         saved = 0b010,
         supported_capabilities = 0b011,
-    }, //08:10 in cdw10 - Select
-    rsrvd_a: u21 = 0, //11-31 in cdw10 - Reserved
-    ignrd_f: u32 = 0, //32-63 in cdw11 - I/O Command Set Combination Index
-    ignrd_g: u32 = 0, //48-52 in cdw12
-    ignrd_h: u32 = 0, //52-55 in cdw13
-    ignrd_i: u32 = 0, //56-59 in cdw14
-    ignrd_j: u32 = 0, //60-63 in cdw15
+    };
+    GetNumberOfQueues: packed struct(u512) {
+        cdw0: AdminCDw0, //cdw0,
+        ignrd_a: u32 = 0, //cdw1,
+        ignrd_b: u32 = 0, //cdw2
+        ignrd_c: u32 = 0, //cdw3
+        ignrd_e: u64 = 0, //cdw4, cdw5
+        ignrd_f: u128 = 0, //cdw6, cdw7, cdw8,cdw9
+        fid: u8, //cdw10 - Feature Identifier
+        sel: FeatureSelect, //cdw10 - Select
+        rsrv_a: u21 = 0, //11-31 in cdw10 - Reserved
+        ignrd_g: u32 = 0, //32-63 in cdw11 - I/O Command Set Combination Index
+        ignrd_h: u32 = 0, //48-52 in cdw12
+        ignrd_i: u32 = 0, //52-55 in cdw13
+        ignrd_j: u32 = 0, //56-59 in cdw14
+        ignrd_k: u32 = 0, //60-63 in cdw15
+    },
+    SetNumberOfQueues: packed struct(u512) {
+        cdw0: AdminCDw0, //cdw0,
+        ignrd_a: u32 = 0, //cdw1,
+        ignrd_b: u32 = 0, //cdw2
+        ignrd_c: u32 = 0, //cdw3
+        ignrd_e: u64 = 0, //cdw4, cdw5
+        ignrd_f: u128 = 0, //cdw6, cdw7, cdw8,cdw10
+        fid: u8, //cdw10 - Feature Identifier
+        rsrvd_a: u24 = 0, //cdw10
+        ncqr: u16, //cdw11 - I/O Command Set Combination Index
+        nsqr: u16 = 0, // cdw11
+        ignrd_g: u32 = 0, //cdw12
+        ignrd_h: u32 = 0, //cdw13
+        ignrd_i: u32 = 0, //cdw14
+        ignrd_j: u32 = 0, //cdw15
+    },
+    SetIOCommandProfile: packed struct(u512) {
+        cdw0: AdminCDw0, //cdw0
+        ignrd_a: u32 = 0, //cdw1
+        ignrd_b: u32 = 0, //cdw2
+        ignrd_c: u32 = 0, //cdw3
+        ignrd_e: u64 = 0, //cdw5
+        dptr: DataPointer, //cdw6, cdw7, cdw8,cdw9
+        fid: u8, //cdw10 - Feature Identifier
+        rsrv_a: u23 = 0, //cdw10
+        sv: u1, //cdw10 - Save
+        iosci: u9, //cdw11 - I/O Command Set Combination Index
+        rsrvd_b: u23 = 0, //cdw11
+        ignrd_f: u32 = 0, //cdw12
+        ignrd_g: u32 = 0, //cdw13
+        uuid: u7 = 0, //cdw14 - UUID
+        rsrvd_c: u25 = 0, //cdw14
+        ignrd_h: u32 = 0, //cdw15
+    },
 };
 
-const SetFeatures0x19Command = packed struct(u512) {
-    cdw0: AdminCDw0, //00:03 byte
-    ignrd_a: u32 = 0, //04:07 byte - nsid
-    ignrd_b: u32 = 0, //08:11 byte - cdw2
-    ignrd_c: u32 = 0, //12:15 byte = cdw3
-    ignrd_e: u64 = 0, //16:23 byte = mptr
-    dptr: DataPointer, //24:39 byte = prp1, prp2
-    fid: u8, //00:07 id cdw10 - Feature Identifier
-    rsrv_a: u23 = 0, //08:30 in cdw10
-    sv: u1, //16-31 in cdw10 - Save
-    iosci: u9, //32-40 in cdw11 - I/O Command Set Combination Index
-    rsrvd_b: u23 = 0, //41-63 in cdw11
-    ignrd_f: u32 = 0, //48-52 in cdw12
-    ignrd_g: u32 = 0, //52-55 in cdw13
-    uuid: u7 = 0, //00-06 in cdw14 - UUID
-    rsrvd_c: u25 = 0, //07-31 in cdw14
-    ignrd_h: u32 = 0, //60-63 in cdw15
-};
+// const GetFeaturesCommand = packed struct(u512) {
+//     cdw0: AdminCDw0, //00:03 byte
+//     ignrd_a: u32 = 0, //04:07 byte - nsid
+//     ignrd_b: u32 = 0, //08:11 byte - cdw2
+//     ignrd_c: u32 = 0, //12:15 byte = cdw3
+//     ignrd_e: u64 = 0, //16:23 byte = mptr
+//     dptr: DataPointer, //24:39 byte = prp1, prp2
+//     fid: u8, //00:07 id cdw10 - Feature Identifier
+//     sel: enum(u3) {
+//         current = 0b000,
+//         default = 0b001,
+//         saved = 0b010,
+//         supported_capabilities = 0b011,
+//     }, //08:10 in cdw10 - Select
+//     rsrvd_a: u21 = 0, //11-31 in cdw10 - Reserved
+//     ignrd_f: u32 = 0, //32-63 in cdw11 - I/O Command Set Combination Index
+//     ignrd_g: u32 = 0, //48-52 in cdw12
+//     ignrd_h: u32 = 0, //52-55 in cdw13
+//     ignrd_i: u32 = 0, //56-59 in cdw14
+//     ignrd_j: u32 = 0, //60-63 in cdw15
+// };
 
-const SetFeatures0x07Command = packed struct(u512) {
-    cdw0: AdminCDw0, //00:03 byte
-    ignrd_a: u32 = 0, //04:07 byte - nsid
-    ignrd_b: u32 = 0, //08:11 byte - cdw2
-    ignrd_c: u32 = 0, //12:15 byte = cdw3
-    ignrd_e: u64 = 0, //16:23 byte = mptr
-    ignrd_f: u128 = 0, //24:39 byte = prp1, prp2
-    fid: u8, //00:07 id cdw10 - Feature Identifier
-    rsrv_a: u24 = 0, //08:30 in cdw10
-    ncqr: u16, //cdw11 - I/O Command Set Combination Index
-    nsqr: u16 = 0, // cdw11
-    ignrd_g: u32 = 0, //48-52 in cdw12
-    ignrd_h: u32 = 0, //52-55 in cdw13
-    ignrd_i: u32 = 0, //cdw14
-    ignrd_j: u32 = 0, //cdw15
-};
+// const SetFeatures0x19Command = packed struct(u512) {
+//     cdw0: AdminCDw0, //00:03 byte
+//     ignrd_a: u32 = 0, //04:07 byte - nsid
+//     ignrd_b: u32 = 0, //08:11 byte - cdw2
+//     ignrd_c: u32 = 0, //12:15 byte = cdw3
+//     ignrd_e: u64 = 0, //16:23 byte = mptr
+//     dptr: DataPointer, //24:39 byte = prp1, prp2
+//     fid: u8, //00:07 id cdw10 - Feature Identifier
+//     rsrv_a: u23 = 0, //08:30 in cdw10
+//     sv: u1, //16-31 in cdw10 - Save
+//     iosci: u9, //32-40 in cdw11 - I/O Command Set Combination Index
+//     rsrvd_b: u23 = 0, //41-63 in cdw11
+//     ignrd_f: u32 = 0, //48-52 in cdw12
+//     ignrd_g: u32 = 0, //52-55 in cdw13
+//     uuid: u7 = 0, //00-06 in cdw14 - UUID
+//     rsrvd_c: u25 = 0, //07-31 in cdw14
+//     ignrd_h: u32 = 0, //60-63 in cdw15
+// };
+
+// const SetFeatures0x07Command = packed struct(u512) {
+//     cdw0: AdminCDw0, //00:03 byte
+//     ignrd_a: u32 = 0, //04:07 byte - nsid
+//     ignrd_b: u32 = 0, //08:11 byte - cdw2
+//     ignrd_c: u32 = 0, //12:15 byte = cdw3
+//     ignrd_e: u64 = 0, //16:23 byte = mptr
+//     ignrd_f: u128 = 0, //24:39 byte = prp1, prp2
+//     fid: u8, //00:07 id cdw10 - Feature Identifier
+//     rsrv_a: u24 = 0, //08:30 in cdw10
+//     ncqr: u16, //cdw11 - I/O Command Set Combination Index
+//     nsqr: u16 = 0, // cdw11
+//     ignrd_g: u32 = 0, //48-52 in cdw12
+//     ignrd_h: u32 = 0, //52-55 in cdw13
+//     ignrd_i: u32 = 0, //cdw14
+//     ignrd_j: u32 = 0, //cdw15
+// };
 
 const IONvmCommandSetCommand = packed union {
     const DatasetManagement = packed struct(u8) { access_frequency: u4, access_latency: u2, sequential_request: u1, incompressible: u1 };
@@ -577,13 +636,20 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
         return;
     }
 
+    //read MSI capability to check if's disabled or enabled
+    const msi_cap: ?pcie.MsiCap = pcie.readCapability(pcie.MsiCap, function, slot, bus) catch |err| blk: {
+        log.err("Failed to read MSI capability: {}", .{err});
+        break :blk null;
+    };
+    log.debug("MSI capability: {?}", .{msi_cap});
+
     var msix_cap = try pcie.readCapability(pcie.MsixCap, function, slot, bus);
     log.debug("MSI-X capability pre-modification: {}", .{msix_cap});
 
     if (msix_cap.bir != 0) return NvmeError.MsiXMisconfigured; //TODO: it should work on any of the bar but for now we support only bar0
 
     //enable MSI-X
-    msix_cap.message_ctrl.enable = true;
+    msix_cap.message_ctrl.mxe = true;
     try pcie.writeCapability(pcie.MsixCap, msix_cap, function, slot, bus);
 
     msix_cap = try pcie.readCapability(pcie.MsixCap, function, slot, bus); //TODO: could be removed
@@ -614,7 +680,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     }
 
     //MSI-X
-    pcie.addMsixMessageTableEntry(msix_cap, drive.bar, 0x1, 0x31); //add 0x31 at 0x01 offset
+    pcie.addMsixMessageTableEntry(msix_cap, drive.bar, 0x0, 0x31); //add 0x31 at 0x01 offset
 
     //  bus-mastering DMA, and memory space access in the PCI configuration space
     const command = pcie.readRegisterWithArgs(u16, .command, function, slot, bus);
@@ -867,19 +933,21 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
 
     // Set I/O Command Set Profile with Command Set Combination index
     @memset(prp1, 0);
-    _ = executeAdminCommand(&drive, @bitCast(SetFeatures0x19Command{
-        .cdw0 = .{
-            .opc = .set_features,
-            .cid = 0x03, //our id
-        },
-        .dptr = .{
-            .prp = .{
-                .prp1 = prp1_phys,
+    _ = executeAdminCommand(&drive, @bitCast(GetSetFeaturesCommand{
+        .SetIOCommandProfile = .{
+            .cdw0 = .{
+                .opc = .set_features,
+                .cid = 0x03, //our id
             },
+            .dptr = .{
+                .prp = .{
+                    .prp1 = prp1_phys,
+                },
+            },
+            .fid = 0x19, //I/O Command Set Profile
+            .sv = 0, //do not save
+            .iosci = cs_idx,
         },
-        .fid = 0x19, //I/O Command Set Profile
-        .sv = 0, //do not save
-        .iosci = cs_idx,
     })) catch |err| {
         log.err("Failed to execute Set Features Command(fid: 0x19): {}", .{err});
         return;
@@ -1024,50 +1092,42 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     }
 
     // Get current I/O number of completion/submission queues
-    @memset(prp1, 0);
-    const get_features_0x07_current_res = executeAdminCommand(&drive, @bitCast(GetFeaturesCommand{
-        .cdw0 = .{
-            .opc = .get_features,
-            .cid = 0x09, //our id
-        },
-        .dptr = .{
-            .prp = .{
-                .prp1 = prp1_phys,
+    const get_current_number_of_queues_res = executeAdminCommand(&drive, @bitCast(GetSetFeaturesCommand{
+        .GetNumberOfQueues = .{
+            .cdw0 = .{
+                .opc = .get_features,
+                .cid = 0x09, //our id
             },
+            .fid = 0x07, //I/O Command Set Profile
+            .sel = .current,
         },
-        .fid = 0x07, //I/O Command Set Profile
-        .sel = .default,
     })) catch |err| {
         log.err("Failed to execute Get Features Command(fid: 0x07): {}", .{err});
         return;
     };
 
-    const current_ncqr: u16 = @truncate((get_features_0x07_current_res.cmd_res0 >> 16) + 1); //0-based value, so 0 means 1
-    const current_nsqr: u16 = @truncate(get_features_0x07_current_res.cmd_res0 + 1); //0-based value
-    log.debug("Get Features Command(fid: 0x07): Current Number Of Completion/Submission Queues: {d}/{d} res0:0b{b:0>32}", .{ current_ncqr, current_nsqr, get_features_0x07_current_res.cmd_res0 });
+    const current_ncqr: u16 = @truncate((get_current_number_of_queues_res.cmd_res0 >> 16) + 1); //0-based value, so 0 means 1
+    const current_nsqr: u16 = @truncate(get_current_number_of_queues_res.cmd_res0 + 1); //0-based value
+    log.debug("Get Number of Queues: Current Number Of Completion/Submission Queues: {d}/{d}", .{ current_ncqr, current_nsqr });
 
     // Get default I/O number of completion/submission queues
-    @memset(prp1, 0);
-    const get_features_0x07_default_res = executeAdminCommand(&drive, @bitCast(GetFeaturesCommand{
-        .cdw0 = .{
-            .opc = .get_features,
-            .cid = 0x10, //our id
-        },
-        .dptr = .{
-            .prp = .{
-                .prp1 = prp1_phys,
+    const get_default_number_of_queues_res = executeAdminCommand(&drive, @bitCast(GetSetFeaturesCommand{
+        .GetNumberOfQueues = .{
+            .cdw0 = .{
+                .opc = .get_features,
+                .cid = 0x10, //our id
             },
+            .fid = 0x07, //I/O Command Set Profile
+            .sel = .default,
         },
-        .fid = 0x07, //I/O Command Set Profile
-        .sel = .current,
     })) catch |err| {
         log.err("Failed to execute Get Features Command(fid: 0x07): {}", .{err});
         return;
     };
 
-    const supported_ncqr: u16 = @truncate((get_features_0x07_default_res.cmd_res0 >> 16) + 1); //0-based value, so 0 means 1
-    const supported_nsqr: u16 = @truncate(get_features_0x07_default_res.cmd_res0 + 1); //0-based value
-    log.debug("Get Features Command(fid: 0x07): Default(supported) Number Of Completion/Submission Queues: {d}/{d}", .{ supported_ncqr, supported_nsqr });
+    const supported_ncqr: u16 = @truncate((get_default_number_of_queues_res.cmd_res0 >> 16) + 1); //0-based value, so 0 means 1
+    const supported_nsqr: u16 = @truncate(get_default_number_of_queues_res.cmd_res0 + 1); //0-based value
+    log.debug("Get Number of Queues Command: Default Number Of Completion/Submission Queues: {d}/{d}", .{ supported_ncqr, supported_nsqr });
 
     if (drive.ncqr > supported_ncqr or drive.nsqr > supported_nsqr) {
         log.err("Requested number of completion/submission queues is not supported", .{});
@@ -1207,7 +1267,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
                 .qsize = nvme_iocqs,
                 .pc = true, // physically contiguous - the buddy allocator allocs memory in physically contiguous blocks
                 .ien = true, // interrupt enabled
-                .iv = 0x01, //TODO: msi_x - message table entry index
+                .iv = 0x00, //TODO: msi_x - message table entry index
             },
         })) catch |err| {
             log.err("Failed to execute Create CQ Command: {}", .{err});
@@ -1422,60 +1482,58 @@ fn execIOCommand(CDw0Type: type, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) 
     drv.sq[sqn].tail_dbl.* = drv.sq[sqn].tail_pos;
     log.debug("commented out /3", .{});
 
-    _ = cq_entry_ptr; //TODO
     log.debug("commented out /4", .{});
-    // while (!drv.ready) {
-    //     // wait for the interrupt
-    // }
-    //
-    // while (cq_entry_ptr.phase != drv.cq[cqn].expected_phase) {
-    //     const csts = readRegister(CSTSRegister, drv.bar, .csts);
-    //     if (csts.cfs == 1) {
-    //         log.err("Command failed", .{});
-    //         return NvmeError.InvalidCommand;
-    //     }
-    //     if (csts.shst != 0) {
-    //         if (csts.st == 1) log.err("NVE Subsystem is in shutdown state", .{}) else log.err("Controller is in shutdown state", .{});
-    //
-    //         log.err("Controller is in shutdown state", .{});
-    //         return NvmeError.InvalidCommand;
-    //     }
-    //     if (csts.nssro == 1) {
-    //         log.err("Controller is not ready", .{});
-    //         return NvmeError.InvalidCommand;
-    //     }
-    //     if (csts.pp == 1) {
-    //         log.err("Controller is in paused state", .{});
-    //         return NvmeError.InvalidCommand;
-    //     }
-    // }
-    //
-    // // TODO: do we need to check if conntroller is ready to accept new commands?
-    // //--  drv.asqa.header_pos = cqa_entry_ptr.sq_header_pos; //the controller position retuned in CQEntry as sq_header_pos
-    //
-    // drv.cq[cqn].head_pos += 1;
-    // if (drv.cq[cqn].head_pos >= drv.cq[cqn].entries.len) {
-    //     drv.cq[cqn].head_pos = 0;
-    //     // every new cycle we need to toggle the phase
-    //     drv.cq[cqn].expected_phase = ~drv.cq[cqn].expected_phase;
-    // }
-    //
-    // //press the doorbell
-    // drv.cq[cqn].head_dbl.* = drv.cq[cqn].head_pos;
-    //
-    // if (sqn != cq_entry_ptr.sq_id) {
-    //     log.err("Invalid SQ ID in CQEntry: {} for CDw0: {}", .{ cq_entry_ptr.*, cdw0 });
-    //     return NvmeError.InvalidCommandSequence;
-    // }
-    //
-    // if (cq_entry_ptr.status.sc != 0) {
-    //     log.err("Command failed: {}", .{cq_entry_ptr.*});
-    //     return NvmeError.AdminCommandFailed;
-    // }
-    //
-    // log.debug("Command executed successfully: CDw0: {}, CQEntry = {}", .{ cdw0, cq_entry_ptr.* });
-    // return cq_entry_ptr.*;
-    return CQEntry{};
+
+    while (cq_entry_ptr.phase != drv.cq[cqn].expected_phase) {
+        const csts = readRegister(CSTSRegister, drv.bar, .csts);
+        if (csts.cfs == 1) {
+            log.err("Command failed", .{});
+            return NvmeError.InvalidCommand;
+        }
+        if (csts.shst != 0) {
+            if (csts.st == 1) log.err("NVE Subsystem is in shutdown state", .{}) else log.err("Controller is in shutdown state", .{});
+
+            log.err("Controller is in shutdown state", .{});
+            return NvmeError.InvalidCommand;
+        }
+        if (csts.nssro == 1) {
+            log.err("Controller is not ready", .{});
+            return NvmeError.InvalidCommand;
+        }
+        if (csts.pp == 1) {
+            log.err("Controller is in paused state", .{});
+            return NvmeError.InvalidCommand;
+        }
+    }
+
+    log.debug("commented out /5", .{});
+
+    // TODO: do we need to check if conntroller is ready to accept new commands?
+    //--  drv.asqa.header_pos = cqa_entry_ptr.sq_header_pos; //the controller position retuned in CQEntry as sq_header_pos
+
+    drv.cq[cqn].head_pos += 1;
+    if (drv.cq[cqn].head_pos >= drv.cq[cqn].entries.len) {
+        drv.cq[cqn].head_pos = 0;
+        // every new cycle we need to toggle the phase
+        drv.cq[cqn].expected_phase = ~drv.cq[cqn].expected_phase;
+    }
+
+    //press the doorbell
+    drv.cq[cqn].head_dbl.* = drv.cq[cqn].head_pos;
+
+    if (sqn != cq_entry_ptr.sq_id) {
+        log.err("Invalid SQ ID in CQEntry: {} for CDw0: {}", .{ cq_entry_ptr.*, cdw0 });
+        return NvmeError.InvalidCommandSequence;
+    }
+
+    if (cq_entry_ptr.status.sc != 0) {
+        log.err("Command failed: {}", .{cq_entry_ptr.*});
+        return NvmeError.AdminCommandFailed;
+    }
+
+    log.debug("Command executed successfully: CDw0: {}, CQEntry = {}", .{ cdw0, cq_entry_ptr.* });
+    return cq_entry_ptr.*;
+    //return CQEntry{};
 }
 
 fn executeIONvmCommand(drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEntry {
@@ -1513,6 +1571,7 @@ pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: *Drive, nsid
         log.err("Failed to allocate memory for data buffer: {}", .{err});
         return error.OutOfMemory;
     };
+    @memset(data, 0); //TODO promote to an option
 
     const prp1_phys = paging.physFromPtr(data.ptr) catch |err| {
         log.err("Failed to get physical address: {}", .{err});

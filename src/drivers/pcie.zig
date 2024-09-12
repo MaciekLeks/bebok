@@ -110,12 +110,32 @@ pub const VersionCap = packed struct(u32) {
     minor: u8,
 };
 
+pub const MsiCap = packed struct(u192) {
+    const MessageControl = packed struct(u16) {
+        msie: bool,
+        mmc: u3,
+        mme: u3,
+        c64: bool,
+        pvm: bool,
+        rsvd: u7,
+    };
+    id: u8 = 0x05, //must be 0x05
+    next_cap_offset: u8,
+    message_ctrl: MessageControl,
+    message_addr_low: u32,
+    message_addr_high: u32,
+    message_data: u16,
+    rsrv: u16,
+    mask: u32,
+    pending: u32,
+};
+
 pub const MsixCap = packed struct(u96) {
     const MessageControl = packed struct(u16) {
-        table_size: u11,
+        ts: u11, //Table Size
         rsrvd: u3,
-        function_mask: u1,
-        enable: bool,
+        fm: u1, //Function Mask
+        mxe: bool, //MSI-X Enable
     };
     id: u8 = 0x11, //must be 0x11
     next_cap_offset: u8,
@@ -517,7 +537,7 @@ pub fn writeCapability(comptime TCap: type, val: TCap, function: u3, slot: u5, b
 }
 
 pub fn addMsixMessageTableEntry(msix_cap: MsixCap, bar: BAR, id: u11, vec_no: u8) void {
-    assert(msix_cap.message_ctrl.table_size > id);
+    assert(msix_cap.message_ctrl.ts > id);
 
     const virt = switch (bar.address) {
         inline else => |addr| paging.virtFromMME(addr),
@@ -529,7 +549,7 @@ pub fn addMsixMessageTableEntry(msix_cap: MsixCap, bar: BAR, id: u11, vec_no: u8
 
     msi_x_te.* = .{
         .msg_addr = paging.virtFromMME(@as(u32, @bitCast(Pcie.MsiMessageAddressRegister{
-            .destination_id = 0,
+            .destination_id = 0, //TODO promote to a parameter (CPUID)
             .redirection_hint = 0,
             .destination_mode = 0, //ignored
         }))),
@@ -545,7 +565,7 @@ pub fn addMsixMessageTableEntry(msix_cap: MsixCap, bar: BAR, id: u11, vec_no: u8
     //log iterates over all MsiXTableEntries
     const msix_entry_list: [*]volatile MsixTableEntry = @ptrFromInt(virt + aligned_table_offset);
     var i: u16 = 0;
-    while (i < msix_cap.message_ctrl.table_size) : (i += 1) {
+    while (i < msix_cap.message_ctrl.ts) : (i += 1) {
         log.debug("MSI-X table entry[{d}]: addr: 0x{x}, msd_data: {}", .{ i, msix_entry_list[i].msg_addr, @as(Pcie.MsiMessageDataRegister, @bitCast(msix_entry_list[i].msg_data)) });
     }
     //logging ends
