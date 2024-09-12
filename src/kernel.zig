@@ -103,11 +103,10 @@ export fn _start() callconv(.C) noreturn {
     int.addISR(0x30, .{ .unique_id = 0x01, .func = &testISR0 }) catch |err| {
         log.err("Failed to add Timer interrupt handler: {}", .{err});
     };
-    int.addISR(0x31, .{ .unique_id = 0x02, .func = &testISR1 }) catch |err| {
-        log.err("Failed to add NVMe interrupt handler: {}", .{err});
-    };
+    //int.addISR(0x31, .{ .unique_id = 0x02, .func = &testISR1 }) catch |err| {
+    //    log.err("Failed to add NVMe interrupt handler: {}", .{err});
+    //};
 
-    cpu.sti();
     //} init handler list
 
     //pci test start
@@ -120,6 +119,8 @@ export fn _start() callconv(.C) noreturn {
     defer Nvme.deinit();
     defer pcie.deinit(); //TODO: na pewno?
     //pci test end
+
+    cpu.sti();
 
     const data = Nvme.readToOwnedSlice(u8, heap.page_allocator, &Nvme.drive, 1, 0, 1) catch |err| blk: {
         log.err("Nvme read error: {}", .{err});
@@ -150,6 +151,6 @@ export fn _start() callconv(.C) noreturn {
 fn testISR0() !void {
     log.warn("apic: 0----->>>>!!!!", .{});
 }
-fn testISR1() !void {
-    log.warn("apic: 1----->>>>!!!!", .{});
-}
+// fn testISR1() !void {
+//     log.warn("apic: 1----->>>>!!!!", .{});
+// }

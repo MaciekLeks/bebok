@@ -7,6 +7,8 @@ const pmm = @import("../mem/pmm.zig");
 const heap = @import("../mem/heap.zig").heap;
 const math = std.math;
 
+const cpu = @import("../cpu.zig");
+
 const nvme_class_code = 0x01;
 const nvme_subclass = 0x08;
 const nvme_prog_if = 0x02;
@@ -557,6 +559,7 @@ const Drive = struct {
     //-asq: Queue(SQEntry) = undefined,
 
     bar: pcie.BAR = undefined,
+    msix_cap: pcie.MsixCap = undefined,
 
     //expected_phase: u1 = 1, //private counter to keep track of the expected phase
     mdts_bytes: u32 = 0, // Maximum Data Transfer Size in bytes
@@ -610,17 +613,17 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     };
     log.debug("MSI capability: {?}", .{msi_cap});
 
-    var msix_cap = try pcie.readCapability(pcie.MsixCap, function, slot, bus);
-    log.debug("MSI-X capability pre-modification: {}", .{msix_cap});
+    drive.msix_cap = try pcie.readCapability(pcie.MsixCap, function, slot, bus);
+    log.debug("MSI-X capability pre-modification: {}", .{drive.msix_cap});
 
-    if (msix_cap.bir != 0) return NvmeError.MsiXMisconfigured; //TODO: it should work on any of the bar but for now we support only bar0
+    if (drive.msix_cap.bir != 0) return NvmeError.MsiXMisconfigured; //TODO: it should work on any of the bar but for now we support only bar0
 
     //enable MSI-X
-    msix_cap.message_ctrl.mxe = true;
-    try pcie.writeCapability(pcie.MsixCap, msix_cap, function, slot, bus);
+    drive.msix_cap.message_ctrl.mxe = true;
+    try pcie.writeCapability(pcie.MsixCap, drive.msix_cap, function, slot, bus);
 
-    msix_cap = try pcie.readCapability(pcie.MsixCap, function, slot, bus); //TODO: could be removed
-    log.info("MSI-X capability post-modification: {}", .{msix_cap});
+    drive.msix_cap = try pcie.readCapability(pcie.MsixCap, function, slot, bus); //TODO: could be removed
+    log.info("MSI-X capability post-modification: {}", .{drive.msix_cap});
 
     //- var pci_cmd_reg = pcie.readRegisterWithArgs(u16, .command, function, slot, bus);
     //disable interrupts while using MSI-X
@@ -647,7 +650,15 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     }
 
     //MSI-X
-    pcie.addMsixMessageTableEntry(msix_cap, drive.bar, 0x0, 0x31); //add 0x31 at 0x01 offset
+    pcie.addMsixMessageTableEntry(drive.msix_cap, drive.bar, 0x0, 0x31); //add 0x31 at 0x01 offset
+    const unique_id = pcie.uniqueId(bus, slot, function);
+    int.addISR(@intCast(0x31), .{ .unique_id = unique_id, .func = handleInterrupt }) catch |err| {
+        log.err("Failed to add NVMe interrupt handler: {}", .{err});
+    };
+
+    //log pending bit in MSI-X
+    const pending_bit = pcie.readMsixPendingBit(drive.msix_cap, drive.bar, 0x0);
+    log.info("MSI-X pending bit: {}", .{pending_bit});
 
     //  bus-mastering DMA, and memory space access in the PCI configuration space
     const command = pcie.readRegisterWithArgs(u16, .command, function, slot, bus);
@@ -1498,6 +1509,14 @@ fn execIOCommand(CDw0Type: type, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) 
     log.debug("commented out /3", .{});
 
     log.debug("commented out /4", .{});
+
+    while (!drv.ready) {
+        log.debug("Waiting for the controller to be ready", .{});
+        const pending_bit = pcie.readMsixPendingBit(drv.msix_cap, drv.bar, 0);
+        log.debug("MSI-X pending bit: {}", .{pending_bit});
+
+        //cpu.halt();
+    } //TODO: this is a temporary solution
 
     //_ = cq_entry_ptr;
     while (cq_entry_ptr.phase != drv.cq[cqn].expected_phase) {
