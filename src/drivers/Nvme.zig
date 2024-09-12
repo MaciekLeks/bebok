@@ -201,14 +201,14 @@ const GetSetFeaturesCommand = packed union {
         saved = 0b010,
         supported_capabilities = 0b011,
     };
-    GetNumberOfQueues: packed struct(u512) {
+    get_number_of_queues: packed struct(u512) {
         cdw0: AdminCDw0, //cdw0,
         ignrd_a: u32 = 0, //cdw1,
         ignrd_b: u32 = 0, //cdw2
         ignrd_c: u32 = 0, //cdw3
         ignrd_e: u64 = 0, //cdw4, cdw5
         ignrd_f: u128 = 0, //cdw6, cdw7, cdw8,cdw9
-        fid: u8, //cdw10 - Feature Identifier
+        fid: u8 = 0x07, //cdw10 - Feature Identifier
         sel: FeatureSelect, //cdw10 - Select
         rsrv_a: u21 = 0, //11-31 in cdw10 - Reserved
         ignrd_g: u32 = 0, //32-63 in cdw11 - I/O Command Set Combination Index
@@ -217,14 +217,14 @@ const GetSetFeaturesCommand = packed union {
         ignrd_j: u32 = 0, //56-59 in cdw14
         ignrd_k: u32 = 0, //60-63 in cdw15
     },
-    SetNumberOfQueues: packed struct(u512) {
+    set_number_of_queues: packed struct(u512) {
         cdw0: AdminCDw0, //cdw0,
         ignrd_a: u32 = 0, //cdw1,
         ignrd_b: u32 = 0, //cdw2
         ignrd_c: u32 = 0, //cdw3
         ignrd_e: u64 = 0, //cdw4, cdw5
         ignrd_f: u128 = 0, //cdw6, cdw7, cdw8,cdw10
-        fid: u8, //cdw10 - Feature Identifier
+        fid: u8 = 0x07, //cdw10 - Feature Identifier
         rsrvd_a: u24 = 0, //cdw10
         ncqr: u16, //cdw11 - I/O Command Set Combination Index
         nsqr: u16 = 0, // cdw11
@@ -233,14 +233,14 @@ const GetSetFeaturesCommand = packed union {
         ignrd_i: u32 = 0, //cdw14
         ignrd_j: u32 = 0, //cdw15
     },
-    SetIOCommandProfile: packed struct(u512) {
+    set_io_command_profile: packed struct(u512) {
         cdw0: AdminCDw0, //cdw0
         ignrd_a: u32 = 0, //cdw1
         ignrd_b: u32 = 0, //cdw2
         ignrd_c: u32 = 0, //cdw3
         ignrd_e: u64 = 0, //cdw5
         dptr: DataPointer, //cdw6, cdw7, cdw8,cdw9
-        fid: u8, //cdw10 - Feature Identifier
+        fid: u8 = 0x19, //cdw10 - Feature Identifier
         rsrv_a: u23 = 0, //cdw10
         sv: u1, //cdw10 - Save
         iosci: u9, //cdw11 - I/O Command Set Combination Index
@@ -250,6 +250,39 @@ const GetSetFeaturesCommand = packed union {
         uuid: u7 = 0, //cdw14 - UUID
         rsrvd_c: u25 = 0, //cdw14
         ignrd_h: u32 = 0, //cdw15
+    },
+    get_interrupt_coalescing: packed struct(u512) {
+        cdw0: AdminCDw0, //cdw0
+        ignrd_a: u32 = 0, //cdw1
+        ignrd_b: u32 = 0, //cdw2
+        ignrd_c: u32 = 0, //cdw3
+        ignrd_e: u64 = 0, //cdw5
+        ignrd_f: u128 = 0, //cdw6, cdw7, cdw8,cdw9
+        fid: u8 = 0x08, //cdw10 - Feature Identifier
+        sel: FeatureSelect, //cdw10 - Select
+        rsrv_a: u21 = 0, //cdw10
+        ignrd_g: u32 = 0, //cdw11
+        ignrd_h: u32 = 0, //cdw12
+        ignrd_i: u32 = 0, //cdw13
+        ignrd_j: u32 = 0, //cdw14
+        ignrd_k: u32 = 0, //cdw15
+    },
+    SetInterruptCoalescing: packed struct(u512) {
+        cdw0: AdminCDw0, //cdw0
+        ignrd_a: u32 = 0, //cdw1
+        ignrd_b: u32 = 0, //cdw2
+        ignrd_c: u32 = 0, //cdw3
+        ignrd_e: u64 = 0, //cdw5
+        ignrd_f: u128 = 0, //cdw6, cdw7, cdw8,cdw9
+        fid: u8 = 0x08, //cdw10 - Feature Identifier
+        rsrv_a: u24 = 0, //cdw10
+        thr: u8, //cdw11 - Aggregation Threshold
+        time: u8, //cdw11 - Aggregation Time
+        rsrv_b: u16 = 0, //cdw11
+        ignrd_g: u32 = 0, //cdw12
+        ignrd_h: u32 = 0, //cdw13
+        ignrd_i: u32 = 0, //cdw14
+        ignrd_j: u32 = 0, //cdw15
     },
 };
 
@@ -279,7 +312,7 @@ const IONvmCommandSetCommand = packed union {
 };
 
 const IOQueueCommand = packed union {
-    createCQ: packed struct(u512) {
+    create_completion_queue: packed struct(u512) {
         cdw0: AdminCDw0, //cdw0
         ignrd_a: u32 = 0, // nsid
         ignrd_b: u32 = 0, //cdw2
@@ -297,7 +330,7 @@ const IOQueueCommand = packed union {
         ignrd_h: u32 = 0, //cdw14
         ignrd_i: u32 = 0, //cdw15
     },
-    deleteQ: packed struct(u512) {
+    delete_queue: packed struct(u512) {
         cdw0: AdminCDw0, //cdw0
         ignrd_a: u32 = 0, //nsid in cdw1
         ignrd_b: u32 = 0, //cdw2
@@ -312,7 +345,7 @@ const IOQueueCommand = packed union {
         ignrd_k: u32 = 0, //cdw14
         ignrd_l: u32 = 0, //cdw15
     },
-    createSQ: packed struct(u512) {
+    create_submission_queue: packed struct(u512) {
         cdw0: AdminCDw0, //cdw0
         ignrd_a: u32 = 0, //nsid - cdw1
         ignrd_b: u32 = 0, //cdw2
@@ -868,7 +901,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     // Set I/O Command Set Profile with Command Set Combination index
     @memset(prp1, 0);
     _ = executeAdminCommand(&drive, @bitCast(GetSetFeaturesCommand{
-        .SetIOCommandProfile = .{
+        .set_io_command_profile = .{
             .cdw0 = .{
                 .opc = .set_features,
                 .cid = 0x03, //our id
@@ -878,7 +911,6 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
                     .prp1 = prp1_phys,
                 },
             },
-            .fid = 0x19, //I/O Command Set Profile
             .sv = 0, //do not save
             .iosci = cs_idx,
         },
@@ -1027,12 +1059,11 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
 
     // Get current I/O number of completion/submission queues
     const get_current_number_of_queues_res = executeAdminCommand(&drive, @bitCast(GetSetFeaturesCommand{
-        .GetNumberOfQueues = .{
+        .get_number_of_queues = .{
             .cdw0 = .{
                 .opc = .get_features,
                 .cid = 0x09, //our id
             },
-            .fid = 0x07, //I/O Command Set Profile
             .sel = .current,
         },
     })) catch |err| {
@@ -1046,12 +1077,11 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
 
     // Get default I/O number of completion/submission queues
     const get_default_number_of_queues_res = executeAdminCommand(&drive, @bitCast(GetSetFeaturesCommand{
-        .GetNumberOfQueues = .{
+        .get_number_of_queues = .{
             .cdw0 = .{
                 .opc = .get_features,
                 .cid = 0x10, //our id
             },
-            .fid = 0x07, //I/O Command Set Profile
             .sel = .default,
         },
     })) catch |err| {
@@ -1169,6 +1199,57 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     //
     //----}
 
+    // Get Interrupt Coalescing
+    // const get_interrupt_coalescing_res = executeAdminCommand(&drive, @bitCast(GetSetFeaturesCommand{
+    //     .GetInterruptCoalescing = .{
+    //         .cdw0 = .{
+    //             .opc = .get_features,
+    //             .cid = 0x0a, //our id
+    //         },
+    //         .sel = .current,
+    //     },
+    // })) catch |err| {
+    //     log.err("Failed to execute Get Features Command(fid: 0x0a): {}", .{err});
+    //     return;
+    // };
+    // const current_aggeration_time: u16 = @truncate((get_interrupt_coalescing_res.cmd_res0 >> 16) + 1); //0-based value, so 0 means 1
+    // const current_aggregation_threshold: u16 = @truncate(get_interrupt_coalescing_res.cmd_res0 + 1); //0-based value
+    //
+    // log.debug("Get Interrupt Coalescing: Current Aggregation Time/Threshold: {d}/{d}", .{ current_aggeration_time, current_aggregation_threshold });
+    //
+
+    // Set Interrupt Coalescing
+    _ = executeAdminCommand(&drive, @bitCast(GetSetFeaturesCommand{
+        .SetInterruptCoalescing = .{
+            .cdw0 = .{
+                .opc = .set_features,
+                .cid = 0x0a, //our id
+            },
+            .thr = 0, //0-based value
+            .time = 0, //0-based
+        },
+    })) catch |err| {
+        log.err("Failed to execute Set Interrupt Coalescing: {}. Back to the defaults.", .{err});
+    };
+
+    // Get Interrupt Coalescing
+    const get_interrupt_coalescing_res = executeAdminCommand(&drive, @bitCast(GetSetFeaturesCommand{
+        .get_interrupt_coalescing = .{
+            .cdw0 = .{
+                .opc = .get_features,
+                .cid = 0x0b, //our id
+            },
+            .sel = .current,
+        },
+    })) catch |err| {
+        log.err("Failed to execute Get Features Command(fid: 0x0b): {}", .{err});
+        return;
+    };
+    const current_aggeration_time: u16 = @truncate((get_interrupt_coalescing_res.cmd_res0 >> 16) + 1); //0-based value, so 0 means 1
+    const current_aggregation_threshold: u16 = @truncate(get_interrupt_coalescing_res.cmd_res0 + 1); //0-based value
+
+    log.debug("Get Interrupt Coalescing: Current Aggregation Time/Threshold: {d}/{d}", .{ current_aggeration_time, current_aggregation_threshold });
+
     log.info("Create I/O Completion Queues", .{});
     // for (&drive.cq, 1..) |*cq, cq_id| {
     for (1..drive.cq.len) |cq_id| {
@@ -1187,7 +1268,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
         @memset(cq.entries, .{});
 
         const create_iocq_res = executeAdminCommand(&drive, @bitCast(IOQueueCommand{
-            .createCQ = .{
+            .create_completion_queue = .{
                 .cdw0 = .{
                     .opc = .create_io_cq,
                     .cid = @intCast(0x300 + cq_id), //our id
@@ -1231,7 +1312,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
         @memset(sq.entries, 0);
 
         const create_iosq_res = executeAdminCommand(&drive, @bitCast(IOQueueCommand{
-            .createSQ = .{
+            .create_submission_queue = .{
                 .cdw0 = .{
                     .opc = .create_io_sq,
                     .cid = @intCast(0x300 + sq_id), //our id
@@ -1418,6 +1499,7 @@ fn execIOCommand(CDw0Type: type, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) 
 
     log.debug("commented out /4", .{});
 
+    //_ = cq_entry_ptr;
     while (cq_entry_ptr.phase != drv.cq[cqn].expected_phase) {
         const csts = readRegister(CSTSRegister, drv.bar, .csts);
         if (csts.cfs == 1) {
@@ -1467,7 +1549,7 @@ fn execIOCommand(CDw0Type: type, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) 
 
     log.debug("Command executed successfully: CDw0: {}, CQEntry = {}", .{ cdw0, cq_entry_ptr.* });
     return cq_entry_ptr.*;
-    //return CQEntry{};
+    // return CQEntry{};
 }
 
 fn executeIONvmCommand(drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEntry {
@@ -1554,6 +1636,8 @@ pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: *Drive, nsid
         log.err("Failed to allocate memory for metadata buffer: {}", .{err});
         return error.OutOfMemory;
     };
+    defer allocator.free(metadata);
+    @memset(metadata, 0);
 
     const mptr_phys = paging.physFromPtr(metadata.ptr) catch |err| {
         log.err("Failed to get physical address: {}", .{err});
@@ -1598,6 +1682,9 @@ pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: *Drive, nsid
         log.err("Failed to execute IO NVM Command Set Read command: {}", .{err});
         return NvmeError.IONvmReadFailed;
     };
+
+    //log metadata
+    for (metadata) |m| log.debug("Metadata: 0x{x}", .{m});
 
     return data;
 }

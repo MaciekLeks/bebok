@@ -129,7 +129,16 @@ export fn _start() callconv(.C) noreturn {
     for (data.?) |d| {
         log.warn("Nvme data: {x}", .{d});
     }
-
+    //
+    // const data2 = Nvme.readToOwnedSlice(u8, heap.page_allocator, &Nvme.drive, 1, 1, 1) catch |err| blk: {
+    //     log.err("Nvme read error 2: {}", .{err});
+    //     break :blk null;
+    // };
+    // if (data2) |block| heap.page_allocator.free(block);
+    // for (data2.?) |d| {
+    //     log.warn("Nvme data2: {x}", .{d});
+    // }
+    //
     var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");
     pty.printf("Bebok version: {any}\n", .{config.kernel_version});
 
