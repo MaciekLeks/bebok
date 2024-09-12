@@ -151,14 +151,6 @@ fn GenNCDw0(OpcodeType: type) type {
     };
 }
 
-// const CDw0 = packed struct(u32) {
-//     opc: AdminOpcode,
-//     fuse: u2 = 0, //0 for nromal operation
-//     rsvd: u4 = 0,
-//     psdt: u2 = 0, //0 for PRP tranfer
-//     cid: u16,
-// };
-
 const AdminCDw0 = GenNCDw0(AdminOpcode);
 const IONvmCDw0 = GenNCDw0(IONvmOpcode);
 
@@ -260,64 +252,6 @@ const GetSetFeaturesCommand = packed union {
         ignrd_h: u32 = 0, //cdw15
     },
 };
-
-// const GetFeaturesCommand = packed struct(u512) {
-//     cdw0: AdminCDw0, //00:03 byte
-//     ignrd_a: u32 = 0, //04:07 byte - nsid
-//     ignrd_b: u32 = 0, //08:11 byte - cdw2
-//     ignrd_c: u32 = 0, //12:15 byte = cdw3
-//     ignrd_e: u64 = 0, //16:23 byte = mptr
-//     dptr: DataPointer, //24:39 byte = prp1, prp2
-//     fid: u8, //00:07 id cdw10 - Feature Identifier
-//     sel: enum(u3) {
-//         current = 0b000,
-//         default = 0b001,
-//         saved = 0b010,
-//         supported_capabilities = 0b011,
-//     }, //08:10 in cdw10 - Select
-//     rsrvd_a: u21 = 0, //11-31 in cdw10 - Reserved
-//     ignrd_f: u32 = 0, //32-63 in cdw11 - I/O Command Set Combination Index
-//     ignrd_g: u32 = 0, //48-52 in cdw12
-//     ignrd_h: u32 = 0, //52-55 in cdw13
-//     ignrd_i: u32 = 0, //56-59 in cdw14
-//     ignrd_j: u32 = 0, //60-63 in cdw15
-// };
-
-// const SetFeatures0x19Command = packed struct(u512) {
-//     cdw0: AdminCDw0, //00:03 byte
-//     ignrd_a: u32 = 0, //04:07 byte - nsid
-//     ignrd_b: u32 = 0, //08:11 byte - cdw2
-//     ignrd_c: u32 = 0, //12:15 byte = cdw3
-//     ignrd_e: u64 = 0, //16:23 byte = mptr
-//     dptr: DataPointer, //24:39 byte = prp1, prp2
-//     fid: u8, //00:07 id cdw10 - Feature Identifier
-//     rsrv_a: u23 = 0, //08:30 in cdw10
-//     sv: u1, //16-31 in cdw10 - Save
-//     iosci: u9, //32-40 in cdw11 - I/O Command Set Combination Index
-//     rsrvd_b: u23 = 0, //41-63 in cdw11
-//     ignrd_f: u32 = 0, //48-52 in cdw12
-//     ignrd_g: u32 = 0, //52-55 in cdw13
-//     uuid: u7 = 0, //00-06 in cdw14 - UUID
-//     rsrvd_c: u25 = 0, //07-31 in cdw14
-//     ignrd_h: u32 = 0, //60-63 in cdw15
-// };
-
-// const SetFeatures0x07Command = packed struct(u512) {
-//     cdw0: AdminCDw0, //00:03 byte
-//     ignrd_a: u32 = 0, //04:07 byte - nsid
-//     ignrd_b: u32 = 0, //08:11 byte - cdw2
-//     ignrd_c: u32 = 0, //12:15 byte = cdw3
-//     ignrd_e: u64 = 0, //16:23 byte = mptr
-//     ignrd_f: u128 = 0, //24:39 byte = prp1, prp2
-//     fid: u8, //00:07 id cdw10 - Feature Identifier
-//     rsrv_a: u24 = 0, //08:30 in cdw10
-//     ncqr: u16, //cdw11 - I/O Command Set Combination Index
-//     nsqr: u16 = 0, // cdw11
-//     ignrd_g: u32 = 0, //48-52 in cdw12
-//     ignrd_h: u32 = 0, //52-55 in cdw13
-//     ignrd_i: u32 = 0, //cdw14
-//     ignrd_j: u32 = 0, //cdw15
-// };
 
 const IONvmCommandSetCommand = packed union {
     const DatasetManagement = packed struct(u8) { access_frequency: u4, access_latency: u2, sequential_request: u1, incompressible: u1 };
