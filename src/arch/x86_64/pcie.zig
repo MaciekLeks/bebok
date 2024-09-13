@@ -6,11 +6,11 @@ const log = std.log.scoped(.pcie_x86_64);
 
 pub const MsiMessageAddressRegister = packed struct(u32) {
     xx: u2 = 0, //0-2 bits
-    destination_mode: u1, //3-bit
-    redirection_hint: u1, // 4-bit
+    dest_mode: u1, //3-bit //Destination Mode
+    rediration_hint: u1, // 4-bit //Redirection Hint
     rsrvd: u8 = 0, //4-11 bits
-    destination_id: u8, //12-19 bits
-    base_address: u12 = 0xFEE, //20-32 bits
+    destination_id: u8, //12-19 bits //Destination ID
+    base_address: u12 = 0xFEE, //20-32 bits //Base Address
 };
 
 // see Processor's Manual Volume 3A: 10.11.2 MSI Message Data Register

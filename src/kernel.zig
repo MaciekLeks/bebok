@@ -15,6 +15,8 @@ const int = @import("int.zig");
 const smp = @import("smp.zig");
 const acpi = @import("acpi.zig");
 
+const apic_test = @import("arch/x86_64/apic.zig");
+
 const log = std.log.scoped(.kernel);
 
 pub export var base_revision: limine.BaseRevision = .{ .revision = 1 };
@@ -120,7 +122,11 @@ export fn _start() callconv(.C) noreturn {
     defer pcie.deinit(); //TODO: na pewno?
     //pci test end
 
+    //log.debug("waiting for the first interrupt", .{});
+    //apic_test.setTimerTest();
     cpu.sti();
+    //cpu.halt();
+    //log.debug("waiting for the first interrupt/2", .{});
 
     const data = Nvme.readToOwnedSlice(u8, heap.page_allocator, &Nvme.drive, 1, 0, 1) catch |err| blk: {
         log.err("Nvme read error: {}", .{err});
@@ -130,6 +136,7 @@ export fn _start() callconv(.C) noreturn {
     for (data.?) |d| {
         log.warn("Nvme data: {x}", .{d});
     }
+
     //
     // const data2 = Nvme.readToOwnedSlice(u8, heap.page_allocator, &Nvme.drive, 1, 1, 1) catch |err| blk: {
     //     log.err("Nvme read error 2: {}", .{err});

@@ -550,11 +550,11 @@ pub fn addMsixMessageTableEntry(msix_cap: MsixCap, bar: BAR, id: u11, vec_no: u8
     msi_x_te.* = .{
         .msg_addr = paging.virtFromMME(@as(u32, @bitCast(Pcie.MsiMessageAddressRegister{
             .destination_id = 0, //TODO promote to a parameter (CPUID)
-            .redirection_hint = 0,
-            .destination_mode = 0, //ignored
+            .rediration_hint = 0,
+            .dest_mode = 0, //ignored
         }))),
         .msg_data = @bitCast(Pcie.MsiMessageDataRegister{
-            .vec_no = vec_no, //TODO promote to a parameter
+            .vec_no = vec_no,
             .delivery_mode = .fixed,
             .trigger_mode = .edge,
             .level = 0,

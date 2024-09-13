@@ -8,13 +8,14 @@ const heap = @import("../mem/heap.zig").heap;
 const math = std.math;
 
 const cpu = @import("../cpu.zig");
+const apic_test = @import("../arch/x86_64/apic.zig");
 
 const nvme_class_code = 0x01;
 const nvme_subclass = 0x08;
 const nvme_prog_if = 0x02;
 
-const nvme_iosqs = 0x4; //submisstion queue size(length)
-const nvme_iocqs = 0x4; //completion queue size
+const nvme_iosqs = 0x8; //submisstion queue size(length)
+const nvme_iocqs = 0x8; //completion queue size
 const nvme_ioacqs = 0x2; //admin completion queue size
 const nvme_ioasqs = 0x2; //admin submission queue size
 
@@ -650,9 +651,9 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     }
 
     //MSI-X
-    pcie.addMsixMessageTableEntry(drive.msix_cap, drive.bar, 0x0, 0x31); //add 0x31 at 0x01 offset
+    pcie.addMsixMessageTableEntry(drive.msix_cap, drive.bar, 0x3, 0x33); //add 0x31 at 0x01 offset
     const unique_id = pcie.uniqueId(bus, slot, function);
-    int.addISR(@intCast(0x31), .{ .unique_id = unique_id, .func = handleInterrupt }) catch |err| {
+    int.addISR(@intCast(0x33), .{ .unique_id = unique_id, .func = handleInterrupt }) catch |err| {
         log.err("Failed to add NVMe interrupt handler: {}", .{err});
     };
 
@@ -1293,7 +1294,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
                 .qsize = nvme_iocqs,
                 .pc = true, // physically contiguous - the buddy allocator allocs memory in physically contiguous blocks
                 .ien = true, // interrupt enabled
-                .iv = 0x00, //TODO: msi_x - message table entry index
+                .iv = 0x03, //TODO: msi_x - message table entry index
             },
         })) catch |err| {
             log.err("Failed to execute Create CQ Command: {}", .{err});
@@ -1486,7 +1487,7 @@ fn executeAdminCommand(drv: *Drive, cmd: SQEntry) NvmeError!CQEntry {
 
 fn handleInterrupt() !void {
     drive.ready = true;
-    log.warn("We've got it: NVMe interrupt", .{});
+    log.warn("apic : MSI-X : We've got it: NVMe interrupt", .{});
 }
 
 fn execIOCommand(CDw0Type: type, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEntry {
@@ -1504,71 +1505,81 @@ fn execIOCommand(CDw0Type: type, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) 
 
     const cq_entry_ptr = &drv.cq[cqn].entries[drv.cq[cqn].head_pos];
 
+    cpu.cli();
+    cpu.sti();
+
     // press the doorbell
     drv.sq[sqn].tail_dbl.* = drv.sq[sqn].tail_pos;
     log.debug("commented out /3", .{});
 
     log.debug("commented out /4", .{});
 
+    _ = cq_entry_ptr;
+    //cpu.int(0x31);
+
+    log.debug("commented out /5", .{});
+
+    //apic_test.logRegistryState();
+
     while (!drv.ready) {
         log.debug("Waiting for the controller to be ready", .{});
         const pending_bit = pcie.readMsixPendingBit(drv.msix_cap, drv.bar, 0);
         log.debug("MSI-X pending bit: {}", .{pending_bit});
 
-        //cpu.halt();
+        cpu.halt();
     } //TODO: this is a temporary solution
 
-    //_ = cq_entry_ptr;
-    while (cq_entry_ptr.phase != drv.cq[cqn].expected_phase) {
-        const csts = readRegister(CSTSRegister, drv.bar, .csts);
-        if (csts.cfs == 1) {
-            log.err("Command failed", .{});
-            return NvmeError.InvalidCommand;
-        }
-        if (csts.shst != 0) {
-            if (csts.st == 1) log.err("NVE Subsystem is in shutdown state", .{}) else log.err("Controller is in shutdown state", .{});
-
-            log.err("Controller is in shutdown state", .{});
-            return NvmeError.InvalidCommand;
-        }
-        if (csts.nssro == 1) {
-            log.err("Controller is not ready", .{});
-            return NvmeError.InvalidCommand;
-        }
-        if (csts.pp == 1) {
-            log.err("Controller is in paused state", .{});
-            return NvmeError.InvalidCommand;
-        }
-    }
-
-    log.debug("commented out /5", .{});
-
-    // TODO: do we need to check if conntroller is ready to accept new commands?
-    //--  drv.asqa.header_pos = cqa_entry_ptr.sq_header_pos; //the controller position retuned in CQEntry as sq_header_pos
-
-    drv.cq[cqn].head_pos += 1;
-    if (drv.cq[cqn].head_pos >= drv.cq[cqn].entries.len) {
-        drv.cq[cqn].head_pos = 0;
-        // every new cycle we need to toggle the phase
-        drv.cq[cqn].expected_phase = ~drv.cq[cqn].expected_phase;
-    }
-
-    //press the doorbell
-    drv.cq[cqn].head_dbl.* = drv.cq[cqn].head_pos;
-
-    if (sqn != cq_entry_ptr.sq_id) {
-        log.err("Invalid SQ ID in CQEntry: {} for CDw0: {}", .{ cq_entry_ptr.*, cdw0 });
-        return NvmeError.InvalidCommandSequence;
-    }
-
-    if (cq_entry_ptr.status.sc != 0) {
-        log.err("Command failed: {}", .{cq_entry_ptr.*});
-        return NvmeError.AdminCommandFailed;
-    }
-
-    log.debug("Command executed successfully: CDw0: {}, CQEntry = {}", .{ cdw0, cq_entry_ptr.* });
-    return cq_entry_ptr.*;
-    // return CQEntry{};
+    // //_ = cq_entry_ptr;
+    // while (cq_entry_ptr.phase != drv.cq[cqn].expected_phase) {
+    //     const csts = readRegister(CSTSRegister, drv.bar, .csts);
+    //     if (csts.cfs == 1) {
+    //         log.err("Command failed", .{});
+    //         return NvmeError.InvalidCommand;
+    //     }
+    //     if (csts.shst != 0) {
+    //         if (csts.st == 1) log.err("NVE Subsystem is in shutdown state", .{}) else log.err("Controller is in shutdown state", .{});
+    //
+    //         log.err("Controller is in shutdown state", .{});
+    //         return NvmeError.InvalidCommand;
+    //     }
+    //     if (csts.nssro == 1) {
+    //         log.err("Controller is not ready", .{});
+    //         return NvmeError.InvalidCommand;
+    //     }
+    //     if (csts.pp == 1) {
+    //         log.err("Controller is in paused state", .{});
+    //         return NvmeError.InvalidCommand;
+    //     }
+    // }
+    //
+    // log.debug("commented out /5", .{});
+    //
+    // // TODO: do we need to check if conntroller is ready to accept new commands?
+    // //--  drv.asqa.header_pos = cqa_entry_ptr.sq_header_pos; //the controller position retuned in CQEntry as sq_header_pos
+    //
+    // drv.cq[cqn].head_pos += 1;
+    // if (drv.cq[cqn].head_pos >= drv.cq[cqn].entries.len) {
+    //     drv.cq[cqn].head_pos = 0;
+    //     // every new cycle we need to toggle the phase
+    //     drv.cq[cqn].expected_phase = ~drv.cq[cqn].expected_phase;
+    // }
+    //
+    // //press the doorbell
+    // drv.cq[cqn].head_dbl.* = drv.cq[cqn].head_pos;
+    //
+    // if (sqn != cq_entry_ptr.sq_id) {
+    //     log.err("Invalid SQ ID in CQEntry: {} for CDw0: {}", .{ cq_entry_ptr.*, cdw0 });
+    //     return NvmeError.InvalidCommandSequence;
+    // }
+    //
+    // if (cq_entry_ptr.status.sc != 0) {
+    //     log.err("Command failed: {}", .{cq_entry_ptr.*});
+    //     return NvmeError.AdminCommandFailed;
+    // }
+    //
+    // log.debug("Command executed successfully: CDw0: {}, CQEntry = {}", .{ cdw0, cq_entry_ptr.* });
+    // return cq_entry_ptr.*;
+    return CQEntry{};
 }
 
 fn executeIONvmCommand(drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEntry {
