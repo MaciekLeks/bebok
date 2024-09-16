@@ -61,3 +61,11 @@ pub fn addISR(vec_no: Int.VectorIndex, isr_handler: ISRHandler) !void {
 
     log.warn("Interrupt ISR Handller added for vector_no: 0x{x}; isr_map len: {d}", .{ vec_no, map.count() });
 }
+
+pub fn bindSampleISR(comptime vec_no: Int.VectorIndex) ISR {
+    return struct {
+        fn handle() Int.ISRError!void {
+            log.warn("ISR Handler called for vector_no: 0x{x}", .{vec_no});
+        }
+    }.handle;
+}

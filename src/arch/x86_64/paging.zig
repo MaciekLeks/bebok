@@ -390,12 +390,25 @@ pub fn PagingStructureEntry(comptime ps: PageSize, comptime lvl: Level) type {
 /// each table holds indexes of 512 entries, so we need only 9 bytes to store index
 /// Offset is 12 bits to address 4KiB page
 const Index = struct {
+    const Self = @This();
     pml4_idx: u9, //pml4
     pdpt_idx: u9, //pdpt
-    pd_idx: u9, //pd
-    pt_idx: u9, //pt
+    pd_idx_or_high_offset: u9, //pd
+    pt_idx_or_high_offset: u9, //pt
     //offset: u12,
-    offset: u30, //12 bites for 4k pages, 21 for 2m pages, 30 for 1g pages
+    offset: u12, //12 bites for 4k pages, 21 for 2m pages, 30 for 1g pages
+
+    pub fn yieldOffset(self: Self, comptime page_size: PageSize) switch (page_size) {
+        .ps4k => u12,
+        .ps2m => u21,
+        .ps1g => u30,
+    } {
+        return switch (page_size) {
+            .ps4k => self.offset,
+            .ps2m => (@as(u21, self.pt_idx_or_high_offset) << 12) + self.offset,
+            .ps1g => (@as(u30, self.pd_idx_or_high_offset) << 21) + (@as(u21, self.pt_idx_or_high_offset) << 12) + self.offset,
+        };
+    }
 };
 
 const Level = enum(u3) {
@@ -418,8 +431,8 @@ pub inline fn indexFromVaddr(virt: usize) Index {
     return .{
         .pml4_idx = @truncate(virt >> 39), //47->39
         .pdpt_idx = @truncate(virt >> 30), //39->30
-        .pd_idx = @truncate(virt >> 21), //30->21
-        .pt_idx = @truncate(virt >> 12), //21->12
+        .pd_idx_or_high_offset = @truncate(virt >> 21), //30->21
+        .pt_idx_or_high_offset = @truncate(virt >> 12), //21->12
         .offset = @truncate(virt), //12 bites
     };
 }
@@ -430,7 +443,7 @@ test indexFromVaddr {
 
 // Get virtual address from paging indexes
 pub inline fn virtFromIndex(pidx: Index) usize {
-    const addr = (@as(usize, pidx.pml4_idx) << 39) | (@as(usize, pidx.pdpt_idx) << 30) | (@as(usize, pidx.pd_idx) << 21) | @as(usize, pidx.pt_idx) << 12 | pidx.offset;
+    const addr = (@as(usize, pidx.pml4_idx) << 39) | (@as(usize, pidx.pdpt_idx) << 30) | (@as(usize, pidx.pd_idx_or_high_offset) << 21) | @as(usize, pidx.pt_idx_or_high_offset) << 12 | pidx.offset;
     switch (addr & @as(usize, 1) << 47) {
         0 => return addr & 0x7FFF_FFFF_FFFF,
         @as(usize, 1) << 47 => return addr | 0xFFFF_8000_0000_0000,
@@ -445,6 +458,7 @@ test virtFromIndex {
 
 pub fn physFromVirtInfo(virt: usize) !struct { phys: usize, lvl: Level, ps: PageSize } {
     const pidx = indexFromVaddr(virt);
+    log.debug("pidx: {any}", .{pidx});
 
     const pml4_table: ?[]Pml4e = tableFromIndex(.pml4, pidx) orelse return error.PageFault;
     const pdpt_table: ?[]Pdpte = pml4_table.?[pidx.pml4_idx].retrieveTable() orelse return error.PageFault;
@@ -453,22 +467,22 @@ pub fn physFromVirtInfo(virt: usize) !struct { phys: usize, lvl: Level, ps: Page
     if (!pdpte.present) return error.PageFault;
 
     if (pdpte.hudge) {
-        return .{ .phys = (@as(PagingStructureEntry(.ps1g, .pdpt), @bitCast(pdpte)).retrieveFrameVirt().? << @bitSizeOf(u30)) + pidx.offset, .lvl = .pdpt, .ps = .ps1g };
+        return .{ .phys = (@as(PagingStructureEntry(.ps1g, .pdpt), @bitCast(pdpte)).retrieveFrameVirt().? << @bitSizeOf(u30)) + pidx.yieldOffset(.ps1g), .lvl = .pdpt, .ps = .ps1g };
     }
 
     const pd_table: ?[]Pde = pdpte.retrieveTable() orelse return error.PageFault;
-    const pde = pd_table.?[pidx.pd_idx];
+    const pde = pd_table.?[pidx.pd_idx_or_high_offset];
     if (!pde.present) return error.PageFault;
 
     if (pde.hudge) {
-        return .{ .phys = (@as(PagingStructureEntry(.ps2m, .pd), @bitCast(pde)).retrieveFrameVirt().? << @bitSizeOf(u21)) + pidx.offset, .lvl = .pd, .ps = .ps2m };
+        return .{ .phys = (@as(PagingStructureEntry(.ps2m, .pd), @bitCast(pde)).retrieveFrameVirt().? << @bitSizeOf(u21)) + pidx.yieldOffset(.ps2m), .lvl = .pd, .ps = .ps2m };
     }
 
     const pt_table: ?[]Pte = pde.retrieveTable() orelse return error.PageFault;
-    const pte = pt_table.?[pidx.pt_idx];
+    const pte = pt_table.?[pidx.pt_idx_or_high_offset];
     if (!pte.present) return error.PageFault;
 
-    return .{ .phys = (@as(PagingStructureEntry(.ps4k, .pt), pte).retrieveFrameVirt().? << @bitSizeOf(u12)) + pidx.offset, .lvl = .pt, .ps = .ps4k };
+    return .{ .phys = (@as(PagingStructureEntry(.ps4k, .pt), pte).retrieveFrameVirt().? << @bitSizeOf(u12)) + pidx.yieldOffset(.ps4k), .lvl = .pt, .ps = .ps4k };
 }
 
 // Recursive get physical address from virtual address
@@ -484,22 +498,22 @@ pub fn recPhysFromVirtInfo(virt: usize) !struct { phys: usize, lvl: Level, ps: P
     if (!pdpte.present) return error.PageFault;
 
     if (pdpte.hudge) {
-        return .{ .phys = (@as(PagingStructureEntry(.ps1g, .pdpt), @bitCast(pdpte)).retrieveFrameVirt().? << @bitSizeOf(u30)) + pidx.offset, .lvl = .pdpt, .ps = .ps1g };
+        return .{ .phys = (@as(PagingStructureEntry(.ps1g, .pdpt), @bitCast(pdpte)).retrieveFrameVirt().? << @bitSizeOf(u30)) + pidx.yieldOffset(.ps1g), .lvl = .pdpt, .ps = .ps1g };
     }
 
     // check if pd entry is present
-    const pde = @as(*Pd, @ptrFromInt(RecInfo.pdTableAddr(pidx.pml4_idx, pidx.pdpt_idx)))[pidx.pd_idx];
+    const pde = @as(*Pd, @ptrFromInt(RecInfo.pdTableAddr(pidx.pml4_idx, pidx.pdpt_idx)))[pidx.pd_idx_or_high_offset];
     if (!pde.present) return error.PageFault;
 
     if (pde.hudge) {
-        return .{ .phys = (@as(PagingStructureEntry(.ps2m, .pd), @bitCast(pde)).retrieveFrameVirt().? << @bitSizeOf(u21)) + pidx.offset, .lvl = .pd, .ps = .ps2m };
+        return .{ .phys = (@as(PagingStructureEntry(.ps2m, .pd), @bitCast(pde)).retrieveFrameVirt().? << @bitSizeOf(u21)) + pidx.yieldOffset(.ps2m), .lvl = .pd, .ps = .ps2m };
     }
 
     // check if pt entry is present
-    const pte = @as(*Pt, @ptrFromInt(RecInfo.ptTableAddr(pidx.pml4_idx, pidx.pdpt_idx, pidx.pd_idx)))[pidx.pt_idx];
+    const pte = @as(*Pt, @ptrFromInt(RecInfo.ptTableAddr(pidx.pml4_idx, pidx.pdpt_idx, pidx.pd_idx_or_high_offset)))[pidx.pt_idx_or_high_offset];
     if (!pte.present) return error.PageFault;
 
-    return .{ .phys = (@as(PagingStructureEntry(.ps4k, .pt), pte).retrieveFrameVirt().? << @bitSizeOf(u12)) + pidx.offset, .lvl = .pt, .ps = .ps4k };
+    return .{ .phys = (@as(PagingStructureEntry(.ps4k, .pt), pte).retrieveFrameVirt().? << @bitSizeOf(u12)) + pidx.yieldOffset(.ps4k), .lvl = .pt, .ps = .ps4k };
 }
 
 pub inline fn physFromVirt(virt: usize) !usize {
@@ -533,7 +547,7 @@ inline fn tableFromIndex(comptime lvl: Level, pidx: Index) switch (lvl) {
             return tableFromIndex(.pdpt, pidx).?[pidx.pdpt_idx].retrieveTable();
         },
         .pt => {
-            return tableFromIndex(.pd, pidx).?[pidx.pd_idx].retrieveTable();
+            return tableFromIndex(.pd, pidx).?[pidx.pd_idx_or_high_offset].retrieveTable();
         },
     }
 }
@@ -578,7 +592,7 @@ pub fn lowestEntryFromVirtInfo(virt: usize) !GenericEntryInfo {
                 res = .{ .entry_ptr = @ptrCast(entry_ptr), .lvl = lvl_idx, .ps = .ps2m };
             },
             .pd => {
-                const entry_ptr = &table[pidx.pd_idx];
+                const entry_ptr = &table[pidx.pd_idx_or_high_offset];
                 if (!entry_ptr.present) {
                     return res;
                 }
@@ -590,7 +604,7 @@ pub fn lowestEntryFromVirtInfo(virt: usize) !GenericEntryInfo {
                 res = .{ .entry_ptr = @ptrCast(entry_ptr), .lvl = lvl_idx, .ps = .ps4k };
             },
             .pt => {
-                const entry_ptr = &table[pidx.pt_idx];
+                const entry_ptr = &table[pidx.pt_idx_or_high_offset];
                 if (!entry_ptr.present) {
                     return res;
                 }
@@ -623,14 +637,14 @@ pub fn recLowestEntryFromVirtInfo(virt: usize) !GenericEntryInfo {
 
     res = .{ .entry_ptr = @ptrCast(pdpte), .lvl = .pdpt, .ps = .ps2m };
 
-    const pde = &@as(*Pd, @ptrFromInt(RecInfo.pdTableAddr(pidx.pml4_idx, pidx.pdpt_idx)))[pidx.pd_idx];
+    const pde = &@as(*Pd, @ptrFromInt(RecInfo.pdTableAddr(pidx.pml4_idx, pidx.pdpt_idx)))[pidx.pd_idx_or_high_offset];
     if (!pde.present) return res;
 
     if (pde.hudge) {
         return .{ .entry_ptr = @ptrCast(pde), .lvl = .pd, .ps = .ps2m };
     }
 
-    const pte = &@as(*Pt, @ptrFromInt(RecInfo.ptTableAddr(pidx.pml4_idx, pidx.pdpt_idx, pidx.pd_idx)))[pidx.pt_idx];
+    const pte = &@as(*Pt, @ptrFromInt(RecInfo.ptTableAddr(pidx.pml4_idx, pidx.pdpt_idx, pidx.pd_idx_or_high_offset)))[pidx.pt_idx_or_high_offset];
     if (!pte.present) return res;
 
     return .{ .entry_ptr = @ptrCast(pte), .lvl = .pt, .ps = .ps4k };
@@ -673,21 +687,63 @@ pub fn debugLowestEntryFromVirt(virt: usize) void {
 var pml4t: []Pml4e = undefined;
 var pat: PAT = undefined;
 
-pub fn print_tlb() void {
-    for (pml4t, 0..) |e, i| {
+// pub fn print_tlb() void {
+//     for (pml4t, 0..) |e, i| {
+//         if (e.present) {
+//             log.err("tlb_pml4[{d:0>3}]@{*}: 0x{x} -> {any} of {}", .{ i, &e, e.aligned_address_4kbytes, e.retrieveTable(), e });
+//             for (e.retrieveTable().?) |pdpte| {
+//                 if (pdpte.present) {
+//                     log.err("pdpte: {}", .{pdpte});
+//                     for (pdpte.retrieveTable().?) |pde| {
+//                         if (pde.present) {
+//                             log.err("pde: {}", .{pde});
+//                             //                 for (pde.retrieve_table()) |pte| {
+//                             //                     if (pte.present) {
+//                             //                         log.warn("pte: 0x{x} -> {*}", .{ pte.aligned_address_4kbytes, pte.retrieve_frame_address() });
+//                             //                     }
+//                             //                 }
+//                         }
+//                     }
+//                 }
+//             }
+//         }
+//     }
+// }
+//
+
+// Partially implemented for 4kbytes pages and 2mbytes pages; Does not iterate over page/frame entries
+// TODO:implement it for 1gbytes and for all offsets inside a page
+pub fn findPhys(phys: usize) void {
+    for (pml4t, 0..) |e, lvl4_idx| {
         if (e.present) {
-            log.err("tlb_pml4[{d:0>3}]@{*}: 0x{x} -> {any} of {}", .{ i, &e, e.aligned_address_4kbytes, e.retrieveTable(), e });
-            for (e.retrieveTable().?) |pdpte| {
+            //log.err("findPhys: tlb_pml4[{d:0>3}]@{*}: 0x{x} -> {any} of {}", .{ i, &e, e.aligned_address_4kbytes, e.retrieveTable(), e });
+            for (e.retrieveTable().?, 0..) |pdpte, lvl3_idx| {
                 if (pdpte.present) {
-                    log.err("pdpte: {}", .{pdpte});
-                    for (pdpte.retrieveTable().?) |pde| {
+                    //log.err("findPhys: pdpte: {}", .{pdpte});
+                    for (pdpte.retrieveTable().?, 0..) |pde, lvl2_idx| {
                         if (pde.present) {
-                            log.err("pde: {}", .{pde});
-                            //                 for (pde.retrieve_table()) |pte| {
-                            //                     if (pte.present) {
-                            //                         log.warn("pte: 0x{x} -> {*}", .{ pte.aligned_address_4kbytes, pte.retrieve_frame_address() });
-                            //                     }
-                            //                 }
+                            //log.err("findPhys: pde: {}", .{pde});
+                            if (pde.hudge) {
+                                const pde_phys = (@as(PagingStructureEntry(.ps2m, .pd), @bitCast(pde)).retrieveFrameVirt().?) << @bitSizeOf(u21);
+                                //log.err("findPhys: found pde huge: {}, phys: 0x{x}", .{ pde, phys });
+                                if (pde_phys == phys) {
+                                    log.err("findPhys: found pde huge: pml4t[{d}]={} pdpt[{d}]={}, pd[{d}]={}, phys=0x{x}", .{ lvl4_idx, e, lvl3_idx, pdpte, lvl2_idx, pde, phys });
+                                    const virt = virtFromIndex(.{ .pml4_idx = @intCast(lvl4_idx), .pdpt_idx = @intCast(lvl3_idx), .pd_idx_or_high_offset = @intCast(lvl2_idx), .pt_idx_or_high_offset = 0, .offset = 0 });
+                                    log.err("findPhys: virt: 0x{x}", .{virt});
+
+                                    return;
+                                }
+                            } else {
+                                for (pde.retrieveTable().?) |pte| {
+                                    if (pte.present) {
+                                        const pte_phys = (@as(PagingStructureEntry(.ps4k, .pt), pte).retrieveFrameVirt().?) << @bitSizeOf(u12);
+                                        if (pte_phys == phys) {
+                                            log.err("findPhys: found pte: {}, phys: 0x{x}", .{ pde, phys });
+                                            return;
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -731,7 +787,7 @@ pub fn init() !void {
     pml4t[510] = .{ .present = true, .writable = true, .aligned_address_4kbytes = @truncate(cr3_formatted.aligned_address_4kbytes) };
 
     //const lvl4e = retrieveEntryFromVaddr(Pml4e, .four_level, default_page_size, .lvl4, 0xffff_8000_fe80_0000);
-    //log.warn("cr3 -> 0x{x}", .{cpu.cr3()});
+    log.warn("cr3 -> 0x{x}", .{cpu.cr3()});
     //log.warn("pml4 ptr -> {*}\n\n", .{pml4t.ptr});
     //
     //const vaddr_test = 0xffff_8000_fe80_0000;
@@ -760,17 +816,27 @@ pub fn init() !void {
     // //wite loop to iterate over each element of address in the table
     const vt = [_]usize{ virtFromMME(0x4d00), virtFromMME(0x10_0000), virtFromMME(0x7fa61000), virtFromMME(0x7fa63000), virtFromMME(0xfee0_0000) };
     for (vt) |vaddr| {
-        log.err("------: 0x{x}", .{vaddr});
+        log.err("Virtual Adddress to check: 0x{x}", .{vaddr});
 
-        const vaddr_info = try recLowestEntryFromVirtInfo(vaddr);
-        log.err("TABLE:  0x{x} -> {any}", .{ vaddr, vaddr_info });
-        const phys_by_rec = recPhysFromVirt(vaddr) catch |err| {
-            log.err("recPhysFromVirtvirt: 0x{x} -> error: {}", .{ vaddr, err });
+        // const vaddr_info = try recLowestEntryFromVirtInfo(vaddr);
+        // log.err("Paging Table:  0x{x} -> {any}", .{ vaddr, vaddr_info });
+        // const phys_by_rec = recPhysFromVirt(vaddr) catch |err| {
+        //     log.err("Call function recPhysFromVirtvirt: 0x{x} -> error: {}", .{ vaddr, err });
+        //     continue;
+        // };
+        const vaddr_info = try lowestEntryFromVirtInfo(vaddr);
+        log.err("Paging Table:  0x{x} -> {any}", .{ vaddr, vaddr_info });
+        const phys_rec = physFromVirt(vaddr) catch |err| {
+            log.err("Call function physFromVirtvirt: 0x{x} -> error: {}", .{ vaddr, err });
             continue;
         };
 
-        log.err("recPhyFromVirt: vaddr: 0x{x} -> 0x{x}", .{ vaddr, phys_by_rec });
+        log.err("Call function phyFromVirt: vaddr: 0x{x} -> 0x{x}", .{ vaddr, phys_rec });
     }
+
+    log.info("Find phys 0xfee0_0000", .{});
+    findPhys(0xfee0_0000);
+
     //
     //
     //

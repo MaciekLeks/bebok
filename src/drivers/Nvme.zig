@@ -549,7 +549,7 @@ const Drive = struct {
     //-   sqa_tail_pos: u32 = 0, // private counter to keep track and update sqa_tail_dbl
     //-   sqa_header_pos: u32 = 0, //contoller position retuned in CQEntry as sq_header_pos
     //-   sqa_tail_dbl: *volatile u32 = undefined, //each doorbell value is u32, minmal doorbell stride is 4 (2^(2+CAP.DSTRD))
-    //-   cqa_head_pos: u32 = 0,
+    //-   cqa_head_pos: u32 = 0 ,
     //-   cqa_head_dbl: *volatile u32 = undefined, //each doorbell value is u32, minmal doorbell stride is 4 (2^(2+CAP.DSTRD))
 
     //sq_tail_pos: u32 = 0, //private counter to keep track and update sq_tail_dbl
@@ -651,11 +651,21 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     }
 
     //MSI-X
-    pcie.addMsixMessageTableEntry(drive.msix_cap, drive.bar, 0x3, 0x33); //add 0x31 at 0x01 offset
     const unique_id = pcie.uniqueId(bus, slot, function);
     int.addISR(@intCast(0x33), .{ .unique_id = unique_id, .func = handleInterrupt }) catch |err| {
         log.err("Failed to add NVMe interrupt handler: {}", .{err});
     };
+    pcie.addMsixMessageTableEntry(drive.msix_cap, drive.bar, 0x9, 0x33); //add 0x31 at 0x01 offset
+
+    // inline for (0x0.., 0..64) |vec_no, ivt_idx| {
+    //     pcie.addMsixMessageTableEntry(drive.msix_cap, drive.bar, @intCast(ivt_idx), @intCast(vec_no)); //add 0x31 at 0x01 offset
+    //     int.addISR(
+    //         @intCast(vec_no),
+    //         .{ .unique_id = @intCast(ivt_idx + 100), .func = int.bindSampleISR(@intCast(vec_no)) },
+    //     ) catch |err| {
+    //         log.err("Failed to add NVMe interrupt handler: {}", .{err});
+    //     };
+    // }
 
     //log pending bit in MSI-X
     const pending_bit = pcie.readMsixPendingBit(drive.msix_cap, drive.bar, 0x0);
@@ -1294,7 +1304,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
                 .qsize = nvme_iocqs,
                 .pc = true, // physically contiguous - the buddy allocator allocs memory in physically contiguous blocks
                 .ien = true, // interrupt enabled
-                .iv = 0x03, //TODO: msi_x - message table entry index
+                .iv = 0x09, //TODO: msi_x - message table entry index
             },
         })) catch |err| {
             log.err("Failed to execute Create CQ Command: {}", .{err});
@@ -1505,9 +1515,6 @@ fn execIOCommand(CDw0Type: type, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) 
 
     const cq_entry_ptr = &drv.cq[cqn].entries[drv.cq[cqn].head_pos];
 
-    cpu.cli();
-    cpu.sti();
-
     // press the doorbell
     drv.sq[sqn].tail_dbl.* = drv.sq[sqn].tail_pos;
     log.debug("commented out /3", .{});
@@ -1525,7 +1532,7 @@ fn execIOCommand(CDw0Type: type, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) 
         log.debug("Waiting for the controller to be ready", .{});
         const pending_bit = pcie.readMsixPendingBit(drv.msix_cap, drv.bar, 0);
         log.debug("MSI-X pending bit: {}", .{pending_bit});
-
+        apic_test.logRegistryState();
         cpu.halt();
     } //TODO: this is a temporary solution
 

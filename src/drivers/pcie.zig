@@ -103,6 +103,22 @@ pub const BAR = struct {
     },
 };
 
+pub const Command = packed struct(u16) {
+    iose: bool, //I/O Space Enable
+    mse: bool, //Memory Space Enable
+    bme: bool, //Bus Master Enable
+    sce: bool, //Special Cycle Enable
+    mwie: bool, //Memory Write and Invalidate Enable
+    vga: bool, //VGA Palette Snoop
+    pee: bool, //Parity Error Response Enable
+    rsvd_a: u1, //Reserved
+    see: bool, //SERR# Enable
+    fbe: bool, //Fast Back-to-Back Enable
+    id: bool, //Interrupt Disable
+    rsrvd_b: u5, //Reserved
+
+};
+
 pub const VersionCap = packed struct(u32) {
     cid: u8 = 0x10, //must be 0x01
     next: u8, //Next Capability Offset
@@ -366,7 +382,7 @@ fn checkFunction(bus: u8, slot: u5, function: u3) PciError!void {
     const device_id = readRegisterWithArgs(u16, .device_id, function, slot, bus);
     const interrupt_line = readRegisterWithArgs(u8, .interrupt_line, function, slot, bus);
     const interrupt_pin = readRegisterWithArgs(u8, .interrupt_pin, function, slot, bus);
-    const command = readRegisterWithArgs(u16, .command, function, slot, bus);
+    const command: Command = @bitCast(readRegisterWithArgs(u16, .command, function, slot, bus));
     const status = readRegisterWithArgs(u16, .status, function, slot, bus);
     const capabilities_pointer = readRegisterWithArgs(u8, .capability_pointer, function, slot, bus);
 
@@ -402,7 +418,7 @@ fn checkFunction(bus: u8, slot: u5, function: u3) PciError!void {
             \\bar: {}, 
             \\bar.addr: 0x{x}, 
             \\size: {d}GB, {d}MB, {d}KB, 
-            \\command: 0b{b:0>16}, 
+            \\command: {}, 
             \\status: 0b{b:0>16}",
             \\capabilities_pointer: 0x{x}, 
         , .{
