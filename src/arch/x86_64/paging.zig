@@ -127,9 +127,9 @@ pub fn adjustPageAreaPAT(virt: usize, sz: usize, req_pat: PATType) !void {
     const pg_entry_info = try recLowestEntryFromVirtInfo(virt);
     const pg_sz = @intFromEnum(pg_entry_info.ps);
     const pg_mask: usize = pg_sz - 1;
-    const size_adjusted = if (sz % pg_sz != 0) (sz + pg_mask) & ~pg_mask else sz;
 
-    var rem_sz = size_adjusted; //remaining size
+    // Remaing size to adjust, it's a multiple of page size
+    var rem_sz = if (sz % pg_sz != 0) (sz + pg_mask) & ~pg_mask else sz;
     var cur_virt = virt;
 
     while (rem_sz > 0) : (rem_sz -= pg_sz) {
