@@ -208,7 +208,7 @@ fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, debug: bool, bios_path
                 //"-M", "q35", //for PCIe and NVMe support
                 "-M", "q35", //see qemu-system-x86_64 -M help
                 "-m", "2G", //Memory size
-                //"-smp", "1", //one processor only
+                "-smp", "1", //one processor only
                 // "-cpu", "qemu64,+apic", // TODO: enable 1GB and 2MB pages, for now we turn them off
                 // "-enable-kvm", //to be able to use host cpu
                 //"-bios", bios_path, //we need ACPI >=2.0

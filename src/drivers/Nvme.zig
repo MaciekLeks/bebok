@@ -19,6 +19,9 @@ const nvme_iocqs = 0x8; //completion queue size
 const nvme_ioacqs = 0x2; //admin completion queue size
 const nvme_ioasqs = 0x2; //admin submission queue size
 
+const tmp_msix_table_idx = 0x0;
+const tmp_irq = 0x33;
+
 //const nvme_ncqr = 0x1 + 0x1; //number of completion queues requested (+1 is admin cq)
 //const nvme_nsqr = nvme_ncqr; //number of submission queues requested
 
@@ -596,6 +599,14 @@ pub fn interested(_: Self, class_code: u8, subclass: u8, prog_if: u8) bool {
     return class_code == nvme_class_code and subclass == nvme_subclass and prog_if == nvme_prog_if;
 }
 
+fn configureMsix(function: u3, slot: u5, bus: u8, msix_table_idx: u11, int_vec_no: u8) !void {
+    const unique_id = pcie.uniqueId(bus, slot, function);
+    try int.addISR(@intCast(int_vec_no), .{ .unique_id = unique_id, .func = handleInterrupt });
+    pcie.addMsixMessageTableEntry(drive.msix_cap, drive.bar, msix_table_idx, int_vec_no); //add 0x31 at 0x01 offset
+
+    pcie.writeMsixPendingBitArrayBit(drive.msix_cap, drive.bar, msix_table_idx, 0); //set pending bit for 0x09
+}
+
 pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
 
     //const pcie_version = try pcie.readPcieVersion(function, slot, bus); //we need PCIe version 2.0 at least
@@ -651,12 +662,15 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     }
 
     //MSI-X
-    const unique_id = pcie.uniqueId(bus, slot, function);
-    int.addISR(@intCast(0x33), .{ .unique_id = unique_id, .func = handleInterrupt }) catch |err| {
-        log.err("Failed to add NVMe interrupt handler: {}", .{err});
+    configureMsix(function, slot, bus, 0x0, 0x33) catch |err| {
+        log.err("Failed to configure MSI-X: {}", .{err});
     };
-    pcie.addMsixMessageTableEntry(drive.msix_cap, drive.bar, 0x9, 0x33); //add 0x31 at 0x01 offset
-
+    // const unique_id = pcie.uniqueId(bus, slot, function);
+    // int.addISR(@intCast(0x33), .{ .unique_id = unique_id, .func = handleInterrupt }) catch |err| {
+    //     log.err("Failed to add NVMe interrupt handler: {}", .{err});
+    // };
+    // pcie.addMsixMessageTableEntry(drive.msix_cap, drive.bar, 0x9, 0x33); //add 0x31 at 0x01 offset
+    //
     // inline for (0x0.., 0..64) |vec_no, ivt_idx| {
     //     pcie.addMsixMessageTableEntry(drive.msix_cap, drive.bar, @intCast(ivt_idx), @intCast(vec_no)); //add 0x31 at 0x01 offset
     //     int.addISR(
@@ -668,7 +682,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     // }
 
     //log pending bit in MSI-X
-    const pending_bit = pcie.readMsixPendingBit(drive.msix_cap, drive.bar, 0x0);
+    const pending_bit = pcie.readMsixPendingBitArrayBit(drive.msix_cap, drive.bar, 0x0);
     log.info("MSI-X pending bit: {}", .{pending_bit});
 
     //  bus-mastering DMA, and memory space access in the PCI configuration space
@@ -698,6 +712,9 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
         .as32 => drive.bar.size.as32,
         .as64 => drive.bar.size.as64,
     };
+
+    //TODO uncomment this
+    log.debug("Adjusting page area for NVMe BAR: {} size: {}", .{ virt, size });
     paging.adjustPageAreaPAT(virt, size, .write_through) catch |err| {
         log.err("Failed to adjust page area PAT for NVMe BAR: {}", .{err});
         return;
@@ -1304,7 +1321,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
                 .qsize = nvme_iocqs,
                 .pc = true, // physically contiguous - the buddy allocator allocs memory in physically contiguous blocks
                 .ien = true, // interrupt enabled
-                .iv = 0x09, //TODO: msi_x - message table entry index
+                .iv = tmp_msix_table_idx, //TODO: msi_x - message table entry index
             },
         })) catch |err| {
             log.err("Failed to execute Create CQ Command: {}", .{err});
@@ -1497,7 +1514,7 @@ fn executeAdminCommand(drv: *Drive, cmd: SQEntry) NvmeError!CQEntry {
 
 fn handleInterrupt() !void {
     drive.ready = true;
-    log.warn("apic : MSI-X : We've got it: NVMe interrupt", .{});
+    log.warn("apic : MSI-X : We've got it: NVMe interrupt handled.", .{});
 }
 
 fn execIOCommand(CDw0Type: type, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEntry {
@@ -1530,7 +1547,7 @@ fn execIOCommand(CDw0Type: type, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) 
 
     while (!drv.ready) {
         log.debug("Waiting for the controller to be ready", .{});
-        const pending_bit = pcie.readMsixPendingBit(drv.msix_cap, drv.bar, 0);
+        const pending_bit = pcie.readMsixPendingBitArrayBit(drv.msix_cap, drv.bar, tmp_msix_table_idx);
         log.debug("MSI-X pending bit: {}", .{pending_bit});
         apic_test.logRegistryState();
         cpu.halt();

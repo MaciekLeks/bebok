@@ -12,7 +12,7 @@ const term = @import("terminal");
 const pcie = @import("drivers/pcie.zig");
 const Nvme = @import("drivers/Nvme.zig");
 const int = @import("int.zig");
-const smp = @import("smp.zig");
+//const smp = @import("smp.zig");
 const acpi = @import("acpi.zig");
 
 const apic_test = @import("arch/x86_64/apic.zig");
@@ -67,7 +67,8 @@ export fn _start() callconv(.C) noreturn {
         cpu.halt();
     }
 
-    smp.init();
+    //TODO: uncomment out this block if LAPIC problem is solved
+    //smp.init();
 
     cpu.cli();
     segmentation.init();

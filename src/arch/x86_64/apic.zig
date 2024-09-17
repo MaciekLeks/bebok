@@ -141,7 +141,7 @@ pub fn logRegistryState() void {
     const fields = @typeInfo(LapicRegisterOffset).@"enum".fields;
     log.info("Local APIC Register State", .{});
     inline for (fields) |field| {
-        const val align(128) = readRegister(u32, @enumFromInt(field.value));
+        const val align(16) = readRegister(u32, @enumFromInt(field.value));
         log.info("Local APIC Register: {s} -> value:0x{x} at 0x{*}", .{ field.name, val, &val });
     }
 }

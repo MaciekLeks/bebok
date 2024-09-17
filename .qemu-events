@@ -2,3 +2,4 @@ pci_nvme_*
 apic_*
 cpu_set_apic_base
 cpu_get_apic_base
+msix_*

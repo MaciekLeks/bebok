@@ -589,17 +589,39 @@ pub fn addMsixMessageTableEntry(msix_cap: MsixCap, bar: BAR, id: u11, vec_no: u8
     //log.debug("MSI-X table entry added: {} @ {*}", .{ msi_x_te.*, msi_x_te });
 }
 
-pub fn readMsixPendingBit(msix_cap: MsixCap, bar: BAR, id: u11) bool {
+// pub fn readMsixPendingBit(msix_cap: MsixCap, bar: BAR, id: u11) bool {
+//     const virt = switch (bar.address) {
+//         inline else => |addr| paging.virtFromMME(addr),
+//     };
+//     const aligned_pending_bit_offset: u32 = msix_cap.pbao << 3;
+//
+//     //pending bit array is an aray of bit values, e.g. id=9 means the 1st bit in the second byte
+//     const byte_no = id / 8;
+//     const bit_no: u3 = @intCast(id % 8);
+//
+//     //read the bit
+//     const pending_bit = @as(*const u8, @ptrFromInt(virt + aligned_pending_bit_offset + byte_no));
+//     return pending_bit.* & ((@as(u8, 1) << bit_no)) != 0;
+// }
+//
+pub fn readMsixPendingBitArrayBit(msix_cap: MsixCap, bar: BAR, msix_table_idx: u11) u1 {
     const virt = switch (bar.address) {
         inline else => |addr| paging.virtFromMME(addr),
     };
     const aligned_pending_bit_offset: u32 = msix_cap.pbao << 3;
+    // every bit under the PBA is a value of pending messgae in the Msix Table  (not interrupt vector number)
+    const pending_bit: *volatile u1 = @as(*volatile u1, @ptrFromInt(virt + aligned_pending_bit_offset + msix_table_idx));
+    log.debug("MSI-X pending bit: {}", .{pending_bit.*});
+    return pending_bit.*;
+}
 
-    //pending bit array is an aray of bit values, e.g. id=9 means the 1st bit in the second byte
-    const byte_no = id / 8;
-    const bit_no: u3 = @intCast(id % 8);
-
-    //read the bit
-    const pending_bit = @as(*const u8, @ptrFromInt(virt + aligned_pending_bit_offset + byte_no));
-    return pending_bit.* & ((@as(u8, 1) << bit_no)) != 0;
+pub fn writeMsixPendingBitArrayBit(msix_cap: MsixCap, bar: BAR, msix_table_idx: u11, value: u1) void {
+    const virt = switch (bar.address) {
+        inline else => |addr| paging.virtFromMME(addr),
+    };
+    const aligned_pending_bit_offset: u32 = msix_cap.pbao << 3;
+    // every bit under the PBA is a value of pending messgae in the Msix Table  (not interrupt vector number)
+    const pending_bit: *volatile u1 = @as(*volatile u1, @ptrFromInt(virt + aligned_pending_bit_offset + msix_table_idx));
+    pending_bit.* = value;
+    log.debug("MSI-X pending bit set: {}", .{pending_bit.*});
 }

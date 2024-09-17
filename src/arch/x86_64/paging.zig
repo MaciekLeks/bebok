@@ -118,19 +118,23 @@ fn adjustPagePAT(virt: usize, page_entry_info: GenericEntryInfo, req_pat: PATTyp
     }
 }
 
-// TODO: test for 4kb page sizes
-pub fn adjustPageAreaPAT(virt: usize, size: usize, req_pat: PATType) !void {
-    if (size == 0) return;
-    const page_entry_info = try recLowestEntryFromVirtInfo(virt);
-    const page_size = @intFromEnum(page_entry_info.ps);
-    const page_mask: usize = page_size - 1;
-    const size_adjusted = if (size % page_size != 0) (size + page_mask) & ~page_mask else size;
+/// Set a new PAT type for the given virtual address and size (one or more pages)
+/// @param virt: Virtual address
+/// @param sz: Size in bytes of the area to adjust
+/// @param req_pat: Requested PAT type
+pub fn adjustPageAreaPAT(virt: usize, sz: usize, req_pat: PATType) !void {
+    if (sz == 0) return;
+    const pg_entry_info = try recLowestEntryFromVirtInfo(virt);
+    const pg_sz = @intFromEnum(pg_entry_info.ps);
+    const pg_mask: usize = pg_sz - 1;
+    const size_adjusted = if (sz % pg_sz != 0) (sz + pg_mask) & ~pg_mask else sz;
 
-    adjustPagePAT(virt, page_entry_info, req_pat);
-    var sz = size_adjusted;
-    while (sz > page_size) {
-        try adjustPageAreaPAT(virt + size_adjusted, size_adjusted - page_size, req_pat);
-        sz += size_adjusted;
+    var rem_sz = size_adjusted; //remaining size
+    var cur_virt = virt;
+
+    while (rem_sz > 0) : (rem_sz -= pg_sz) {
+        adjustPagePAT(virt, pg_entry_info, req_pat);
+        cur_virt += pg_sz;
     }
 }
 
@@ -834,8 +838,8 @@ pub fn init() !void {
         log.err("Call function phyFromVirt: vaddr: 0x{x} -> 0x{x}", .{ vaddr, phys_rec });
     }
 
-    log.info("Find phys 0xfee0_0000", .{});
-    findPhys(0xfee0_0000);
+    //   log.info("Find phys 0xfee0_0000", .{});
+    //   findPhys(0xfee0_0000);
 
     //
     //
