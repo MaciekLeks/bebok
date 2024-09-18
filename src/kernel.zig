@@ -139,14 +139,14 @@ export fn _start() callconv(.C) noreturn {
         };
     }
 
-    // const data = Nvme.readToOwnedSlice(u8, heap.page_allocator, &Nvme.drive, 1, 0, 1) catch |err| blk: {
-    //     log.err("Nvme read error: {}", .{err});
-    //     break :blk null;
-    // };
-    // if (data) |block| heap.page_allocator.free(block);
-    // for (data.?) |d| {
-    //     log.warn("Nvme data: {x}", .{d});
-    // }
+    const data = Nvme.readToOwnedSlice(u8, heap.page_allocator, &Nvme.drive, 1, 0, 1) catch |err| blk: {
+        log.err("Nvme read error: {}", .{err});
+        break :blk null;
+    };
+    if (data) |block| heap.page_allocator.free(block);
+    for (data.?) |d| {
+        log.warn("Nvme data: {x}", .{d});
+    }
     //
     //
     // const data2 = Nvme.readToOwnedSlice(u8, heap.page_allocator, &Nvme.drive, 1, 1, 1) catch |err| blk: {

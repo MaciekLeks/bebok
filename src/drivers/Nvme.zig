@@ -1738,7 +1738,7 @@ pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: *Drive, nsid
                 .prp = .{ .prp1 = prp1_phys, .prp2 = prp2_phys },
             },
             .slba = slba,
-            .nlb = nlba,
+            .nlb = nlba - 1, //0's based value
             .stc = 0, //no streaming
             .prinfo = 0, //no protection info
             .fua = 0, //no force unit access
@@ -1764,6 +1764,12 @@ pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: *Drive, nsid
     return data;
 }
 
+/// Write to the NVMe drive
+/// @param allocator : Allocator to allocate memory for PRP list
+/// @param drv : Drive
+/// @param nsid : Namespace ID
+/// @param slba : Start Logical Block Address
+/// @param data : Data to write
 pub fn write(T: type, allocator: std.mem.Allocator, drv: *Drive, nsid: u32, slba: u64, data: []const T) !void {
     const ns: NsInfo = drv.ns_info_map.get(nsid) orelse {
         log.err("Namespace {d} not found", .{nsid});
@@ -1863,7 +1869,7 @@ pub fn write(T: type, allocator: std.mem.Allocator, drv: *Drive, nsid: u32, slba
                 .prp = .{ .prp1 = prp1_phys, .prp2 = prp2_phys },
             },
             .slba = slba,
-            .nlb = nlba,
+            .nlb = nlba - 1, //0's based value
             .dtype = 0, //no streaming TODO:???
             .stc = 0, //no streaming
             .prinfo = 0, //no protection info
