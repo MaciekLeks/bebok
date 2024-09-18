@@ -133,7 +133,7 @@ export fn _start() callconv(.C) noreturn {
         log.info("Writing to NVMe starts.", .{});
         defer log.info("Writing to NVMe ends.", .{});
 
-        const mlk_data: []const u8 = &.{ 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 };
+        const mlk_data: []const u8 = &.{ 'M', 'a', 'c', 'i', 'e', 'k', ' ', 'L', 'e', 'k', 's', ' ', 'x' };
         Nvme.write(u8, heap.page_allocator, &Nvme.drive, 1, 0, mlk_data) catch |err| {
             log.err("Nvme write error: {}", .{err});
         };

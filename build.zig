@@ -4,7 +4,7 @@ const Target = std.Target;
 const Feature = std.Target.Cpu.Feature;
 
 const bebok_iso_filename = "bebok.iso";
-const bebok_disk_img_filename = "disk.qcow2";
+const bebok_disk_img_filename = "disk.img";
 const kernel_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 };
 
 // fn nasmRun(b: *Build, src: []const u8, dst: []const u8, options: []const []const u8, prev_step: ?*Build.Step) error{OutOfMemory}!*Build.Step {
@@ -170,7 +170,7 @@ fn buildDiskImgFileAction(b: *Build, out_file: *Build.LazyPath) *Build.Step.Run 
     const qemu_img_action = b.addSystemCommand(&.{"qemu-img"});
     qemu_img_action.addArg("create");
     qemu_img_action.addArg("-f");
-    qemu_img_action.addArg("qcow2");
+    qemu_img_action.addArg("raw");
     out_file.* = qemu_img_action.addOutputFileArg(bebok_disk_img_filename); //output file is not the last one in the sequence of args, we can't add it from outside
     qemu_img_action.addArg("1G");
     return qemu_img_action;
@@ -224,13 +224,13 @@ fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, debug: bool, bios_path
             });
             qemu_iso_action.addArgs(&.{ //NVMe controller
                 "-device",
-                "nvme,drive=drv0,serial=1,bus=pcie_port0,use-intel-id=on,max_ioqpairs=1",
+                "nvme,drive=drv0,serial=deadbeef,bus=pcie_port0,use-intel-id=on,max_ioqpairs=1",
                 //"nvme,serial=1,bus=pcie_port0,use-intel-id=on",
             });
             qemu_iso_action.addArg("-drive");
             //> TODO: can't take installed artifact LazyPAth, see my issue: https://stackoverflow.com/questions/78499409/buid-system-getting-installed-relative-path
             //qemu_iso_action.addArg(try std.fmt.allocPrint(b.allocator, "file={s}/{s},format=qcow2,if=none,id=drv0", .{b.install_prefix, bebok_disk_img_filename}));
-            qemu_iso_action.addArg(try std.fmt.allocPrint(b.allocator, "file={s},format=qcow2,if=none,id=drv0", .{b.getInstallPath(.prefix, bebok_disk_img_filename)}));
+            qemu_iso_action.addArg(try std.fmt.allocPrint(b.allocator, "file={s},format=raw,if=none,id=drv0", .{b.getInstallPath(.prefix, bebok_disk_img_filename)}));
             //boot from cdrom
             qemu_iso_action.addArgs(&.{
                 "-boot",
