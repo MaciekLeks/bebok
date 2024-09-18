@@ -129,15 +129,25 @@ export fn _start() callconv(.C) noreturn {
     //cpu.halt();
     //log.debug("waiting for the first interrupt/2", .{});
 
-    const data = Nvme.readToOwnedSlice(u8, heap.page_allocator, &Nvme.drive, 1, 0, 1) catch |err| blk: {
-        log.err("Nvme read error: {}", .{err});
-        break :blk null;
-    };
-    if (data) |block| heap.page_allocator.free(block);
-    for (data.?) |d| {
-        log.warn("Nvme data: {x}", .{d});
+    {
+        log.info("Writing to NVMe starts.", .{});
+        defer log.info("Writing to NVMe ends.", .{});
+
+        const mlk_data: []const u8 = &.{ 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 };
+        Nvme.write(u8, heap.page_allocator, &Nvme.drive, 1, 0, mlk_data) catch |err| {
+            log.err("Nvme write error: {}", .{err});
+        };
     }
 
+    // const data = Nvme.readToOwnedSlice(u8, heap.page_allocator, &Nvme.drive, 1, 0, 1) catch |err| blk: {
+    //     log.err("Nvme read error: {}", .{err});
+    //     break :blk null;
+    // };
+    // if (data) |block| heap.page_allocator.free(block);
+    // for (data.?) |d| {
+    //     log.warn("Nvme data: {x}", .{d});
+    // }
+    //
     //
     // const data2 = Nvme.readToOwnedSlice(u8, heap.page_allocator, &Nvme.drive, 1, 1, 1) catch |err| blk: {
     //     log.err("Nvme read error 2: {}", .{err});

@@ -315,6 +315,29 @@ const IoNvmCommandSetCommand = packed union {
         elbat: u16, //cdw15 - Expected Logical Block Application Tag
         elbatm: u16, //cdw15 - Expected Logical Block Application Tag Mask
     },
+    write: packed struct(u512) {
+        cdw0: IoNvmCDw0, //cdw0
+        nsid: NsId, //cdw1
+        lbst_ilbst_a: u48, //cdw2,cdw3
+        rsrv_a: u16 = 0, //cdw3
+        mptr: u64, //cdw4,cdw5
+        dptr: DataPointer, //cdw6,cdw7,cdw8,cdw9
+        slba: u64, //cdw10,cdw11
+        nlb: u16, //cdw12
+        rsrv_b: u4 = 0, //cdw12
+        dtype: u4, //cdw12 - Directive type
+        stc: u1, //cdw12 - Storage Tag Check
+        rsrv_c: u1 = 0, //cdw12
+        prinfo: u4, //cdw12 - Protection Information Field
+        fua: u1, //cdw12 - Force Unit Access
+        lr: u1, //cdw12 - Limited Retry
+        dsm: DatasetManagement, //cdw13 - Dataset Management
+        rsrv_d: u8 = 0, //cdw13
+        dspec: u16, //cdw14 - Directive Specific
+        lbst_ilbst_b: u32, //cdw15
+        lbat: u16, //cdw15 - Logical Block Application Tag
+        lbatm: u16, //cdw15 - Logical Block Application Tag Mask
+    },
 };
 
 const IoQueueCommand = packed union {
@@ -406,7 +429,12 @@ const Identify0x00Info = extern struct {
     rescap: u8, //1byte - Reservation Capabilities
     fpi: u8, //1byte - Format Progress Indicator
     //fill gap to the.128 byte of the 4096 bytes
-    ignrd_a: [128 - 32]u8,
+    dlfeat: enum(u8) {
+        read_not_reported = 0b000,
+        deallocated_lba_cleared = 0b001,
+        deallocated_lba_not_cleared = 0b010, //reported as 0xff
+    }, //1byte - Deallocate Logical Block Features
+    ignrd_a: [128 - 31]u8,
     lbaf: [64]LBAFormatInfo, //16bytes - LBA Format
     //fill gap to the 4096 bytes
     // ignrd_b: [4096 - 384]u8,
@@ -578,7 +606,7 @@ const Drive = struct {
     //slice of NsInfo
     ns_info_map: NsInfoMap = undefined,
 
-    ready: bool = false,
+    mutex: bool = false,
 };
 
 pub var drive: Drive = undefined; //TODO only one drive now, make not public
@@ -1511,7 +1539,7 @@ fn executeAdminCommand(drv: *Drive, cmd: SQEntry) NvmeError!CQEntry {
 }
 
 fn handleInterrupt() !void {
-    drive.ready = true;
+    drive.mutex = true;
     //log.warn("apic : MSI-X : We've got it: NVMe interrupt handled.", .{});
 }
 
@@ -1539,14 +1567,14 @@ fn execIoCommand(CDw0Type: type, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) 
     log.debug("commented out /5", .{});
 
     // TODO: this silly loop must be removed
-    while (!drv.ready) {
+    while (!drv.mutex) {
         log.debug("Waiting for the controller to be ready", .{});
         const pending_bit = pcie.readMsixPendingBitArrayBit(drv.msix_cap, drv.bar, tmp_msix_table_idx);
         log.debug("MSI-X pending bit: {}", .{pending_bit});
         apic_test.logRegistryState();
         cpu.halt();
     }
-    drv.ready = false;
+    drv.mutex = false;
 
     while (cq_entry_ptr.phase != drv.cq[cqn].expected_phase) {
         const csts = readRegister(CSTSRegister, drv.bar, .csts);
@@ -1734,4 +1762,129 @@ pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: *Drive, nsid
     for (metadata) |m| log.debug("Metadata: 0x{x}", .{m});
 
     return data;
+}
+
+pub fn write(T: type, allocator: std.mem.Allocator, drv: *Drive, nsid: u32, slba: u64, data: []const T) !void {
+    const ns: NsInfo = drv.ns_info_map.get(nsid) orelse {
+        log.err("Namespace {d} not found", .{nsid});
+        return NvmeError.InvalidNsid;
+    };
+
+    log.debug("Namespace {d} info: {}", .{ nsid, ns });
+
+    if (slba > ns.nsize) return NvmeError.InvalidLBA;
+
+    const flbaf = ns.lbaf[ns.flbas];
+    log.debug("LBA Format Index: {d}, LBA Format: {}", .{ ns.flbas, flbaf });
+
+    const lbads_bytes = math.pow(u32, 2, flbaf.lbads);
+    log.debug("LBA Data Size: {d} bytes", .{lbads_bytes});
+
+    // nlba = number of logical blocks to write
+    const data_total_bytes = data.len * @sizeOf(T);
+    const nlba: u16 = @intCast(try std.math.divCeil(usize, data_total_bytes, lbads_bytes));
+
+    //calculate number of pages to allocate
+    const total_bytes = nlba * lbads_bytes;
+    const page_count = try std.math.divCeil(usize, total_bytes, pmm.page_size);
+    log.debug("Number of pages to handle: {d} to load: {d} bytes", .{ page_count, nlba * lbads_bytes });
+
+    const prp1_phys = paging.physFromPtr(data.ptr) catch |err| {
+        log.err("Failed to get physical address: {}", .{err});
+        return error.PageToPhysFailed;
+    };
+
+    var prp_list: ?[]usize = null;
+    const prp2_phys: usize = switch (page_count) {
+        0 => {
+            log.err("No pages to allocate", .{});
+            return error.PageFault;
+        },
+        1 => 0,
+        2 => try paging.physFromPtr(data.ptr + pmm.page_size),
+        else => blk: {
+            const entry_size = @sizeOf(usize);
+            const entry_count = page_count - 1;
+            if (entry_count * entry_size > pmm.page_size) {
+                //TODO: implement the logic to allocate more than one page for PRP list
+                log.err("More than one PRP list not implemented", .{});
+                return error.NotImplemented;
+            }
+
+            prp_list = allocator.alloc(usize, entry_count) catch |err| {
+                log.err("Failed to allocate memory for PRP list: {}", .{err});
+                return error.OutOfMemory;
+            };
+
+            for (0..entry_count) |i| {
+                prp_list.?[i] = prp1_phys + pmm.page_size * (i + 1);
+            }
+
+            // log all entries in prp_list
+            for (0..entry_count) |j| {
+                log.debug("PRP list entry {d}: 0x{x}", .{ j, prp_list.?[j] });
+            }
+
+            break :blk try paging.physFromPtr(&prp_list.?[0]);
+        },
+    };
+    defer if (prp_list) |pl| allocator.free(pl);
+    log.debug("PRP1: 0x{x}, PRP2: 0x{x}", .{ prp1_phys, prp2_phys });
+
+    // allotate memory for Metadata buffer
+    const metadata = allocator.alloc(u8, nlba * flbaf.ms) catch |err| {
+        log.err("Failed to allocate memory for metadata buffer: {}", .{err});
+        return error.OutOfMemory;
+    };
+    defer allocator.free(metadata);
+    @memset(metadata, 0);
+
+    const mptr_phys = paging.physFromPtr(metadata.ptr) catch |err| {
+        log.err("Failed to get physical address: {}", .{err});
+        return error.PageToPhysFailed;
+    };
+
+    // choose sqn and cqn for the operation
+    // TODO: implwement the logic to choose the right queue
+    const sqn = 1;
+    const cqn = 1;
+
+    log.debug("Executing I/O NVM Command Set Read command", .{});
+    _ = executeIoNvmCommand(drv, @bitCast(IoNvmCommandSetCommand{
+        .write = .{
+            .cdw0 = .{
+                .opc = .write,
+                .cid = 256, //our id
+            },
+            .nsid = nsid,
+            .lbst_ilbst_a = 0, //no extended LBA
+            .mptr = mptr_phys,
+            .dptr = .{
+                .prp = .{ .prp1 = prp1_phys, .prp2 = prp2_phys },
+            },
+            .slba = slba,
+            .nlb = nlba,
+            .dtype = 0, //no streaming TODO:???
+            .stc = 0, //no streaming
+            .prinfo = 0, //no protection info
+            .fua = 0, //no force unit access
+            .lr = 0, //no limited retry
+            .dsm = .{
+                .access_frequency = 0, //no dataset management
+                .access_latency = 0, //no dataset management
+                .sequential_request = 0, //no dataset management
+                .incompressible = 0, //no dataset management
+            }, //no dataset management
+            .dspec = 0, //no dataset management
+            .lbst_ilbst_b = 0, //no extended LBA
+            .lbat = 0, //no extended LBA
+            .lbatm = 0, //no extended LBA
+        },
+    }), sqn, cqn) catch |err| {
+        log.err("Failed to execute IO NVM Command Set Read command: {}", .{err});
+        return NvmeError.IONvmReadFailed;
+    };
+
+    //log metadata
+    for (metadata) |m| log.debug("Metadata: 0x{x}", .{m});
 }
