@@ -51,6 +51,8 @@ fn isLapicSupported(cpuid: u16) bool {
 //     log.debug("Local APIC enabled 0x1B@MSR: 0x{0x}(0b{0b:0>64})", .{apic_base_msr});
 // }
 //
+
+// TODO now works only on CPUID#0
 fn enableLapicWithDefaultBase() void {
     var apic_base_msr: u64 = cpu.rdmsr(apic_base_msr_addr);
     log.info("Before updating APIC 0x1B@MSR: 0b{0b:0>64}=0x{0x} ", .{apic_base_msr});

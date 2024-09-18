@@ -564,11 +564,13 @@ pub fn addMsixMessageTableEntry(msix_cap: MsixCap, bar: BAR, id: u11, vec_no: u8
     const msi_x_te: *volatile MsixTableEntry = @ptrFromInt(virt + aligned_table_offset + id * @sizeOf(MsixTableEntry));
 
     msi_x_te.* = .{
-        .msg_addr = paging.virtFromMME(@as(u32, @bitCast(Pcie.MsiMessageAddressRegister{
+        //.msg_addr = paging.virtFromMME(@as(u32, @bitCast(Pcie.MsiMessageAddressRegister{
+        //TODO Generealize it, now it's Intel specific
+        .msg_addr = @as(u32, @bitCast(Pcie.MsiMessageAddressRegister{
             .destination_id = 0, //TODO promote to a parameter (CPUID)
             .rediration_hint = 0,
             .dest_mode = 0, //ignored
-        }))),
+        })), //Remember, do not use virtual address here!
         .msg_data = @bitCast(Pcie.MsiMessageDataRegister{
             .vec_no = vec_no,
             .delivery_mode = .fixed,
