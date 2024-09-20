@@ -1,14 +1,14 @@
 const std = @import("std");
 const log = std.log.scoped(.nvme);
-const pcie = @import("pcie.zig");
-const paging = @import("../paging.zig");
-const int = @import("../int.zig");
-const pmm = @import("../mem/pmm.zig");
-const heap = @import("../mem/heap.zig").heap;
+const pcie = @import("../../io/bus/pci/pcie.zig");
+const paging = @import("../../paging.zig");
+const int = @import("../../int.zig");
+const pmm = @import("../../mem/pmm.zig");
+const heap = @import("../../mem/heap.zig").heap;
 const math = std.math;
 
-const cpu = @import("../cpu.zig");
-const apic_test = @import("../arch/x86_64/apic.zig");
+const cpu = @import("../../cpu.zig");
+const apic_test = @import("../../arch/x86_64/apic.zig");
 
 const nvme_class_code = 0x01;
 const nvme_subclass = 0x08;

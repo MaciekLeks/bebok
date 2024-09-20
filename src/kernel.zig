@@ -9,8 +9,9 @@ const paging = @import("paging.zig");
 const pmm = @import("mem/pmm.zig");
 const heap = @import("mem/heap.zig").heap;
 const term = @import("terminal");
-const pcie = @import("drivers/pcie.zig");
-const Nvme = @import("drivers/Nvme.zig");
+const pcie = @import("io/bus/pci/pcie.zig");
+const bus = @import("io/bus/bus.zig");
+const Nvme = @import("drivers/nvme/Nvme.zig");
 const int = @import("int.zig");
 const smp = @import("smp.zig");
 const acpi = @import("acpi.zig");
@@ -113,14 +114,16 @@ export fn _start() callconv(.C) noreturn {
     //} init handler list
 
     //pci test start
-    pcie.init();
+    const pcie_bus = bus.Bus{ .pcie = pcie.Pcie{} };
+
+    pcie_bus.init(heap.page_allocator);
     Nvme.init();
     pcie.scan() catch |err| {
         log.err("PCI scan error: {}", .{err});
         @panic("PCI scan error");
     };
     defer Nvme.deinit();
-    defer pcie.deinit(); //TODO: na pewno?
+    defer pcie_bus.deinit(); //TODO: na pewno?
     //pci test end
 
     //log.debug("waiting for the first interrupt", .{});

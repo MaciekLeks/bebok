@@ -1,17 +1,17 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const cpu = @import("../cpu.zig");
-const heap = @import("../mem/heap.zig").heap;
-const paging = @import("../paging.zig");
+const cpu = @import("../../../cpu.zig");
+const heap = @import("../../../mem/heap.zig").heap;
+const paging = @import("../../../paging.zig");
 //contollers
-const Nvme = @import("./Nvme.zig");
+const Nvme = @import("../../../drivers/nvme/Nvme.zig");
 //end of controllers
 
 const log = std.log.scoped(.pci);
-const Pcie = @This();
+pub const Pcie = @This();
 
 pub usingnamespace switch (builtin.cpu.arch) {
-    .x86_64 => @import("../arch/x86_64/pcie.zig"),
+    .x86_64 => @import("../../../arch/x86_64/pcie.zig"),
     else => |other| @compileError("Unimplemented for " ++ @tagName(other)),
 };
 
@@ -474,11 +474,11 @@ pub fn deinit() void {
     device_list.deinit();
 }
 
-pub fn init() void {
+pub fn init(allocator: std.mem.Allocator) void {
     log.info("Initializing PCI", .{});
     defer log.info("PCI initialized", .{});
 
-    device_list = DeviceList.init(heap.page_allocator);
+    device_list = DeviceList.init(allocator);
 }
 
 pub fn scan() PciError!void {
