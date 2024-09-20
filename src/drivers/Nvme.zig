@@ -1758,8 +1758,6 @@ pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: *Drive, nsid
         return NvmeError.IONvmReadFailed;
     };
 
-    for (data) |d| log.debug("Read.data: 0x{x}", .{d});
-
     //log metadata
     for (metadata) |m| log.debug("Metadata: 0x{x}", .{m});
 
