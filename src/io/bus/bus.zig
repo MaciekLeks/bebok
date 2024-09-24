@@ -2,28 +2,52 @@ const std = @import("std");
 
 const Pcie = @import("pci/pcie.zig").Pcie;
 const heap = @import("../../mem/heap.zig").heap;
+const Device = @import("../devices/device.zig").Device;
 
 const log = std.log.scoped(.bus);
 
-pub const Bus = union(enum) {
+pub const BusType = enum {
+    pcie,
+    usb,
+};
+
+pub const BusDeviceSpec = union(BusType) {
+    pcie: struct {
+        bus: u8,
+        device: u8,
+        function: u8,
+    },
+    usb: struct { //TODO not implemented
+        port: u8,
+        speed: u8,
+    },
+};
+
+const DeviceList = std.ArrayList(*Device);
+
+pub const Bus = struct {
     const Self = @This();
-    pcie: Pcie,
+
+    bus: union(BusType) {
+        pcie: Pcie,
+    },
+    devices: DeviceList,
 
     pub fn init(self: Self, allocator: std.mem.Allocator) void {
-        switch (self) {
-            .pcie => Pcie.init(allocator),
+        switch (self.bus) {
+            inline else => |it| it.init(allocator),
         }
     }
 
-    pub fn deinit(self: Bus) void {
-        switch (self) {
-            .pci => |pci| pci.deinit(),
+    pub fn deinit(self: Self) void {
+        switch (self.bus) {
+            inline else => |it| it.deinit(),
         }
     }
 
-    pub fn scan(self: Self) !void {
-        switch (self) {
-            .pci => |pci| try pci.scan(),
+    pub fn scan(self: *Self) !void {
+        switch (self.bus) {
+            inline else => |it| try it.scan(self),
         }
     }
 };

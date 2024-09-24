@@ -32,16 +32,16 @@ pub const PciError = error{
 };
 
 pub const Driver = union(enum) {
-    const Self = @This();
+    const DriverSelf = @This();
     nvme: *const Nvme,
 
-    pub fn interested(self: Self, class_code: u8, subclass: u8, prog_if: u8) bool {
+    pub fn interested(self: DriverSelf, class_code: u8, subclass: u8, prog_if: u8) bool {
         return switch (self) {
             inline else => |it| it.interested(class_code, subclass, prog_if),
         };
     }
 
-    pub fn update(self: Self, function_no: u3, slot_no: u5, bus_no: u8) !void {
+    pub fn update(self: DriverSelf, function_no: u3, slot_no: u5, bus_no: u8) !void {
         return switch (self) {
             inline else => |it| it.update(function_no, slot_no, bus_no),
         };
