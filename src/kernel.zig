@@ -9,9 +9,9 @@ const paging = @import("paging.zig");
 const pmm = @import("mem/pmm.zig");
 const heap = @import("mem/heap.zig").heap;
 const term = @import("terminal");
-const pcie = @import("io/bus/pci/pcie.zig");
+const PcieBus = @import("io/bus/pci/PcieBus.zig");
 const bus = @import("io/bus/bus.zig");
-const Nvme = @import("drivers/nvme/Nvme.zig");
+const NvmeController = @import("drivers/nvme/NvmeController.zig");
 const int = @import("int.zig");
 const smp = @import("smp.zig");
 const acpi = @import("acpi.zig");
@@ -114,15 +114,15 @@ export fn _start() callconv(.C) noreturn {
     //} init handler list
 
     //pci test start
-    const pcie_bus = bus.Bus{ .pcie = pcie.Pcie{} };
+    const pcie_bus = bus.Bus{ .pcie = .{} };
 
     pcie_bus.init(heap.page_allocator);
-    Nvme.init();
-    pcie.scan() catch |err| {
+    NvmeController.init();
+    pcie_bus.pcie.scan() catch |err| {
         log.err("PCI scan error: {}", .{err});
         @panic("PCI scan error");
     };
-    defer Nvme.deinit();
+    defer NvmeController.deinit();
     defer pcie_bus.deinit(); //TODO: na pewno?
     //pci test end
 
@@ -137,12 +137,12 @@ export fn _start() callconv(.C) noreturn {
         defer log.info("Writing to NVMe ends.", .{});
 
         const mlk_data: []const u8 = &.{ 'M', 'a', 'c', 'i', 'e', 'k', ' ', 'L', 'e', 'k', 's', ' ', 'x' };
-        Nvme.write(u8, heap.page_allocator, &Nvme.drive, 1, 0, mlk_data) catch |err| {
+        NvmeController.write(u8, heap.page_allocator, &NvmeController.drive, 1, 0, mlk_data) catch |err| {
             log.err("Nvme write error: {}", .{err});
         };
     }
 
-    const data = Nvme.readToOwnedSlice(u8, heap.page_allocator, &Nvme.drive, 1, 0, 1) catch |err| blk: {
+    const data = NvmeController.readToOwnedSlice(u8, heap.page_allocator, &Nvme.drive, 1, 0, 1) catch |err| blk: {
         log.err("Nvme read error: {}", .{err});
         break :blk null;
     };

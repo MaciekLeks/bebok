@@ -9,6 +9,9 @@ const math = std.math;
 
 const cpu = @import("../../cpu.zig");
 const apic_test = @import("../../arch/x86_64/apic.zig");
+const Bus = @import("../../io/bus/bus.zig").Bus;
+const Device = @import("../devices/devices.zig").Device;
+const NvmeDevice = @import("../../devices/block/nvm/nvme/nvme.zig").NvmeDevice;
 
 const nvme_class_code = 0x01;
 const nvme_subclass = 0x08;
@@ -25,7 +28,7 @@ const tmp_irq = 0x33;
 //const nvme_ncqr = 0x1 + 0x1; //number of completion queues requested (+1 is admin cq)
 //const nvme_nsqr = nvme_ncqr; //number of submission queues requested
 
-const Self = @This();
+const NvmeController = @This();
 
 const NvmeError = error{ InvalidCommand, InvalidCommandSequence, AdminCommandNoData, AdminCommandFailed, MsiXMisconfigured, InvalidLBA, InvalidNsid, IONvmReadFailed };
 
@@ -568,48 +571,48 @@ fn Queue(EntryType: type) type {
 
 const NsInfoMap = std.AutoHashMap(u32, NsInfo);
 
-const Drive = struct {
-    const nvme_ncqr = 0x2; //number of completion queues requested (+1 is admin cq)
-    const nvme_nsqr = nvme_ncqr; //number of submission queues requested
+// const Drive = struct {
+//     const nvme_ncqr = 0x2; //number of completion queues requested (+1 is admin cq)
+//     const nvme_nsqr = nvme_ncqr; //number of submission queues requested
+//
+//     //-    sqa: []volatile SQEntry = undefined,
+//     //-    cqa: []volatile CQEntry = undefined,
+//     //sq: []volatile SQEntry = undefined,
+//     //cq: []volatile CQEntry = undefined,
+//
+//     //-   sqa_tail_pos: u32 = 0, // private counter to keep track and update sqa_tail_dbl
+//     //-   sqa_header_pos: u32 = 0, //contoller position retuned in CQEntry as sq_header_pos
+//     //-   sqa_tail_dbl: *volatile u32 = undefined, //each doorbell value is u32, minmal doorbell stride is 4 (2^(2+CAP.DSTRD))
+//     //-   cqa_head_pos: u32 = 0 ,
+//     //-   cqa_head_dbl: *volatile u32 = undefined, //each doorbell value is u32, minmal doorbell stride is 4 (2^(2+CAP.DSTRD))
+//
+//     //sq_tail_pos: u32 = 0, //private counter to keep track and update sq_tail_dbl
+//     //sq_tail_dbl: *volatile u32 = undefined,
+//     //cq_head_dbl: *volatile u32 = undefined,
+//
+//     //-acq: Queue(CQEntry) = undefined,
+//     //-asq: Queue(SQEntry) = undefined,
+//
+//     bar: pcie.BAR = undefined,
+//     msix_cap: pcie.MsixCap = undefined,
+//
+//     //expected_phase: u1 = 1, //private counter to keep track of the expected phase
+//     mdts_bytes: u32 = 0, // Maximum Data Transfer Size in bytes
+//
+//     ncqr: u16 = nvme_ncqr, //number of completion queues requested - TODO only one cq now
+//     nsqr: u16 = nvme_nsqr, //number of submission queues requested - TODO only one sq now
+//
+//     cq: [nvme_ncqr]Queue(CQEntry) = undefined, //+1 for admin cq
+//     //cq: [nvme_ncqr + 1]Queue(CQEntry) = undefined, //+1 for admin
+//     sq: [nvme_nsqr]Queue(SQEntry) = undefined, //+1 for admin sq
+//
+//     //slice of NsInfo
+//     ns_info_map: NsInfoMap = undefined,
+//
+//     mutex: bool = false,
+// };
 
-    //-    sqa: []volatile SQEntry = undefined,
-    //-    cqa: []volatile CQEntry = undefined,
-    //sq: []volatile SQEntry = undefined,
-    //cq: []volatile CQEntry = undefined,
-
-    //-   sqa_tail_pos: u32 = 0, // private counter to keep track and update sqa_tail_dbl
-    //-   sqa_header_pos: u32 = 0, //contoller position retuned in CQEntry as sq_header_pos
-    //-   sqa_tail_dbl: *volatile u32 = undefined, //each doorbell value is u32, minmal doorbell stride is 4 (2^(2+CAP.DSTRD))
-    //-   cqa_head_pos: u32 = 0 ,
-    //-   cqa_head_dbl: *volatile u32 = undefined, //each doorbell value is u32, minmal doorbell stride is 4 (2^(2+CAP.DSTRD))
-
-    //sq_tail_pos: u32 = 0, //private counter to keep track and update sq_tail_dbl
-    //sq_tail_dbl: *volatile u32 = undefined,
-    //cq_head_dbl: *volatile u32 = undefined,
-
-    //-acq: Queue(CQEntry) = undefined,
-    //-asq: Queue(SQEntry) = undefined,
-
-    bar: pcie.BAR = undefined,
-    msix_cap: pcie.MsixCap = undefined,
-
-    //expected_phase: u1 = 1, //private counter to keep track of the expected phase
-    mdts_bytes: u32 = 0, // Maximum Data Transfer Size in bytes
-
-    ncqr: u16 = nvme_ncqr, //number of completion queues requested - TODO only one cq now
-    nsqr: u16 = nvme_nsqr, //number of submission queues requested - TODO only one sq now
-
-    cq: [nvme_ncqr]Queue(CQEntry) = undefined, //+1 for admin cq
-    //cq: [nvme_ncqr + 1]Queue(CQEntry) = undefined, //+1 for admin
-    sq: [nvme_nsqr]Queue(SQEntry) = undefined, //+1 for admin sq
-
-    //slice of NsInfo
-    ns_info_map: NsInfoMap = undefined,
-
-    mutex: bool = false,
-};
-
-pub var drive: Drive = undefined; //TODO only one drive now, make not public
+//pub var drive: Drive = undefined; //TODO only one drive now, make not public
 
 fn readRegister(T: type, bar: pcie.BAR, register_set_field: @TypeOf(.enum_literal)) T {
     return switch (bar.address) {
@@ -623,20 +626,27 @@ fn writeRegister(T: type, bar: pcie.BAR, register_set_field: @TypeOf(.enum_liter
     }
 }
 
-pub fn interested(_: Self, class_code: u8, subclass: u8, prog_if: u8) bool {
+/// Can the driver handle the given device?
+pub fn probe(_: NvmeController, class_code: u8, subclass: u8, prog_if: u8) bool {
     return class_code == nvme_class_code and subclass == nvme_subclass and prog_if == nvme_prog_if;
 }
 
-fn configureMsix(function: u3, slot: u5, bus: u8, msix_table_idx: u11, int_vec_no: u8) !void {
-    const unique_id = pcie.uniqueId(bus, slot, function);
+fn configureMsix(dev: *NvmeDevice, msix_table_idx: u11, int_vec_no: u8) !void {
+    const unique_id = pcie.uniqueId(dev.addr.pcie);
     try int.addISR(@intCast(int_vec_no), .{ .unique_id = unique_id, .func = handleInterrupt });
-    pcie.addMsixMessageTableEntry(drive.msix_cap, drive.bar, msix_table_idx, int_vec_no); //add 0x31 at 0x01 offset
+    pcie.addMsixMessageTableEntry(dev.msix_cap, dev.bar, msix_table_idx, int_vec_no); //add 0x31 at 0x01 offset
 }
 
-pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
+pub fn setup(self: NvmeController, bus: Bus, device: *Device) !void {
+
+    // initialize the device
+    device.spec = .{ .block_device = .{ .nvme = .{} } };
+    device.driver = .{ .block = .{ .nvme = self } };
+    const dev = &device.spec.block_device.nvme;
+    const addr = dev.addr.pcie;
 
     //const pcie_version = try pcie.readPcieVersion(function, slot, bus); //we need PCIe version 2.0 at least
-    const pcie_version = try pcie.readCapability(pcie.VersionCap, function, slot, bus);
+    const pcie_version = try pcie.readCapability(pcie.VersionCap, addr);
     log.info("PCIe version: {}", .{pcie_version});
 
     if (pcie_version.major < 2) {
@@ -645,23 +655,23 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     }
 
     //read MSI capability to check if's disabled or enabled
-    const msi_cap: ?pcie.MsiCap = pcie.readCapability(pcie.MsiCap, function, slot, bus) catch |err| blk: {
+    const msi_cap: ?pcie.MsiCap = pcie.readCapability(pcie.MsiCap, addr) catch |err| blk: {
         log.err("Failed to read MSI capability: {}", .{err});
         break :blk null;
     };
     log.debug("MSI capability: {?}", .{msi_cap});
 
-    drive.msix_cap = try pcie.readCapability(pcie.MsixCap, function, slot, bus);
-    log.debug("MSI-X capability pre-modification: {}", .{drive.msix_cap});
+    dev.msix_cap = try pcie.readCapability(pcie.MsixCap, addr);
+    log.debug("MSI-X capability pre-modification: {}", .{dev.msix_cap});
 
-    if (drive.msix_cap.tbir != 0) return NvmeError.MsiXMisconfigured; //TODO: it should work on any of the bar but for now we support only bar0
+    if (dev.msix_cap.tbir != 0) return NvmeError.MsiXMisconfigured; //TODO: it should work on any of the bar but for now we support only bar0
 
     //enable MSI-X
-    drive.msix_cap.mc.mxe = true;
-    try pcie.writeCapability(pcie.MsixCap, drive.msix_cap, function, slot, bus);
+    dev.msix_cap.mc.mxe = true;
+    try pcie.writeCapability(pcie.MsixCap, dev.msix_cap, dev.addr.pcie);
 
-    drive.msix_cap = try pcie.readCapability(pcie.MsixCap, function, slot, bus); //TODO: could be removed
-    log.info("MSI-X capability post-modification: {}", .{drive.msix_cap});
+    dev.msix_cap = try pcie.readCapability(pcie.MsixCap, dev.addr.pcie); //TODO: could be removed
+    log.info("MSI-X capability post-modification: {}", .{dev.msix_cap});
 
     //- var pci_cmd_reg = pcie.readRegisterWithArgs(u16, .command, function, slot, bus);
     //disable interrupts while using MSI-X
@@ -669,26 +679,21 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     //-pcie.writeRegisterWithArgs(u16, .command, function, slot, bus, pci_cmd_reg);
     // const VEC_NO: u16 = 0x20 + interrupt_line; //TODO: we need MSI/MSI-X support first - PIC does not work here
 
-    drive = .{
-        .ns_info_map = NsInfoMap.init(heap.page_allocator),
-        .bar = pcie.readBARWithArgs(.bar0, function, slot, bus),
-        //.cq = [_]Queue(CQEntry){} ** (Drive.nvme_ncqr + 1), //+1 for admin cq
-        //.cq = .{} ** 2, //+1 for admin cq
-        //.sq = .{} ** 2, //+1 for admin sq
-    }; //TODO replace it for more drives
+    dev.ns_info_map = NsInfoMap.init(heap.page_allocator);
+    dev.bar = pcie.readBARWithArgs(.bar0, addr);
 
     // Initialize queues to the default values
-    for (&drive.sq) |*sq| {
+    for (&dev.sq) |*sq| {
         //Add code here if needed
         sq.* = .{};
     }
-    for (&drive.cq) |*cq| {
+    for (&dev.cq) |*cq| {
         //Add code here if needed
         cq.* = .{};
     }
 
     //MSI-X
-    configureMsix(function, slot, bus, tmp_msix_table_idx, tmp_irq) catch |err| {
+    configureMsix(addr, tmp_msix_table_idx, tmp_irq) catch |err| {
         log.err("Failed to configure MSI-X: {}", .{err});
     };
     // const unique_id = pcie.uniqueId(bus, slot, function);
@@ -708,17 +713,17 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     // }
 
     //log pending bit in MSI-X
-    const pending_bit = pcie.readMsixPendingBitArrayBit(drive.msix_cap, drive.bar, 0x0);
+    const pending_bit = pcie.readMsixPendingBitArrayBit(dev.bar, 0x0);
     log.info("MSI-X pending bit: {}", .{pending_bit});
 
     //  bus-mastering DMA, and memory space access in the PCI configuration space
-    const command = pcie.readRegisterWithArgs(u16, .command, function, slot, bus);
+    const command = pcie.readRegisterWithArgs(u16, .command, addr);
     log.warn("PCI command register: 0b{b:0>16}", .{command});
     // Enable interrupts, bus-mastering DMA, and memory space access in the PCI configuration space for the function.
-    pcie.writeRegisterWithArgs(u16, .command, function, slot, bus, command | 0b110);
+    pcie.writeRegisterWithArgs(u16, .command, addr, command | 0x7);
 
-    const virt = switch (drive.bar.address) {
-        inline else => |addr| paging.virtFromMME(addr),
+    const virt = switch (dev.bar.address) {
+        inline else => |phys| paging.virtFromMME(phys),
     };
 
     const cap_reg_ptr: *volatile u64 = @ptrFromInt(virt);
@@ -734,9 +739,9 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     const register_set_ptr: *volatile RegisterSet = @ptrFromInt(virt);
 
     // Adjust if needed page PAT to write-through
-    const size: usize = switch (drive.bar.size) {
-        .as32 => drive.bar.size.as32,
-        .as64 => drive.bar.size.as64,
+    const size: usize = switch (dev.bar.size) {
+        .as32 => dev.bar.size.as32,
+        .as64 => dev.bar.size.as64,
     };
 
     //TODO uncomment this
@@ -758,7 +763,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
         \\cc: 0b{b:0>32}, csts: 0b{b:0>32}
         \\aqa: 0b{b:0>32}, asq: 0b{b:0>64}, acq: 0b{b:0>64}
     , .{
-        drive.bar,
+        dev.bar,
         virt,
         cap_reg_ptr.*,
         vs_reg_ptr.*,
@@ -772,7 +777,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     });
 
     // Check the controller version
-    const vs = readRegister(VSRegister, drive.bar, .vs);
+    const vs = readRegister(VSRegister, dev.bar, .vs);
     log.info("NVMe controller version: {}.{}.{}", .{ vs.mjn, vs.mnr, vs.tet });
 
     // support only NVMe 1.4 and 2.0
@@ -782,7 +787,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     }
 
     // Check if the controller supports NVM Command Set and Admin Command Set
-    const cap = readRegister(CAPRegister, drive.bar, .cap);
+    const cap = readRegister(CAPRegister, dev.bar, .cap);
     log.info("NVME CAP Register: {}", .{cap});
     if (cap.css.nvmcs == 0) {
         log.err("NVMe controller does not support NVM Command Set", .{});
@@ -803,59 +808,59 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     }
 
     // Reset the controllerg
-    disableController(drive.bar);
+    disableController(dev.bar);
 
     // The host configures the Admin gQueue by setting the Admin Queue Attributes (AQA), Admin Submission Queue Base Address (ASQ), and Admin Completion Queue Base Address (ACQ) the appropriate values;
     //set AQA queue sizes
-    var aqa = readRegister(AQARegister, drive.bar, .aqa);
+    var aqa = readRegister(AQARegister, dev.bar, .aqa);
     log.info("NVMe AQA Register pre-modification: {}", .{aqa});
     aqa.asqs = nvme_ioasqs;
     aqa.acqs = nvme_ioacqs;
-    writeRegister(AQARegister, drive.bar, .aqa, aqa);
-    aqa = readRegister(AQARegister, drive.bar, .aqa);
+    writeRegister(AQARegister, dev.bar, .aqa, aqa);
+    aqa = readRegister(AQARegister, dev.bar, .aqa);
     log.info("NVMe AQA Register post-modification: {}", .{aqa});
 
     // ASQ and ACQ setup
-    drive.sq[0].entries = heap.page_allocator.alloc(SQEntry, nvme_ioasqs) catch |err| {
+    dev.sq[0].entries = heap.page_allocator.alloc(SQEntry, nvme_ioasqs) catch |err| {
         log.err("Failed to allocate memory for admin submission queue entries: {}", .{err});
         return;
     };
-    defer heap.page_allocator.free(@volatileCast(drive.sq[0].entries));
-    @memset(drive.sq[0].entries, 0);
+    defer heap.page_allocator.free(@volatileCast(dev.sq[0].entries));
+    @memset(dev.sq[0].entries, 0);
 
-    drive.cq[0].entries = heap.page_allocator.alloc(CQEntry, nvme_ioacqs) catch |err| {
+    dev.cq[0].entries = heap.page_allocator.alloc(CQEntry, nvme_ioacqs) catch |err| {
         log.err("Failed to allocate memory for admin completion queue entries: {}", .{err});
         return;
     };
-    defer heap.page_allocator.free(@volatileCast(drive.cq[0].entries));
-    @memset(drive.cq[0].entries, .{});
+    defer heap.page_allocator.free(@volatileCast(dev.cq[0].entries));
+    @memset(dev.cq[0].entries, .{});
 
-    const sqa_phys = paging.physFromPtr(drive.sq[0].entries.ptr) catch |err| {
+    const sqa_phys = paging.physFromPtr(dev.sq[0].entries.ptr) catch |err| {
         log.err("Failed to get physical address of admin submission queue: {}", .{err});
         return;
     };
-    const cqa_phys = paging.physFromPtr(drive.cq[0].entries.ptr) catch |err| {
+    const cqa_phys = paging.physFromPtr(dev.cq[0].entries.ptr) catch |err| {
         log.err("Failed to get physical address of admin completion queue: {}", .{err});
         return;
     };
 
-    log.debug("ASQ: virt: {*}, phys:0x{x}; ACQ: virt:{*}, phys:0x{x}", .{ drive.sq[0].entries, sqa_phys, drive.cq[0].entries, cqa_phys });
+    log.debug("ASQ: virt: {*}, phys:0x{x}; ACQ: virt:{*}, phys:0x{x}", .{ dev.sq[0].entries, sqa_phys, dev.cq[0].entries, cqa_phys });
 
-    var asq = readRegister(ASQEntry, drive.bar, .asq);
+    var asq = readRegister(ASQEntry, dev.bar, .asq);
     log.info("ASQ Register pre-modification: 0x{x}", .{@shlExact(asq.asqb, 12)});
     asq.asqb = @intCast(@shrExact(sqa_phys, 12)); // 4kB aligned
-    writeRegister(ASQEntry, drive.bar, .asq, asq);
-    asq = readRegister(ASQEntry, drive.bar, .asq);
+    writeRegister(ASQEntry, dev.bar, .asq, asq);
+    asq = readRegister(ASQEntry, dev.bar, .asq);
     log.info("ASQ Register post-modification: 0x{x}", .{@shlExact(asq.asqb, 12)});
 
-    var acq = readRegister(ACQEntry, drive.bar, .acq);
+    var acq = readRegister(ACQEntry, dev.bar, .acq);
     log.info("ACQ Register pre-modification: 0x{x}", .{@shlExact(acq.acqb, 12)});
     acq.acqb = @intCast(@shrExact(cqa_phys, 12)); // 4kB aligned
-    writeRegister(ACQEntry, drive.bar, .acq, acq);
-    acq = readRegister(ACQEntry, drive.bar, .acq);
+    writeRegister(ACQEntry, dev.bar, .acq, acq);
+    acq = readRegister(ACQEntry, dev.bar, .acq);
     log.info("ACQ Register post-modification: 0x{x}", .{@shlExact(acq.acqb, 12)});
 
-    var cc = readRegister(CCRegister, drive.bar, .cc);
+    var cc = readRegister(CCRegister, dev.bar, .cc);
     log.info("CC register pre-modification: {}", .{cc});
     //CC.css settings
     if (cap.css.acs == 1) cc.css = 0b111;
@@ -866,15 +871,15 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     cc.ams = .round_robin;
     cc.iosqes = 6; // 64 bytes - set to recommened value
     cc.iocqes = 4; // 16 bytes - set to
-    writeRegister(CCRegister, drive.bar, .cc, cc);
-    log.info("CC register post-modification: {}", .{readRegister(CCRegister, drive.bar, .cc)});
+    writeRegister(CCRegister, dev.bar, .cc, cc);
+    log.info("CC register post-modification: {}", .{readRegister(CCRegister, dev.bar, .cc)});
 
-    enableController(drive.bar);
+    enableController(dev.bar);
 
     const doorbell_base: usize = virt + 0x1000;
     const doorbell_size = math.pow(u32, 2, 2 + cap.dstrd);
-    drive.sq[0].tail_dbl = @ptrFromInt(doorbell_base + doorbell_size * 0);
-    drive.cq[0].head_dbl = @ptrFromInt(doorbell_base + doorbell_size * 1);
+    dev.sq[0].tail_dbl = @ptrFromInt(doorbell_base + doorbell_size * 0);
+    dev.cq[0].head_dbl = @ptrFromInt(doorbell_base + doorbell_size * 1);
     // for (&drive.iosq, 1..) |*sq, sq_dbl_idx| {
     //     sq.tail_dbl = @ptrFromInt(doorbell_base + doorbell_size * (2 * sq_dbl_idx));
     // }
@@ -899,7 +904,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
         log.err("Failed to get physical address of identify command: {}", .{err});
         return;
     };
-    _ = executeAdminCommand(&drive, @bitCast(IdentifyCommand{
+    _ = executeAdminCommand(dev, @bitCast(IdentifyCommand{
         .cdw0 = .{
             .opc = .identify,
             .cid = 0x01, //our id
@@ -923,14 +928,14 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
         return;
     }
 
-    drive.mdts_bytes = math.pow(u32, 2, 12 + cc.mps + identify_info.mdts);
-    log.info("MDTS in kbytes: {}", .{drive.mdts_bytes / 1024});
+    dev.mdts_bytes = math.pow(u32, 2, 12 + cc.mps + identify_info.mdts);
+    log.info("MDTS in kbytes: {}", .{dev.mdts_bytes / 1024});
 
     // I/O Command Set specific initialization
 
     //Reusing prp1
     @memset(prp1, 0);
-    _ = executeAdminCommand(&drive, @bitCast(IdentifyCommand{
+    _ = executeAdminCommand(dev, @bitCast(IdentifyCommand{
         .cdw0 = .{
             .opc = .identify,
             .cid = 0x02, //our id
@@ -965,7 +970,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
 
     // Set I/O Command Set Profile with Command Set Combination index
     @memset(prp1, 0);
-    _ = executeAdminCommand(&drive, @bitCast(GetSetFeaturesCommand{
+    _ = executeAdminCommand(&dev, @bitCast(GetSetFeaturesCommand{
         .set_io_command_profile = .{
             .cdw0 = .{
                 .opc = .set_features,
@@ -995,7 +1000,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
         if (csi == 0) continue;
         log.info("I/O Command Set specific Active Namespace ID list(0x07): command set idx:{d} -> csi:{d}", .{ i, csi });
         @memset(prp1, 0);
-        _ = executeAdminCommand(&drive, @bitCast(IdentifyCommand{
+        _ = executeAdminCommand(&dev, @bitCast(IdentifyCommand{
             .cdw0 = .{
                 .opc = .identify,
                 .cid = 0x04, //our id
@@ -1021,7 +1026,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
 
                 // Identify Namespace Data Structure (CNS 0x00)
                 @memset(prp1, 0);
-                _ = executeAdminCommand(&drive, @bitCast(IdentifyCommand{
+                _ = executeAdminCommand(dev, @bitCast(IdentifyCommand{
                     .cdw0 = .{
                         .opc = .identify,
                         .cid = 0x05, //our id
@@ -1041,7 +1046,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
                 const ns_info: *const Identify0x00Info = @ptrCast(@alignCast(prp1));
                 log.info("Identify Namespace Data Structure(cns: 0x00): nsid:{d}, info:{}", .{ nsid, ns_info.* });
 
-                try drive.ns_info_map.put(nsid, ns_info.*);
+                try dev.ns_info_map.put(nsid, ns_info.*);
 
                 log.debug("vs: {}", .{vs});
                 if (vs.mjn == 2) {
@@ -1413,7 +1418,7 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     log.info("Configuration is done", .{});
 }
 
-var driver = &pcie.Driver{ .nvme = &Self{} };
+var driver = &pcie.Driver{ .nvme = &NvmeController{} };
 
 pub fn init() void {
     log.info("Initializing NVMe driver", .{});
@@ -1423,12 +1428,12 @@ pub fn init() void {
     };
 }
 
-pub fn deinit() void {
+pub fn deinit(bus: Bus) void {
     log.info("Deinitializing NVMe driver", .{});
     // TODO: for now we don't have a way to unregister the driver
 
     // TODO: admin queue has been freed already - waiting for an error?
-    for (&drive.iocq) |*cq| heap.page_allocator.free(cq.entries);
+    for (&dev.iocq) |*cq| heap.page_allocator.free(cq.entries);
     for (&drive.iosq) |*sq| heap.page_allocator.free(sq.entries);
 }
 
@@ -1534,32 +1539,32 @@ fn execAdminCommand(CDw0Type: type, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u1
     return cq_entry_ptr.*;
 }
 
-fn executeAdminCommand(drv: *Drive, cmd: SQEntry) NvmeError!CQEntry {
-    return execAdminCommand(AdminCDw0, drv, cmd, 0, 0);
+fn executeAdminCommand(dev: *NvmeDevice, cmd: SQEntry) NvmeError!CQEntry {
+    return execAdminCommand(AdminCDw0, dev, cmd, 0, 0);
 }
 
 fn handleInterrupt() !void {
-    drive.mutex = true;
+    device.mutex = true;
     //log.warn("apic : MSI-X : We've got it: NVMe interrupt handled.", .{});
 }
 
-fn execIoCommand(CDw0Type: type, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEntry {
+fn execIoCommand(CDw0Type: type, dev: *NvmeDevice, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEntry {
     const cdw0: *const CDw0Type = @ptrCast(@alignCast(&cmd));
     log.debug("Executing command: CDw0: {}", .{cdw0.*});
 
-    drv.sq[sqn].entries[drv.sq[sqn].tail_pos] = cmd;
+    dev.sq[sqn].entries[dev.sq[sqn].tail_pos] = cmd;
 
     log.debug("commented out /1", .{});
 
-    drv.sq[sqn].tail_pos += 1;
-    if (drv.sq[sqn].tail_pos >= drv.sq[sqn].entries.len) drv.sq[sqn].tail_pos = 0;
+    dev.sq[sqn].tail_pos += 1;
+    if (dev.sq[sqn].tail_pos >= dev.sq[sqn].entries.len) dev.sq[sqn].tail_pos = 0;
 
     log.debug("commented out /2", .{});
 
-    const cq_entry_ptr = &drv.cq[cqn].entries[drv.cq[cqn].head_pos];
+    const cq_entry_ptr = &dev.cq[cqn].entries[dev.cq[cqn].head_pos];
 
     // press the doorbell
-    drv.sq[sqn].tail_dbl.* = drv.sq[sqn].tail_pos;
+    dev.sq[sqn].tail_dbl.* = dev.sq[sqn].tail_pos;
     log.debug("commented out /3", .{});
 
     log.debug("commented out /4", .{});
@@ -1567,17 +1572,17 @@ fn execIoCommand(CDw0Type: type, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) 
     log.debug("commented out /5", .{});
 
     // TODO: this silly loop must be removed
-    while (!drv.mutex) {
+    while (!dev.mutex) {
         log.debug("Waiting for the controller to be ready", .{});
-        const pending_bit = pcie.readMsixPendingBitArrayBit(drv.msix_cap, drv.bar, tmp_msix_table_idx);
+        const pending_bit = pcie.readMsixPendingBitArrayBit(dev.msix_cap, dev.bar, tmp_msix_table_idx);
         log.debug("MSI-X pending bit: {}", .{pending_bit});
         apic_test.logRegistryState();
         cpu.halt();
     }
-    drv.mutex = false;
+    dev.mutex = false;
 
-    while (cq_entry_ptr.phase != drv.cq[cqn].expected_phase) {
-        const csts = readRegister(CSTSRegister, drv.bar, .csts);
+    while (cq_entry_ptr.phase != dev.cq[cqn].expected_phase) {
+        const csts = readRegister(CSTSRegister, dev.bar, .csts);
         if (csts.cfs == 1) {
             log.err("Command failed", .{});
             return NvmeError.InvalidCommand;
@@ -1602,15 +1607,15 @@ fn execIoCommand(CDw0Type: type, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) 
 
     // TODO: do we need to check if conntroller is ready to accept new commands?
     //--  drv.asqa.header_pos = cqa_entry_ptr.sq_header_pos; //the controller position retuned in CQEntry as sq_header_pos
-    drv.cq[cqn].head_pos += 1;
-    if (drv.cq[cqn].head_pos >= drv.cq[cqn].entries.len) {
-        drv.cq[cqn].head_pos = 0;
+    dev.cq[cqn].head_pos += 1;
+    if (dev.cq[cqn].head_pos >= dev.cq[cqn].entries.len) {
+        dev.cq[cqn].head_pos = 0;
         // every new cycle we need to toggle the phase
-        drv.cq[cqn].expected_phase = ~drv.cq[cqn].expected_phase;
+        dev.cq[cqn].expected_phase = ~dev.cq[cqn].expected_phase;
     }
 
     //press the doorbell
-    drv.cq[cqn].head_dbl.* = drv.cq[cqn].head_pos;
+    dev.cq[cqn].head_dbl.* = dev.cq[cqn].head_pos;
 
     if (sqn != cq_entry_ptr.sq_id) {
         log.err("Invalid SQ ID in CQEntry: {} for CDw0: {}", .{ cq_entry_ptr.*, cdw0 });
@@ -1627,8 +1632,8 @@ fn execIoCommand(CDw0Type: type, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) 
     // return CQEntry{};
 }
 
-fn executeIoNvmCommand(drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEntry {
-    return execIoCommand(IoNvmCDw0, drv, cmd, sqn, cqn);
+fn executeIoNvmCommand(dev: *NvmeDevice, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEntry {
+    return execIoCommand(IoNvmCDw0, dev, cmd, sqn, cqn);
 }
 //--- public functions ---
 
@@ -1636,8 +1641,8 @@ fn executeIoNvmCommand(drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!
 /// @param allocator : Allocator
 /// @param slba : Start Logical Block Address
 /// @param nlb : Number of Logical Blocks
-pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: *Drive, nsid: u32, slba: u64, nlba: u16) ![]T {
-    const ns: NsInfo = drv.ns_info_map.get(nsid) orelse {
+pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, dev: *NvmeDevice, nsid: u32, slba: u64, nlba: u16) ![]T {
+    const ns: NsInfo = dev.ns_info_map.get(nsid) orelse {
         log.err("Namespace {d} not found", .{nsid});
         return NvmeError.InvalidNsid;
     };
@@ -1725,7 +1730,7 @@ pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: *Drive, nsid
     const cqn = 1;
 
     log.debug("Executing I/O NVM Command Set Read command", .{});
-    _ = executeIoNvmCommand(drv, @bitCast(IoNvmCommandSetCommand{
+    _ = executeIoNvmCommand(dev, @bitCast(IoNvmCommandSetCommand{
         .read = .{
             .cdw0 = .{
                 .opc = .read,
@@ -1770,8 +1775,8 @@ pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: *Drive, nsid
 /// @param nsid : Namespace ID
 /// @param slba : Start Logical Block Address
 /// @param data : Data to write
-pub fn write(T: type, allocator: std.mem.Allocator, drv: *Drive, nsid: u32, slba: u64, data: []const T) !void {
-    const ns: NsInfo = drv.ns_info_map.get(nsid) orelse {
+pub fn write(T: type, allocator: std.mem.Allocator, dev: *NvmeDevice, nsid: u32, slba: u64, data: []const T) !void {
+    const ns: NsInfo = dev.ns_info_map.get(nsid) orelse {
         log.err("Namespace {d} not found", .{nsid});
         return NvmeError.InvalidNsid;
     };
@@ -1856,7 +1861,7 @@ pub fn write(T: type, allocator: std.mem.Allocator, drv: *Drive, nsid: u32, slba
     const cqn = 1;
 
     log.debug("Executing I/O NVM Command Set Read command", .{});
-    _ = executeIoNvmCommand(drv, @bitCast(IoNvmCommandSetCommand{
+    _ = executeIoNvmCommand(dev, @bitCast(IoNvmCommandSetCommand{
         .write = .{
             .cdw0 = .{
                 .opc = .write,

@@ -1,8 +1,8 @@
 const std = @import("std");
 
-const Pcie = @import("pci/pcie.zig").Pcie;
+const pcie = @import("pci/PcieBus.zig");
 const heap = @import("../../mem/heap.zig").heap;
-const Device = @import("../devices/device.zig").Device;
+const Device = @import("../../devices/devices.zig").Device;
 
 const log = std.log.scoped(.bus);
 
@@ -12,11 +12,7 @@ pub const BusType = enum {
 };
 
 pub const BusDeviceSpec = union(BusType) {
-    pcie: struct {
-        bus: u8,
-        device: u8,
-        function: u8,
-    },
+    pcie: pcie.PcieAddress,
     usb: struct { //TODO not implemented
         port: u8,
         speed: u8,
@@ -29,7 +25,7 @@ pub const Bus = struct {
     const Self = @This();
 
     bus: union(BusType) {
-        pcie: Pcie,
+        pcie: pcie.Pcie,
     },
     devices: DeviceList,
 
