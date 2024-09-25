@@ -4,11 +4,12 @@ const cpu = @import("../cpu.zig");
 const heap = @import("../mem/heap.zig").heap;
 const paging = @import("../paging.zig");
 //contollers
-const Nvme = @import("./Nvme.zig");
+const Nvme = @import("../drivers/Nvme.zig");
 //end of controllers
 
 const log = std.log.scoped(.pci);
-const Pcie = @This();
+
+pub const Pcie = @This();
 
 pub usingnamespace switch (builtin.cpu.arch) {
     .x86_64 => @import("../arch/x86_64/pcie.zig"),
@@ -48,8 +49,12 @@ pub const Driver = union(enum) {
     }
 };
 
-const DeviceList = ArrayList(*const Driver);
+const DriverList = ArrayList(*const Driver);
 
+//Fields
+var drivers: ?DriverList = null;
+
+// Inner Types
 pub const RegisterOffset = enum(u8) {
     vendor_id = 0x00,
     device_id = 0x02,
@@ -450,16 +455,14 @@ fn checkFunction(bus: u8, slot: u5, function: u3) PciError!void {
     };
 }
 
-var device_list: ?DeviceList = null;
-
 pub fn registerDriver(driver: *const Driver) !void {
-    assert(device_list != null);
-    try device_list.?.append(driver);
+    assert(drivers != null);
+    try drivers.?.append(driver);
 }
 
 fn notifyDriver(function: u3, slot: u5, bus: u8, class_code: u8, subclass: u8, prog_if: u8) !void {
-    assert(device_list != null);
-    for (device_list.?.items) |d| {
+    assert(drivers != null);
+    for (drivers.?.items) |d| {
         if (d.interested(class_code, subclass, prog_if)) {
             log.info("interested", .{});
             try d.update(function, slot, bus);
@@ -471,14 +474,14 @@ pub fn deinit() void {
     log.info("Deinitializing PCI", .{});
     defer log.info("PCI deinitialized", .{});
 
-    device_list.deinit();
+    drivers.deinit();
 }
 
 pub fn init() void {
     log.info("Initializing PCI", .{});
     defer log.info("PCI initialized", .{});
 
-    device_list = DeviceList.init(heap.page_allocator);
+    drivers = DriverList.init(heap.page_allocator);
 }
 
 pub fn scan() PciError!void {

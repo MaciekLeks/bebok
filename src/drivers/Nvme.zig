@@ -1,6 +1,6 @@
 const std = @import("std");
 const log = std.log.scoped(.nvme);
-const pcie = @import("pcie.zig");
+const pcie = @import("../bus/pcie.zig");
 const paging = @import("../paging.zig");
 const int = @import("../int.zig");
 const pmm = @import("../mem/pmm.zig");
