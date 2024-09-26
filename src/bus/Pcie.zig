@@ -208,9 +208,7 @@ inline fn registerAddress(T: type, config_addr: ConfigAddress) T {
 test "PCI register addresses" {
     var config_addr = ConfigAddress{
         .register_offset = .max_latency,
-        .function_no = 0,
-        .slot_no = 0,
-        .bus_no = 0,
+        .addr = .{ .function = 0, .slot = 0, .bus = 0 },
     };
     const x = registerAddress(u32, config_addr);
     log.warn("Register address: 0x{b:0>8}, 0x{b:0>8}", .{ x, @intFromEnum(RegisterOffset.max_latency) });
@@ -218,17 +216,13 @@ test "PCI register addresses" {
 
     config_addr = ConfigAddress{
         .register_offset = .vendor_id,
-        .function_no = 0,
-        .slot_no = 0,
-        .bus_no = 1,
+        .addr = .{ .function = 0, .slot = 0, .bus = 1 },
     };
     try t.expect(registerAddress(u32, config_addr) == 0x80_01_00_00);
 
     config_addr = ConfigAddress{
         .register_offset = .vendor_id,
-        .function_no = 0,
-        .slot_no = 1,
-        .bus_no = 0,
+        .addr = .{ .function = 0, .slot = 1, .bus = 0 },
     };
     try t.expect(registerAddress(u32, config_addr) == 0x80_00_08_00);
 
