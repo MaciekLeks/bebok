@@ -7,6 +7,10 @@ pub const BusDeviceAddress = @import("../bus/bus.zig").BusDeviceAddress;
 
 pub const Device = @This();
 
+//variables
+var allctr: std.mem.Allocator = undefined;
+
+//Fields
 addr: BusDeviceAddress,
 spec: union(enum) {
     block_device: BlockDevice,
@@ -14,3 +18,16 @@ spec: union(enum) {
 // driver: union(enum) {
 //     nvme: Driver,
 // },
+
+pub fn init(allocator: std.mem.Allocator, addr: BusDeviceAddress) !*Device {
+    allctr = allocator;
+
+    var dev = try allctr.create(Device);
+    dev.addr = addr;
+
+    return dev;
+}
+
+pub fn deinit(self: *Device) void {
+    defer allctr.destroy(self);
+}

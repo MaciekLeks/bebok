@@ -4,9 +4,8 @@ const cpu = @import("../cpu.zig");
 const heap = @import("../mem/heap.zig").heap;
 const paging = @import("../paging.zig");
 const Bus = @import("bus.zig").Bus;
-//contollers
 const Nvme = @import("../drivers/Nvme.zig");
-//end of controllers
+const Device = @import("bus.zig").Device;
 
 const log = std.log.scoped(.pci);
 
@@ -78,7 +77,7 @@ var allctr: std.mem.Allocator = undefined;
 
 //Fields
 drivers: DriverList,
-bus: *const Bus,
+bus: *Bus,
 
 // Inner Types
 pub const RegisterOffset = enum(u8) {
@@ -467,8 +466,10 @@ pub fn registerDriver(self: *Pcie, driver: *const Driver) !void {
 fn probeAndSetupDevice(self: *Pcie, addr: PcieAddress, class_code: u8, subclass: u8, prog_if: u8) !void {
     for (self.drivers.items) |d| {
         if (d.probe(class_code, subclass, prog_if)) {
-            log.info("interested", .{});
+            const dev = try Device.init(allctr, .{ .pcie = addr });
+            //let the driver fill the device struct
             try d.setup(addr);
+            try self.bus.devices.append(dev);
         }
     }
 }
@@ -481,7 +482,7 @@ pub fn deinit(self: *Pcie) void {
     self.drivers.deinit();
 }
 
-pub fn init(allocator: std.mem.Allocator, bus: *const Bus) !*Pcie {
+pub fn init(allocator: std.mem.Allocator, bus: *Bus) !*Pcie {
     log.info("Initializing PCI", .{});
     defer log.info("PCI initialized", .{});
     var pcie = try allocator.create(Pcie);

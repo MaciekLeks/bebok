@@ -3,7 +3,7 @@ const std = @import("std");
 const Pcie = @import("Pcie.zig");
 const usb = @import("usb.zig");
 const heap = @import("../../mem/heap.zig").heap;
-const Device = @import("../devices/devices.zig").Device;
+pub const Device = @import("../devices/Device.zig"); //re-export for the all in the directory
 
 const log = std.log.scoped(.bus);
 
@@ -62,6 +62,11 @@ pub const Bus = struct {
     pub fn deinit(self: *Self) void {
         defer allctr.destroy(self);
         defer self.devices.deinit();
+
+        for (self.devices) |dev| {
+            dev.deinit();
+        }
+
         switch (self.impl) {
             inline else => |it| it.deinit(),
         }
