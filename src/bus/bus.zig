@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const pcie = @import("pcie.zig");
+const Pcie = @import("Pcie.zig");
 const usb = @import("usb.zig");
 const heap = @import("../../mem/heap.zig").heap;
 const Device = @import("../devices/devices.zig").Device;
@@ -13,7 +13,7 @@ pub const BusType = enum {
 };
 
 pub const BusDeviceAddress = union(BusType) {
-    pcie: pcie.PcieAddress,
+    pcie: Pcie.PcieAddress,
     usb: struct { //TODO not implemented
         port: u8,
         speed: u8,
@@ -27,7 +27,7 @@ pub const Bus = struct {
 
     var allctr: std.mem.Allocator = undefined;
     impl: union(BusType) {
-        pcie: *pcie.Pcie,
+        pcie: *Pcie,
         usb: *usb.Usb,
     },
     devices: DeviceList,
@@ -37,7 +37,7 @@ pub const Bus = struct {
 
         var bus = try allctr.create(Self);
         bus.impl = switch (tag) {
-            .pcie => .{ .pcie = try pcie.init(allocator, bus) },
+            .pcie => .{ .pcie = try Pcie.init(allocator, bus) },
             else => unreachable,
         };
         bus.devices = DeviceList.init(allocator);

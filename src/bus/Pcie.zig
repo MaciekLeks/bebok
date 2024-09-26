@@ -36,17 +36,21 @@ pub const PciError = error{
 pub const PcieAddress = struct {
     const Self = @This();
     bus: u8,
-    device: u5,
+    slot: u5,
     function: u3,
 
     pub const Packed = packed struct {
         function: u3,
-        device: u5,
+        slot: u5,
         bus: u8,
+
+        pub fn unpack(self: Packed) Self {
+            return .{ .bus = self.bus, .slot = self.slot, .function = self.function };
+        }
     };
 
     pub fn pack(self: Self) Packed {
-        return .{ .function = self.function, .slot = self.device, .bus = self.bus };
+        return .{ .function = self.function, .slot = self.slot, .bus = self.bus };
     }
 };
 
@@ -54,15 +58,15 @@ pub const Driver = union(enum) {
     const Self = @This();
     nvme: *const Nvme,
 
-    pub fn interested(self: Self, class_code: u8, subclass: u8, prog_if: u8) bool {
+    pub fn probe(self: Self, class_code: u8, subclass: u8, prog_if: u8) bool {
         return switch (self) {
             inline else => |it| it.interested(class_code, subclass, prog_if),
         };
     }
 
-    pub fn update(self: Self, function_no: u3, slot_no: u5, bus_no: u8) !void {
+    pub fn setup(self: Self, addr: PcieAddress) !void {
         return switch (self) {
-            inline else => |it| it.update(function_no, slot_no, bus_no),
+            inline else => |it| it.setup(addr),
         };
     }
 };
@@ -110,14 +114,12 @@ pub const RegisterOffset = enum(u8) {
 const ConfigAddress = packed struct(u32) {
     // register_offset: RegisterOffset, //0-7
     register_offset: u8, //0-7 - can't use RegisterOffset because we are going to iterate over the cappabilities
-    function_no: u3, //8-10
-    slot_no: u5, //11-15 //physical device
-    bus_no: u8, //16-23
+    addr: PcieAddress.Packed,
     reserved: u7 = 0, //24-30
     enable: u1 = 1, //31
 };
 
-pub const BAR = struct {
+pub const Bar = struct {
     prefetchable: bool, //TODO: change paging settings based on this
     address: union(enum) {
         a32: u32,
@@ -230,7 +232,7 @@ test "PCI register addresses" {
     };
     try t.expect(registerAddress(u32, config_addr) == 0x80_00_08_00);
 
-    config_addr = ConfigAddress{ .register_offset = .vendor_id, .function_no = 1, .slot_no = 0, .bus_no = 0 };
+    config_addr = ConfigAddress{ .register_offset = .vendor_id, .addr = .{ .function = 1, .slot = 0, .bus = 0 } };
     try t.expect(registerAddress(u32, config_addr) == 0x80000100);
 }
 
@@ -246,23 +248,19 @@ fn readRegister(T: type, config_addr: ConfigAddress) T {
     return config_data;
 }
 
-pub fn readRegisterWithArgs(T: type, register_offset: RegisterOffset, function_no: u3, slot_no: u5, bus_no: u8) T {
+pub fn readRegisterWithArgs(T: type, register_offset: RegisterOffset, addr: PcieAddress) T {
     return readRegister(T, ConfigAddress{
         .register_offset = @intFromEnum(register_offset),
-        .function_no = function_no,
-        .slot_no = slot_no,
-        .bus_no = bus_no,
+        .addr = addr.pack(),
     });
 }
 
 // With direct register offset
-pub fn readRegisterWithRawArgs(T: type, raw_register_offset: u8, function_no: u3, slot_no: u5, bus_no: u8) T {
+pub fn readRegisterWithRawArgs(T: type, raw_register_offset: u8, addr: PcieAddress) T {
     assert(raw_register_offset & 0b11 == 0);
     return readRegister(T, ConfigAddress{
         .register_offset = raw_register_offset,
-        .function_no = function_no,
-        .slot_no = slot_no,
-        .bus_no = bus_no,
+        .addr = addr.pack(),
     });
 }
 
@@ -274,27 +272,20 @@ fn writeRegister(T: type, config_addr: ConfigAddress, value: T) void {
     cpu.out(T, @as(cpu.PortNumberType, legacy_pci_config_data_port) + (config_addr.register_offset & 0b11), value);
 }
 
-pub fn writeRegisterWithArgs(T: type, register_offset: RegisterOffset, function_no: u3, slot_no: u5, bus_no: u8, value: T) void {
+pub fn writeRegisterWithArgs(T: type, register_offset: RegisterOffset, addr: PcieAddress, value: T) void {
     writeRegister(T, ConfigAddress{
         .register_offset = @intFromEnum(register_offset),
-        .function_no = function_no,
-        .slot_no = slot_no,
-        .bus_no = bus_no,
+        .addr = addr.pack(),
     }, value);
 }
 
-pub fn writeRegisterWithRawArgs(T: type, raw_register_offset: u8, function_no: u3, slot_no: u5, bus_no: u8, value: T) void {
+pub fn writeRegisterWithRawArgs(T: type, raw_register_offset: u8, addr: PcieAddress, value: T) void {
     assert(raw_register_offset & 0b11 == 0);
-    writeRegister(T, ConfigAddress{
-        .register_offset = raw_register_offset,
-        .function_no = function_no,
-        .slot_no = slot_no,
-        .bus_no = bus_no,
-    }, value);
+    writeRegister(T, ConfigAddress{ .register_offset = raw_register_offset, .addr = addr.pack() }, value);
 }
 
-pub fn readBAR(bar_addr: ConfigAddress) BAR {
-    var bar: BAR = undefined;
+pub fn readBar(bar_addr: ConfigAddress) Bar {
+    var bar: Bar = undefined;
     const bar_value = readRegister(u32, bar_addr);
 
     var next_bar_value: u32 = undefined;
@@ -310,9 +301,7 @@ pub fn readBAR(bar_addr: ConfigAddress) BAR {
         } else {
             next_bar_addr = .{
                 .register_offset = bar_addr.register_offset + @sizeOf(u32), //BAR[x + 1]
-                .function_no = bar_addr.function_no,
-                .slot_no = bar_addr.slot_no,
-                .bus_no = bar_addr.bus_no,
+                .addr = bar_addr.addr,
             };
             next_bar_value = readRegister(u32, next_bar_addr);
             bar.address = .{ .a64 = @as(u64, next_bar_value & 0xFFFF_FFFF) << 32 | bar_value & 0xFFFF_FFF0 };
@@ -335,19 +324,18 @@ pub fn readBAR(bar_addr: ConfigAddress) BAR {
     return bar;
 }
 
-pub fn readBARWithArgs(register_offset: RegisterOffset, function_no: u3, slot_no: u5, bus_no: u8) BAR {
-    return readBAR(ConfigAddress{
+pub fn readBarWithArgs(register_offset: RegisterOffset, addr: PcieAddress) Bar {
+    return readBar(ConfigAddress{
         .register_offset = @intFromEnum(register_offset),
-        .function_no = function_no,
-        .slot_no = slot_no,
-        .bus_no = bus_no,
+        .addr = addr.pack(),
     });
 }
 
-fn determineAddressSpaceSize(bar: BAR, bar_addr: ConfigAddress, bar_value: u32, next_bar_addr: ConfigAddress, next_bar_value: u32, is_a64: bool) u64 {
-    const orig_command = readRegisterWithArgs(u16, .command, 0, bar_addr.slot_no, bar_addr.bus_no);
+fn determineAddressSpaceSize(bar: Bar, bar_addr: ConfigAddress, bar_value: u32, next_bar_addr: ConfigAddress, next_bar_value: u32, is_a64: bool) u64 {
+    //?const orig_command = readRegisterWithArgs(u16, .command, 0, bar_addr.slot_no, bar_addr.bus_no);
+    const orig_command = readRegisterWithArgs(u16, .command, bar_addr.addr.unpack());
     const disable_command = orig_command & ~@as(u16, 0b11); //disable i/o space bit and memory space bit while getting the size
-    writeRegisterWithArgs(u16, .command, bar_addr.function_no, bar_addr.slot_no, bar_addr.bus_no, disable_command);
+    writeRegisterWithArgs(u16, .command, bar_addr.addr.unpack(), disable_command);
     writeRegister(u32, bar_addr, 0xFFFF_FFFF);
     const bar_size_low = readRegister(u32, bar_addr);
     var bar_size_high: u32 = 0;
@@ -357,7 +345,7 @@ fn determineAddressSpaceSize(bar: BAR, bar_addr: ConfigAddress, bar_value: u32, 
         bar_size_high = readRegister(u32, next_bar_addr);
         writeRegister(u32, next_bar_addr, next_bar_value);
     }
-    writeRegisterWithArgs(u32, .command, bar_addr.function_no, bar_addr.slot_no, bar_addr.bus_no, orig_command);
+    writeRegisterWithArgs(u32, .command, bar_addr.addr.unpack(), orig_command);
 
     var bar_size: u64 = undefined;
     if (is_a64) {
@@ -380,45 +368,46 @@ fn checkBus(self: *Pcie, bus: u8) PciError!void {
 }
 
 fn checkSlot(self: *Pcie, bus: u8, slot: u5) PciError!void {
-    if (readRegisterWithArgs(u16, .vendor_id, 0, slot, bus) == 0xFFFF) {
+    if (readRegisterWithArgs(u16, .vendor_id, .{ .function = 0, .slot = slot, .bus = bus }) == 0xFFFF) {
         return;
     }
-    try checkFunction(self, bus, slot, 0);
-    _ = if (readRegisterWithArgs(u8, .header_type, 0, slot, bus) & 0x80 == 0) {
+    try checkFunction(self, .{ .function = 0, .slot = slot, .bus = bus });
+    _ = if (readRegisterWithArgs(u8, .header_type, .{ .function = 0, .slot = slot, .bus = bus }) & 0x80 == 0) {
         return;
     };
     for (1..8) |function| {
         const function_no: u3 = @truncate(function);
-        if (readRegisterWithArgs(u16, .vendor_id, function_no, slot, bus) != 0xFFFF) {
-            try checkFunction(self, bus, slot, function_no);
+        const addr = .{ .function = function_no, .slot = slot, .bus = bus };
+        if (readRegisterWithArgs(u16, .vendor_id, addr) != 0xFFFF) {
+            try checkFunction(self, addr);
         }
     }
 }
 
 // Unique ID for a PCI device
-pub fn uniqueId(bus: u8, slot: u5, function: u3) u32 {
-    return (@as(u32, bus) << 16) | (@as(u32, slot) << 8) | function;
+pub fn uniqueId(addr: PcieAddress) u32 {
+    return (@as(u32, addr.bus) << 16) | (@as(u32, addr.slot) << 8) | addr.function;
 }
 
-fn checkFunction(self: *Pcie, bus: u8, slot: u5, function: u3) PciError!void {
-    const class_code = readRegisterWithArgs(u8, .class_code, function, slot, bus);
-    const subclass = readRegisterWithArgs(u8, .subclass, function, slot, bus);
-    const prog_if = readRegisterWithArgs(u8, .prog_if, function, slot, bus);
-    const header_type = readRegisterWithArgs(u8, .header_type, function, slot, bus);
-    const vendor_id = readRegisterWithArgs(u16, .vendor_id, function, slot, bus);
-    const device_id = readRegisterWithArgs(u16, .device_id, function, slot, bus);
-    const interrupt_line = readRegisterWithArgs(u8, .interrupt_line, function, slot, bus);
-    const interrupt_pin = readRegisterWithArgs(u8, .interrupt_pin, function, slot, bus);
-    const command: Command = @bitCast(readRegisterWithArgs(u16, .command, function, slot, bus));
-    const status = readRegisterWithArgs(u16, .status, function, slot, bus);
-    const capabilities_pointer = readRegisterWithArgs(u8, .capability_pointer, function, slot, bus);
+fn checkFunction(self: *Pcie, addr: PcieAddress) PciError!void {
+    const class_code = readRegisterWithArgs(u8, .class_code, addr);
+    const subclass = readRegisterWithArgs(u8, .subclass, addr);
+    const prog_if = readRegisterWithArgs(u8, .prog_if, addr);
+    const header_type = readRegisterWithArgs(u8, .header_type, addr);
+    const vendor_id = readRegisterWithArgs(u16, .vendor_id, addr);
+    const device_id = readRegisterWithArgs(u16, .device_id, addr);
+    const interrupt_line = readRegisterWithArgs(u8, .interrupt_line, addr);
+    const interrupt_pin = readRegisterWithArgs(u8, .interrupt_pin, addr);
+    const command: Command = @bitCast(readRegisterWithArgs(u16, .command, addr));
+    const status = readRegisterWithArgs(u16, .status, addr);
+    const capabilities_pointer = readRegisterWithArgs(u8, .capability_pointer, addr);
 
-    const bar = readBAR(.{ .register_offset = @intFromEnum(RegisterOffset.bar0), .function_no = function, .slot_no = slot, .bus_no = bus });
+    const bar = readBar(.{ .register_offset = @intFromEnum(RegisterOffset.bar0), .addr = addr.pack() });
 
     if (class_code == 0x06 and subclass == 0x04) {
         // PCI-to-PCI bridge
         log.debug("PCI-to-PCI bridge", .{});
-        try checkBus(self, bus + 1);
+        try checkBus(self, addr.bus + 1);
     } else {
         const size_KB = switch (bar.size) {
             .as32 => bar.size.as32 / 1024,
@@ -426,7 +415,7 @@ fn checkFunction(self: *Pcie, bus: u8, slot: u5, function: u3) PciError!void {
         };
         const size_MB = if (size_KB > 1024) size_KB / 1024 else 0;
         const size_GB = if (size_MB > 1024) size_MB / 1024 else 0;
-        const addr = switch (bar.address) {
+        const phys = switch (bar.address) {
             .a32 => bar.address.a32,
             .a64 => bar.address.a64,
         };
@@ -449,9 +438,9 @@ fn checkFunction(self: *Pcie, bus: u8, slot: u5, function: u3) PciError!void {
             \\status: 0b{b:0>16}",
             \\capabilities_pointer: 0x{x}, 
         , .{
-            bus,
-            slot,
-            function,
+            addr.bus,
+            addr.slot,
+            addr.function,
             class_code,
             subclass,
             prog_if,
@@ -461,7 +450,7 @@ fn checkFunction(self: *Pcie, bus: u8, slot: u5, function: u3) PciError!void {
             interrupt_line,
             interrupt_pin,
             bar,
-            addr,
+            phys,
             size_GB,
             size_MB,
             size_KB,
@@ -471,7 +460,7 @@ fn checkFunction(self: *Pcie, bus: u8, slot: u5, function: u3) PciError!void {
         });
     }
 
-    notifyDriver(self, function, slot, bus, class_code, subclass, prog_if) catch |err| {
+    probeAndSetupDevice(self, addr, class_code, subclass, prog_if) catch |err| {
         log.err("Error notifying driver: {}", .{err});
         return PciError.DriverNotificationFailed;
     };
@@ -481,11 +470,11 @@ pub fn registerDriver(self: *Pcie, driver: *const Driver) !void {
     try self.drivers.append(driver);
 }
 
-fn notifyDriver(self: *Pcie, function: u3, slot: u5, bus: u8, class_code: u8, subclass: u8, prog_if: u8) !void {
+fn probeAndSetupDevice(self: *Pcie, addr: PcieAddress, class_code: u8, subclass: u8, prog_if: u8) !void {
     for (self.drivers.items) |d| {
-        if (d.interested(class_code, subclass, prog_if)) {
+        if (d.probe(class_code, subclass, prog_if)) {
             log.info("interested", .{});
-            try d.update(function, slot, bus);
+            try d.setup(addr);
         }
     }
 }
@@ -521,8 +510,8 @@ pub fn scan(self: *Pcie) PciError!void {
     try checkBus(self, 0);
 }
 
-fn findCapabilityOffset(cap_id: u8, function: u3, slot: u5, bus: u8) !u8 {
-    const cap_offset = readRegisterWithArgs(u8, .capability_pointer, function, slot, bus);
+fn findCapabilityOffset(cap_id: u8, addr: PcieAddress) !u8 {
+    const cap_offset = readRegisterWithArgs(u8, .capability_pointer, addr);
     if (cap_offset == 0) {
         return PciError.CapabilitiesPointerNotFound;
     }
@@ -530,7 +519,7 @@ fn findCapabilityOffset(cap_id: u8, function: u3, slot: u5, bus: u8) !u8 {
     var cur_offset = cap_offset & 0xFC; //4 bits aligned
     var next_cap_offset: u8 = 0;
     while (cur_offset != 0) {
-        const cap0x0 = readRegisterWithRawArgs(u32, cur_offset, function, slot, bus);
+        const cap0x0 = readRegisterWithRawArgs(u32, cur_offset, addr);
         const read_cap_id: u8 = @truncate(cap0x0);
         if (read_cap_id == cap_id) {
             return cur_offset;
@@ -542,14 +531,14 @@ fn findCapabilityOffset(cap_id: u8, function: u3, slot: u5, bus: u8) !u8 {
     return error.PciExpressCapabilityNotFound;
 }
 
-pub fn readCapability(comptime TCap: type, function: u3, slot: u5, bus: u8) !TCap {
+pub fn readCapability(comptime TCap: type, addr: PcieAddress) !TCap {
     var val: TCap = undefined;
 
     const cap_id_field = std.meta.fieldInfo(TCap, .cid);
     const default_val_ptr = cap_id_field.default_value orelse @compileError("TCap.id must have a default value");
     const cap_id_ptr: *const u8 = @ptrCast(default_val_ptr);
 
-    const cap_offset = try findCapabilityOffset(cap_id_ptr.*, function, slot, bus);
+    const cap_offset = try findCapabilityOffset(cap_id_ptr.*, addr);
 
     const val_size = @sizeOf(TCap);
     const reg_size = @sizeOf(u32);
@@ -558,7 +547,7 @@ pub fn readCapability(comptime TCap: type, function: u3, slot: u5, bus: u8) !TCa
 
     const val_ptr: [*]u32 = @ptrCast(@alignCast(&val));
     inline for (0..reg_no) |i| {
-        const reg_value = readRegisterWithRawArgs(u32, @intCast(cap_offset + i * reg_size), function, slot, bus);
+        const reg_value = readRegisterWithRawArgs(u32, @intCast(cap_offset + i * reg_size), addr);
         //map the register to the struct
         val_ptr[i] = @bitCast(reg_value);
     }
@@ -566,12 +555,12 @@ pub fn readCapability(comptime TCap: type, function: u3, slot: u5, bus: u8) !TCa
     return val;
 }
 
-pub fn writeCapability(comptime TCap: type, val: TCap, function: u3, slot: u5, bus: u8) !void {
+pub fn writeCapability(comptime TCap: type, val: TCap, addr: PcieAddress) !void {
     const cap_id_field = std.meta.fieldInfo(TCap, .cid);
     const default_val_ptr = cap_id_field.default_value orelse @compileError("TCap.id must have a default value");
     const cap_id_ptr: *const u8 = @ptrCast(default_val_ptr);
 
-    const cap_offset = try findCapabilityOffset(cap_id_ptr.*, function, slot, bus);
+    const cap_offset = try findCapabilityOffset(cap_id_ptr.*, addr);
 
     const val_size = @sizeOf(TCap);
     const reg_size = @sizeOf(u32);
@@ -580,15 +569,15 @@ pub fn writeCapability(comptime TCap: type, val: TCap, function: u3, slot: u5, b
 
     const val_ptr: [*]const u32 = @ptrCast(@alignCast(&val));
     inline for (0..reg_no) |i| {
-        const reg_value = readRegisterWithRawArgs(u32, @intCast(cap_offset + i * reg_size), function, slot, bus);
+        const reg_value = readRegisterWithRawArgs(u32, @intCast(cap_offset + i * reg_size), addr);
         //map the register to the struct
         if (reg_value != val_ptr[i]) {
-            writeRegisterWithRawArgs(u32, @intCast(cap_offset + i * reg_size), function, slot, bus, val_ptr[i]);
+            writeRegisterWithRawArgs(u32, @intCast(cap_offset + i * reg_size), addr, val_ptr[i]);
         }
     }
 }
 
-pub fn addMsixMessageTableEntry(msix_cap: MsixCap, bar: BAR, id: u11, vec_no: u8) void {
+pub fn addMsixMessageTableEntry(msix_cap: MsixCap, bar: Bar, id: u11, vec_no: u8) void {
     assert(msix_cap.mc.ts > id);
 
     const virt = switch (bar.address) {
@@ -642,7 +631,7 @@ pub fn addMsixMessageTableEntry(msix_cap: MsixCap, bar: BAR, id: u11, vec_no: u8
 //     return pending_bit.* & ((@as(u8, 1) << bit_no)) != 0;
 // }
 //
-pub fn readMsixPendingBitArrayBit(msix_cap: MsixCap, bar: BAR, msix_table_idx: u11) u1 {
+pub fn readMsixPendingBitArrayBit(msix_cap: MsixCap, bar: Bar, msix_table_idx: u11) u1 {
     const virt = switch (bar.address) {
         inline else => |addr| paging.virtFromMME(addr),
     };
@@ -653,7 +642,7 @@ pub fn readMsixPendingBitArrayBit(msix_cap: MsixCap, bar: BAR, msix_table_idx: u
     return pending_bit.*;
 }
 
-pub fn writeMsixPendingBitArrayBit(msix_cap: MsixCap, bar: BAR, msix_table_idx: u11, value: u1) void {
+pub fn writeMsixPendingBitArrayBit(msix_cap: MsixCap, bar: Bar, msix_table_idx: u11, value: u1) void {
     const virt = switch (bar.address) {
         inline else => |addr| paging.virtFromMME(addr),
     };

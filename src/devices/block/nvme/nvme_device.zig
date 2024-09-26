@@ -1,12 +1,12 @@
-const pcie = @import("../../../bus/pcie.zig");
+const Pcie = @import("../../../bus/Pcie.zig");
 const nvme_driver = @import("../../../drivers/Nvme.zig"); //TODO - refactor
 
 pub const NvmeDevice = struct {
     const nvme_ncqr = 0x2; //number of completion queues requested (+1 is admin cq)
     const nvme_nsqr = nvme_ncqr; //number of submission queues requested
 
-    bar: pcie.BAR = undefined,
-    msix_cap: pcie.MsixCap = undefined,
+    bar: Pcie.Bar = undefined,
+    msix_cap: Pcie.MsixCap = undefined,
 
     //expected_phase: u1 = 1, //private counter to keep track of the expected phase
     mdts_bytes: u32 = 0, // Maximum Data Transfer Size in bytes

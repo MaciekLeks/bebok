@@ -1,6 +1,6 @@
 const std = @import("std");
 const log = std.log.scoped(.nvme);
-const pcie = @import("../bus/pcie.zig");
+const Pcie = @import("../bus/Pcie.zig");
 const paging = @import("../paging.zig");
 const int = @import("../int.zig");
 const pmm = @import("../mem/pmm.zig");
@@ -590,8 +590,8 @@ const Drive = struct {
     //-acq: Queue(CQEntry) = undefined,
     //-asq: Queue(SQEntry) = undefined,
 
-    bar: pcie.BAR = undefined,
-    msix_cap: pcie.MsixCap = undefined,
+    bar: Pcie.Bar = undefined,
+    msix_cap: Pcie.MsixCap = undefined,
 
     //expected_phase: u1 = 1, //private counter to keep track of the expected phase
     mdts_bytes: u32 = 0, // Maximum Data Transfer Size in bytes
@@ -611,13 +611,13 @@ const Drive = struct {
 
 pub var drive: Drive = undefined; //TODO only one drive now, make not public
 
-fn readRegister(T: type, bar: pcie.BAR, register_set_field: @TypeOf(.enum_literal)) T {
+fn readRegister(T: type, bar: Pcie.Bar, register_set_field: @TypeOf(.enum_literal)) T {
     return switch (bar.address) {
         inline else => |addr| @as(*volatile T, @ptrFromInt(paging.virtFromMME(addr) + @offsetOf(RegisterSet, @tagName(register_set_field)))).*,
     };
 }
 
-fn writeRegister(T: type, bar: pcie.BAR, register_set_field: @TypeOf(.enum_literal), value: T) void {
+fn writeRegister(T: type, bar: Pcie.Bar, register_set_field: @TypeOf(.enum_literal), value: T) void {
     switch (bar.address) {
         inline else => |addr| @as(*volatile T, @ptrFromInt(paging.virtFromMME(addr) + @offsetOf(RegisterSet, @tagName(register_set_field)))).* = value,
     }
@@ -627,16 +627,16 @@ pub fn interested(_: Self, class_code: u8, subclass: u8, prog_if: u8) bool {
     return class_code == nvme_class_code and subclass == nvme_subclass and prog_if == nvme_prog_if;
 }
 
-fn configureMsix(function: u3, slot: u5, bus: u8, msix_table_idx: u11, int_vec_no: u8) !void {
-    const unique_id = pcie.uniqueId(bus, slot, function);
+fn configureMsix(addr: Pcie.PcieAddress, msix_table_idx: u11, int_vec_no: u8) !void {
+    const unique_id = Pcie.uniqueId(addr);
     try int.addISR(@intCast(int_vec_no), .{ .unique_id = unique_id, .func = handleInterrupt });
-    pcie.addMsixMessageTableEntry(drive.msix_cap, drive.bar, msix_table_idx, int_vec_no); //add 0x31 at 0x01 offset
+    Pcie.addMsixMessageTableEntry(drive.msix_cap, drive.bar, msix_table_idx, int_vec_no); //add 0x31 at 0x01 offset
 }
 
-pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
+pub fn setup(_: Self, addr: Pcie.PcieAddress) !void {
 
-    //const pcie_version = try pcie.readPcieVersion(function, slot, bus); //we need PCIe version 2.0 at least
-    const pcie_version = try pcie.readCapability(pcie.VersionCap, function, slot, bus);
+    //const pcie_version = try Pcie.readPcieVersion(function, slot, bus); //we need PCIe version 2.0 at least
+    const pcie_version = try Pcie.readCapability(Pcie.VersionCap, addr);
     log.info("PCIe version: {}", .{pcie_version});
 
     if (pcie_version.major < 2) {
@@ -645,33 +645,33 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     }
 
     //read MSI capability to check if's disabled or enabled
-    const msi_cap: ?pcie.MsiCap = pcie.readCapability(pcie.MsiCap, function, slot, bus) catch |err| blk: {
+    const msi_cap: ?Pcie.MsiCap = Pcie.readCapability(Pcie.MsiCap, addr) catch |err| blk: {
         log.err("Failed to read MSI capability: {}", .{err});
         break :blk null;
     };
     log.debug("MSI capability: {?}", .{msi_cap});
 
-    drive.msix_cap = try pcie.readCapability(pcie.MsixCap, function, slot, bus);
+    drive.msix_cap = try Pcie.readCapability(Pcie.MsixCap, addr);
     log.debug("MSI-X capability pre-modification: {}", .{drive.msix_cap});
 
     if (drive.msix_cap.tbir != 0) return NvmeError.MsiXMisconfigured; //TODO: it should work on any of the bar but for now we support only bar0
 
     //enable MSI-X
     drive.msix_cap.mc.mxe = true;
-    try pcie.writeCapability(pcie.MsixCap, drive.msix_cap, function, slot, bus);
+    try Pcie.writeCapability(Pcie.MsixCap, drive.msix_cap, addr);
 
-    drive.msix_cap = try pcie.readCapability(pcie.MsixCap, function, slot, bus); //TODO: could be removed
+    drive.msix_cap = try Pcie.readCapability(Pcie.MsixCap, addr); //TODO: could be removed
     log.info("MSI-X capability post-modification: {}", .{drive.msix_cap});
 
-    //- var pci_cmd_reg = pcie.readRegisterWithArgs(u16, .command, function, slot, bus);
+    //- var pci_cmd_reg = Pcie.readRegisterWithArgs(u16, .command, function, slot, bus);
     //disable interrupts while using MSI-X
     //-pci_cmd_reg |= 1 << 15;
-    //-pcie.writeRegisterWithArgs(u16, .command, function, slot, bus, pci_cmd_reg);
+    //-Pcie.writeRegisterWithArgs(u16, .command, function, slot, bus, pci_cmd_reg);
     // const VEC_NO: u16 = 0x20 + interrupt_line; //TODO: we need MSI/MSI-X support first - PIC does not work here
 
     drive = .{
         .ns_info_map = NsInfoMap.init(heap.page_allocator),
-        .bar = pcie.readBARWithArgs(.bar0, function, slot, bus),
+        .bar = Pcie.readBarWithArgs(.bar0, addr),
         //.cq = [_]Queue(CQEntry){} ** (Drive.nvme_ncqr + 1), //+1 for admin cq
         //.cq = .{} ** 2, //+1 for admin cq
         //.sq = .{} ** 2, //+1 for admin sq
@@ -688,17 +688,17 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     }
 
     //MSI-X
-    configureMsix(function, slot, bus, tmp_msix_table_idx, tmp_irq) catch |err| {
+    configureMsix(addr, tmp_msix_table_idx, tmp_irq) catch |err| {
         log.err("Failed to configure MSI-X: {}", .{err});
     };
-    // const unique_id = pcie.uniqueId(bus, slot, function);
+    // const unique_id = Pcie.uniqueId(bus, slot, function);
     // int.addISR(@intCast(0x33), .{ .unique_id = unique_id, .func = handleInterrupt }) catch |err| {
     //     log.err("Failed to add NVMe interrupt handler: {}", .{err});
     // };
-    // pcie.addMsixMessageTableEntry(drive.msix_cap, drive.bar, 0x9, 0x33); //add 0x31 at 0x01 offset
+    // Pcie.addMsixMessageTableEntry(drive.msix_cap, drive.bar, 0x9, 0x33); //add 0x31 at 0x01 offset
     //
     // inline for (0x0.., 0..64) |vec_no, ivt_idx| {
-    //     pcie.addMsixMessageTableEntry(drive.msix_cap, drive.bar, @intCast(ivt_idx), @intCast(vec_no)); //add 0x31 at 0x01 offset
+    //     Pcie.addMsixMessageTableEntry(drive.msix_cap, drive.bar, @intCast(ivt_idx), @intCast(vec_no)); //add 0x31 at 0x01 offset
     //     int.addISR(
     //         @intCast(vec_no),
     //         .{ .unique_id = @intCast(ivt_idx + 100), .func = int.bindSampleISR(@intCast(vec_no)) },
@@ -708,17 +708,17 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     // }
 
     //log pending bit in MSI-X
-    const pending_bit = pcie.readMsixPendingBitArrayBit(drive.msix_cap, drive.bar, 0x0);
+    const pending_bit = Pcie.readMsixPendingBitArrayBit(drive.msix_cap, drive.bar, 0x0);
     log.info("MSI-X pending bit: {}", .{pending_bit});
 
     //  bus-mastering DMA, and memory space access in the PCI configuration space
-    const command = pcie.readRegisterWithArgs(u16, .command, function, slot, bus);
+    const command = Pcie.readRegisterWithArgs(u16, .command, addr);
     log.warn("PCI command register: 0b{b:0>16}", .{command});
     // Enable interrupts, bus-mastering DMA, and memory space access in the PCI configuration space for the function.
-    pcie.writeRegisterWithArgs(u16, .command, function, slot, bus, command | 0b110);
+    Pcie.writeRegisterWithArgs(u16, .command, addr, command | 0b110);
 
     const virt = switch (drive.bar.address) {
-        inline else => |addr| paging.virtFromMME(addr),
+        inline else => |phys| paging.virtFromMME(phys),
     };
 
     const cap_reg_ptr: *volatile u64 = @ptrFromInt(virt);
@@ -1413,9 +1413,9 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
     log.info("Configuration is done", .{});
 }
 
-var driver = &pcie.Driver{ .nvme = &Self{} };
+var driver = &Pcie.Driver{ .nvme = &Self{} };
 
-pub fn init(bus: *pcie.Pcie) void {
+pub fn init(bus: *Pcie.Pcie) void {
     log.info("Initializing NVMe driver", .{});
     bus.registerDriver(driver) catch |err| {
         log.err("Failed to register NVMe driver: {}", .{err});
@@ -1434,7 +1434,7 @@ pub fn deinit() void {
 
 // --- helper functions ---
 
-fn toggleController(bar: pcie.BAR, enable: bool) void {
+fn toggleController(bar: Pcie.Bar, enable: bool) void {
     var cc = readRegister(CCRegister, bar, .cc);
     log.info("CC register before toggle: {}", .{cc});
     cc.en = if (enable) 1 else 0;
@@ -1448,11 +1448,11 @@ fn toggleController(bar: pcie.BAR, enable: bool) void {
     log.info("NVMe controller is {s}", .{if (enable) "enabled" else "disabled"});
 }
 
-fn disableController(bar: pcie.BAR) void {
+fn disableController(bar: Pcie.Bar) void {
     toggleController(bar, false);
 }
 
-fn enableController(bar: pcie.BAR) void {
+fn enableController(bar: Pcie.Bar) void {
     toggleController(bar, true);
 }
 
@@ -1569,7 +1569,7 @@ fn execIoCommand(CDw0Type: type, drv: *Drive, cmd: SQEntry, sqn: u16, cqn: u16) 
     // TODO: this silly loop must be removed
     while (!drv.mutex) {
         log.debug("Waiting for the controller to be ready", .{});
-        const pending_bit = pcie.readMsixPendingBitArrayBit(drv.msix_cap, drv.bar, tmp_msix_table_idx);
+        const pending_bit = Pcie.readMsixPendingBitArrayBit(drv.msix_cap, drv.bar, tmp_msix_table_idx);
         log.debug("MSI-X pending bit: {}", .{pending_bit});
         apic_test.logRegistryState();
         cpu.halt();
