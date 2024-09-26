@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const cpu = @import("../cpu.zig");
 const heap = @import("../mem/heap.zig").heap;
 const paging = @import("../paging.zig");
+const Bus = @import("bus.zig").Bus;
 //contollers
 const Nvme = @import("../drivers/Nvme.zig");
 //end of controllers
@@ -32,6 +33,23 @@ pub const PciError = error{
     DriverNotificationFailed,
 };
 
+pub const PcieAddress = struct {
+    const Self = @This();
+    bus: u8,
+    device: u5,
+    function: u3,
+
+    pub const Packed = packed struct {
+        function: u3,
+        device: u5,
+        bus: u8,
+    };
+
+    pub fn pack(self: Self) Packed {
+        return .{ .function = self.function, .slot = self.device, .bus = self.bus };
+    }
+};
+
 pub const Driver = union(enum) {
     const Self = @This();
     nvme: *const Nvme,
@@ -51,8 +69,12 @@ pub const Driver = union(enum) {
 
 const DriverList = ArrayList(*const Driver);
 
+//variables
+var allctr: std.mem.Allocator = undefined;
+
 //Fields
-var drivers: ?DriverList = null;
+drivers: DriverList,
+bus: *const Bus,
 
 // Inner Types
 pub const RegisterOffset = enum(u8) {
@@ -351,24 +373,24 @@ fn determineAddressSpaceSize(bar: BAR, bar_addr: ConfigAddress, bar_value: u32, 
     return bar_size;
 }
 
-fn checkBus(bus: u8) PciError!void {
+fn checkBus(self: *Pcie, bus: u8) PciError!void {
     for (0..32) |slot| {
-        try checkSlot(bus, @intCast(slot));
+        try checkSlot(self, bus, @intCast(slot));
     }
 }
 
-fn checkSlot(bus: u8, slot: u5) PciError!void {
+fn checkSlot(self: *Pcie, bus: u8, slot: u5) PciError!void {
     if (readRegisterWithArgs(u16, .vendor_id, 0, slot, bus) == 0xFFFF) {
         return;
     }
-    try checkFunction(bus, slot, 0);
+    try checkFunction(self, bus, slot, 0);
     _ = if (readRegisterWithArgs(u8, .header_type, 0, slot, bus) & 0x80 == 0) {
         return;
     };
     for (1..8) |function| {
         const function_no: u3 = @truncate(function);
         if (readRegisterWithArgs(u16, .vendor_id, function_no, slot, bus) != 0xFFFF) {
-            try checkFunction(bus, slot, function_no);
+            try checkFunction(self, bus, slot, function_no);
         }
     }
 }
@@ -378,7 +400,7 @@ pub fn uniqueId(bus: u8, slot: u5, function: u3) u32 {
     return (@as(u32, bus) << 16) | (@as(u32, slot) << 8) | function;
 }
 
-fn checkFunction(bus: u8, slot: u5, function: u3) PciError!void {
+fn checkFunction(self: *Pcie, bus: u8, slot: u5, function: u3) PciError!void {
     const class_code = readRegisterWithArgs(u8, .class_code, function, slot, bus);
     const subclass = readRegisterWithArgs(u8, .subclass, function, slot, bus);
     const prog_if = readRegisterWithArgs(u8, .prog_if, function, slot, bus);
@@ -396,7 +418,7 @@ fn checkFunction(bus: u8, slot: u5, function: u3) PciError!void {
     if (class_code == 0x06 and subclass == 0x04) {
         // PCI-to-PCI bridge
         log.debug("PCI-to-PCI bridge", .{});
-        try checkBus(bus + 1);
+        try checkBus(self, bus + 1);
     } else {
         const size_KB = switch (bar.size) {
             .as32 => bar.size.as32 / 1024,
@@ -449,20 +471,18 @@ fn checkFunction(bus: u8, slot: u5, function: u3) PciError!void {
         });
     }
 
-    notifyDriver(function, slot, bus, class_code, subclass, prog_if) catch |err| {
+    notifyDriver(self, function, slot, bus, class_code, subclass, prog_if) catch |err| {
         log.err("Error notifying driver: {}", .{err});
         return PciError.DriverNotificationFailed;
     };
 }
 
-pub fn registerDriver(driver: *const Driver) !void {
-    assert(drivers != null);
-    try drivers.?.append(driver);
+pub fn registerDriver(self: *Pcie, driver: *const Driver) !void {
+    try self.drivers.append(driver);
 }
 
-fn notifyDriver(function: u3, slot: u5, bus: u8, class_code: u8, subclass: u8, prog_if: u8) !void {
-    assert(drivers != null);
-    for (drivers.?.items) |d| {
+fn notifyDriver(self: *Pcie, function: u3, slot: u5, bus: u8, class_code: u8, subclass: u8, prog_if: u8) !void {
+    for (self.drivers.items) |d| {
         if (d.interested(class_code, subclass, prog_if)) {
             log.info("interested", .{});
             try d.update(function, slot, bus);
@@ -470,22 +490,35 @@ fn notifyDriver(function: u3, slot: u5, bus: u8, class_code: u8, subclass: u8, p
     }
 }
 
-pub fn deinit() void {
+pub fn deinit(self: *Pcie) void {
     log.info("Deinitializing PCI", .{});
+    defer allctr.destroy(self);
     defer log.info("PCI deinitialized", .{});
 
-    drivers.deinit();
+    self.drivers.deinit();
 }
 
-pub fn init() void {
+pub fn init(allocator: std.mem.Allocator, bus: *const Bus) !*Pcie {
     log.info("Initializing PCI", .{});
     defer log.info("PCI initialized", .{});
+    var pcie = try allocator.create(Pcie);
 
-    drivers = DriverList.init(heap.page_allocator);
+    allctr = allocator;
+    pcie.drivers = DriverList.init(allocator);
+    pcie.bus = bus;
+
+    return pcie;
 }
 
-pub fn scan() PciError!void {
-    try checkBus(0);
+pub fn destroy(self: *Pcie) void {
+    defer self.bus.destroy();
+    self.drivers.deinit();
+}
+
+pub fn scan(self: *Pcie) PciError!void {
+    log.info("Scanning PCI", .{});
+    defer log.info("PCI scanned", .{});
+    try checkBus(self, 0);
 }
 
 fn findCapabilityOffset(cap_id: u8, function: u3, slot: u5, bus: u8) !u8 {

@@ -1,7 +1,7 @@
-const pcie = @import("../../../io/bus/pci/pcie.zig");
+const pcie = @import("../../../bus/pcie.zig");
 const nvme_driver = @import("../../../drivers/Nvme.zig"); //TODO - refactor
 
-const NvmeDevice = struct {
+pub const NvmeDevice = struct {
     const nvme_ncqr = 0x2; //number of completion queues requested (+1 is admin cq)
     const nvme_nsqr = nvme_ncqr; //number of submission queues requested
 

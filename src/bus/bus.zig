@@ -1,6 +1,7 @@
 const std = @import("std");
 
-const pcie = @import("pci/PcieBus.zig");
+const pcie = @import("pcie.zig");
+const usb = @import("usb.zig");
 const heap = @import("../../mem/heap.zig").heap;
 const Device = @import("../devices/devices.zig").Device;
 
@@ -24,26 +25,51 @@ const DeviceList = std.ArrayList(*Device);
 pub const Bus = struct {
     const Self = @This();
 
-    bus: union(BusType) {
-        pcie: pcie.Pcie,
+    var allctr: std.mem.Allocator = undefined;
+    impl: union(BusType) {
+        pcie: *pcie.Pcie,
+        usb: *usb.Usb,
     },
     devices: DeviceList,
 
-    pub fn init(self: Self, allocator: std.mem.Allocator) void {
-        switch (self.bus) {
-            inline else => |it| it.init(allocator),
-        }
+    pub fn init(allocator: std.mem.Allocator, tag: BusType) !*Self {
+        allctr = allocator;
+
+        var bus = try allctr.create(Self);
+        bus.impl = switch (tag) {
+            .pcie => .{ .pcie = try pcie.init(allocator, bus) },
+            else => unreachable,
+        };
+        bus.devices = DeviceList.init(allocator);
+
+        return bus;
     }
 
-    pub fn deinit(self: Self) void {
-        switch (self.bus) {
+    // pub fn destroy(self: *Self) void {
+    //     defer allctr.destroy(self);
+    //     self.devices.deinit();
+    //     switch (self.impl) {
+    //         inline else => |it| it.destroy(),
+    //     }
+    // }
+
+    // pub fn init(self: *Self) void {
+    //     switch (self.impl) {
+    //         inline else => |it| it.init(),
+    //     }
+    // }
+
+    pub fn deinit(self: *Self) void {
+        defer allctr.destroy(self);
+        defer self.devices.deinit();
+        switch (self.impl) {
             inline else => |it| it.deinit(),
         }
     }
 
     pub fn scan(self: *Self) !void {
-        switch (self.bus) {
-            inline else => |it| try it.scan(self),
+        switch (self.impl) {
+            inline else => |it| try it.scan(),
         }
     }
 };

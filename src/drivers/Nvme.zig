@@ -177,7 +177,7 @@ const DataPointer = packed union {
 //    //...
 // };
 
-const SQEntry = u512;
+pub const SQEntry = u512;
 
 const IdentifyCommand = packed struct(u512) {
     cdw0: AdminCDw0, //00:03 byte
@@ -526,7 +526,7 @@ const CQEStatusField = packed struct(u15) {
 
 };
 
-const CQEntry = packed struct(u128) {
+pub const CQEntry = packed struct(u128) {
     cmd_res0: u32 = 0,
     cmd_res1: u32 = 0,
     sq_header_pos: u16 = 0, //it's called pointer but it's not a pointer it's an index in fact
@@ -536,7 +536,7 @@ const CQEntry = packed struct(u128) {
     status: CQEStatusField = .{},
 };
 
-fn Queue(EntryType: type) type {
+pub fn Queue(EntryType: type) type {
     return switch (EntryType) {
         CQEntry => struct {
             entries: []volatile EntryType = undefined,
@@ -566,7 +566,7 @@ fn Queue(EntryType: type) type {
     // };
 }
 
-const NsInfoMap = std.AutoHashMap(u32, NsInfo);
+pub const NsInfoMap = std.AutoHashMap(u32, NsInfo);
 
 const Drive = struct {
     const nvme_ncqr = 0x2; //number of completion queues requested (+1 is admin cq)
@@ -1415,9 +1415,9 @@ pub fn update(_: Self, function: u3, slot: u5, bus: u8) !void {
 
 var driver = &pcie.Driver{ .nvme = &Self{} };
 
-pub fn init() void {
+pub fn init(bus: *pcie.Pcie) void {
     log.info("Initializing NVMe driver", .{});
-    pcie.registerDriver(driver) catch |err| {
+    bus.registerDriver(driver) catch |err| {
         log.err("Failed to register NVMe driver: {}", .{err});
         @panic("Failed to register NVMe driver");
     };

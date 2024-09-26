@@ -9,6 +9,7 @@ const paging = @import("paging.zig");
 const pmm = @import("mem/pmm.zig");
 const heap = @import("mem/heap.zig").heap;
 const term = @import("terminal");
+const Bus = @import("bus/bus.zig").Bus;
 const pcie = @import("bus/pcie.zig");
 const Nvme = @import("drivers/Nvme.zig");
 const int = @import("int.zig");
@@ -113,14 +114,17 @@ export fn _start() callconv(.C) noreturn {
     //} init handler list
 
     //pci test start
-    pcie.init();
-    Nvme.init();
-    pcie.scan() catch |err| {
+    const pcie_bus = Bus.init(arena_allocator.allocator(), .pcie) catch |err| {
+        log.err("PCIe bus creation error: {}", .{err});
+        @panic("PCIe bus creation error");
+    };
+    Nvme.init(pcie_bus.impl.pcie);
+    pcie_bus.scan() catch |err| {
         log.err("PCI scan error: {}", .{err});
         @panic("PCI scan error");
     };
     defer Nvme.deinit();
-    defer pcie.deinit(); //TODO: na pewno?
+    defer pcie_bus.deinit(); //TODO: na pewno?
     //pci test end
 
     //log.debug("waiting for the first interrupt", .{});
