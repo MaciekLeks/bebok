@@ -73,7 +73,7 @@ pub const Driver = union(enum) {
 const DriverList = ArrayList(*const Driver);
 
 //variables
-var allctr: std.mem.Allocator = undefined;
+var alloctr: std.mem.Allocator = undefined;
 
 //Fields
 drivers: DriverList,
@@ -466,7 +466,7 @@ pub fn registerDriver(self: *Pcie, driver: *const Driver) !void {
 fn probeAndSetupDevice(self: *Pcie, addr: PcieAddress, class_code: u8, subclass: u8, prog_if: u8) !void {
     for (self.drivers.items) |d| {
         if (d.probe(class_code, subclass, prog_if)) {
-            const dev = try Device.init(allctr, .{ .pcie = addr });
+            const dev = try Device.init(alloctr, .{ .pcie = addr });
             //let the driver fill the device struct
             try d.setup(addr);
             try self.bus.devices.append(dev);
@@ -476,7 +476,7 @@ fn probeAndSetupDevice(self: *Pcie, addr: PcieAddress, class_code: u8, subclass:
 
 pub fn deinit(self: *Pcie) void {
     log.info("Deinitializing PCI", .{});
-    defer allctr.destroy(self);
+    defer alloctr.destroy(self);
     defer log.info("PCI deinitialized", .{});
 
     self.drivers.deinit();
@@ -487,7 +487,7 @@ pub fn init(allocator: std.mem.Allocator, bus: *Bus) !*Pcie {
     defer log.info("PCI initialized", .{});
     var pcie = try allocator.create(Pcie);
 
-    allctr = allocator;
+    alloctr = allocator;
     pcie.drivers = DriverList.init(allocator);
     pcie.bus = bus;
 
@@ -600,7 +600,7 @@ pub fn addMsixMessageTableEntry(msix_cap: MsixCap, bar: Bar, id: u11, vec_no: u8
         .vector_ctrl = 0,
     };
 
-    //log iterates over all MsiXTableEntries
+    //log iterates ovellr all MsiXTableEntries
     const msix_entry_list: [*]volatile MsixTableEntry = @ptrFromInt(virt + aligned_table_offset);
     var i: u16 = 0;
     while (i < msix_cap.mc.ts) : (i += 1) {

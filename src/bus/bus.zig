@@ -25,7 +25,7 @@ const DeviceList = std.ArrayList(*Device);
 pub const Bus = struct {
     const Self = @This();
 
-    var allctr: std.mem.Allocator = undefined;
+    var alloctr: std.mem.Allocator = undefined;
     impl: union(BusType) {
         pcie: *Pcie,
         usb: *usb.Usb,
@@ -33,9 +33,9 @@ pub const Bus = struct {
     devices: DeviceList,
 
     pub fn init(allocator: std.mem.Allocator, tag: BusType) !*Self {
-        allctr = allocator;
+        alloctr = allocator;
 
-        var bus = try allctr.create(Self);
+        var bus = try alloctr.create(Self);
         bus.impl = switch (tag) {
             .pcie => .{ .pcie = try Pcie.init(allocator, bus) },
             else => unreachable,
@@ -60,7 +60,7 @@ pub const Bus = struct {
     // }
 
     pub fn deinit(self: *Self) void {
-        defer allctr.destroy(self);
+        defer alloctr.destroy(self);
         defer self.devices.deinit();
 
         for (self.devices) |dev| {
