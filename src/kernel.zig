@@ -11,7 +11,9 @@ const heap = @import("mem/heap.zig").heap;
 const term = @import("terminal");
 const Bus = @import("bus/bus.zig").Bus;
 const Pcie = @import("bus/Pcie.zig");
-const Nvme = @import("drivers/Nvme.zig");
+const Driver = @import("drivers/Driver.zig");
+const Registry = @import("drivers/Registry.zig");
+const NvmeDriver = @import("drivers/NvmeDriver.zig");
 const int = @import("int.zig");
 const smp = @import("smp.zig");
 const acpi = @import("acpi.zig");
@@ -114,16 +116,29 @@ export fn _start() callconv(.C) noreturn {
     //} init handler list
 
     //pci test start
-    const pcie_bus = Bus.init(arena_allocator.allocator(), .pcie) catch |err| {
+    var registry = Registry.init(arena_allocator.allocator()) catch |err| {
+        log.err("Driver registry creation error: {}", .{err});
+        @panic("Driver registry creation error");
+    };
+    defer registry.deinit();
+    const nvme_driver = NvmeDriver.init(arena_allocator.allocator()) catch |err| {
+        log.err("Nvme driver creation error: {}", .{err});
+        @panic("Nvme driver creation error");
+    };
+
+    registry.registerDriver(nvme_driver.driver()) catch |err| {
+        log.err("Nvme driver registration error: {}", .{err});
+        @panic("Nvme driver registration error");
+    };
+
+    const pcie_bus = Bus.init(arena_allocator.allocator(), .pcie, registry) catch |err| {
         log.err("PCIe bus creation error: {}", .{err});
         @panic("PCIe bus creation error");
     };
-    Nvme.init(pcie_bus.impl.pcie);
-    pcie_bus.scan() catch |err| {
+    pcie_bus.scan(registry) catch |err| {
         log.err("PCI scan error: {}", .{err});
         @panic("PCI scan error");
     };
-    defer Nvme.deinit();
     defer pcie_bus.deinit(); //TODO: na pewno?
     //pci test end
 
@@ -133,17 +148,24 @@ export fn _start() callconv(.C) noreturn {
     //cpu.halt();
     //log.debug("waiting for the first interrupt/2", .{});
 
+    //list bus devices
+    for (pcie_bus.bus.devices.items) |dev| {
+        log.warn("Device: {x}", .{dev});
+    }
+
+    const my_dev = pcie_bus.bus.devices.items[0];
+
     {
         log.info("Writing to NVMe starts.", .{});
         defer log.info("Writing to NVMe ends.", .{});
 
         const mlk_data: []const u8 = &.{ 'M', 'a', 'c', 'i', 'e', 'k', ' ', 'L', 'e', 'k', 's', ' ', 'x' };
-        Nvme.write(u8, heap.page_allocator, &Nvme.drive, 1, 0, mlk_data) catch |err| {
+        NvmeDriver.write(u8, heap.page_allocator, my_dev, 1, 0, mlk_data) catch |err| {
             log.err("Nvme write error: {}", .{err});
         };
     }
 
-    const data = Nvme.readToOwnedSlice(u8, heap.page_allocator, &Nvme.drive, 1, 0, 1) catch |err| blk: {
+    const data = NvmeDriver.readToOwnedSlice(u8, heap.page_allocator, my_dev, 1, 0, 1) catch |err| blk: {
         log.err("Nvme read error: {}", .{err});
         break :blk null;
     };

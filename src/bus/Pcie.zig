@@ -4,12 +4,15 @@ const cpu = @import("../cpu.zig");
 const heap = @import("../mem/heap.zig").heap;
 const paging = @import("../paging.zig");
 const Bus = @import("bus.zig").Bus;
-const Nvme = @import("../drivers/Nvme.zig");
+const NvmeDriver = @import("mod.zig").NvmeDriver;
+
 const Device = @import("bus.zig").Device;
+const Driver = @import("bus.zig").Driver;
+const Registry = @import("bus.zig").Registry;
 
 const log = std.log.scoped(.pci);
 
-pub const Pcie = @This();
+const Pcie = @This();
 
 pub usingnamespace switch (builtin.cpu.arch) {
     .x86_64 => @import("../arch/x86_64/pcie.zig"),
@@ -53,31 +56,19 @@ pub const PcieAddress = struct {
     }
 };
 
-pub const Driver = union(enum) {
-    const Self = @This();
-    nvme: *const Nvme,
-
-    pub fn probe(self: Self, class_code: u8, subclass: u8, prog_if: u8) bool {
-        return switch (self) {
-            inline else => |it| it.interested(class_code, subclass, prog_if),
-        };
-    }
-
-    pub fn setup(self: Self, addr: PcieAddress) !void {
-        return switch (self) {
-            inline else => |it| it.setup(addr),
-        };
-    }
+// Probe Context to match Device and Driver
+pub const PcieProbeContext = struct {
+    class_code: u8,
+    subclass: u8,
+    prog_if: u8,
 };
 
-const DriverList = ArrayList(*const Driver);
-
 //variables
-var alloctr: std.mem.Allocator = undefined;
+var allctr: std.mem.Allocator = undefined;
 
 //Fields
-drivers: DriverList,
-bus: *Bus,
+//drivers: DriverList,
+base: *Bus,
 
 // Inner Types
 pub const RegisterOffset = enum(u8) {
@@ -464,19 +455,20 @@ pub fn registerDriver(self: *Pcie, driver: *const Driver) !void {
 }
 
 fn probeAndSetupDevice(self: *Pcie, addr: PcieAddress, class_code: u8, subclass: u8, prog_if: u8) !void {
-    for (self.drivers.items) |d| {
+    const registry = self.base.registry;
+    for (registry) |d| {
         if (d.probe(class_code, subclass, prog_if)) {
-            const dev = try Device.init(alloctr, .{ .pcie = addr });
+            const dev = try Device.init(allctr, .{ .pcie = addr });
             //let the driver fill the device struct
-            try d.setup(addr);
-            try self.bus.devices.append(dev);
+            try d.setup(addr, dev);
+            try self.base.devices.append(dev);
         }
     }
 }
 
 pub fn deinit(self: *Pcie) void {
     log.info("Deinitializing PCI", .{});
-    defer alloctr.destroy(self);
+    defer allctr.destroy(self);
     defer log.info("PCI deinitialized", .{});
 
     self.drivers.deinit();
@@ -487,15 +479,14 @@ pub fn init(allocator: std.mem.Allocator, bus: *Bus) !*Pcie {
     defer log.info("PCI initialized", .{});
     var pcie = try allocator.create(Pcie);
 
-    alloctr = allocator;
-    pcie.drivers = DriverList.init(allocator);
-    pcie.bus = bus;
+    allctr = allocator;
+    pcie.base = bus;
 
     return pcie;
 }
 
 pub fn destroy(self: *Pcie) void {
-    defer self.bus.destroy();
+    defer self.base.destroy();
     self.drivers.deinit();
 }
 
@@ -600,7 +591,7 @@ pub fn addMsixMessageTableEntry(msix_cap: MsixCap, bar: Bar, id: u11, vec_no: u8
         .vector_ctrl = 0,
     };
 
-    //log iterates ovellr all MsiXTableEntries
+    //log iterates over all MsiXTableEntries
     const msix_entry_list: [*]volatile MsixTableEntry = @ptrFromInt(virt + aligned_table_offset);
     var i: u16 = 0;
     while (i < msix_cap.mc.ts) : (i += 1) {

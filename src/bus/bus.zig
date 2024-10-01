@@ -5,7 +5,9 @@ const usb = @import("usb.zig");
 const heap = @import("../../mem/heap.zig").heap;
 const log = std.log.scoped(.bus);
 
-pub const Device = @import("../devices/Device.zig"); //re-export for the all in the directory
+const Device = @import("mod.zig").Device; //re-export for the all in the directory
+const Driver = @import("mod.zig").Driver; //re-export for the all in the directory
+const Registry = @import("mod.zig").Registry; //re-export for the all in the directory
 
 pub const BusType = enum {
     pcie,
@@ -31,8 +33,9 @@ pub const Bus = struct {
         usb: *usb.Usb,
     },
     devices: DeviceList,
+    registry: *const Registry,
 
-    pub fn init(allocator: std.mem.Allocator, tag: BusType) !*Self {
+    pub fn init(allocator: std.mem.Allocator, tag: BusType, registry: *const Registry) !*Self {
         alloctr = allocator;
 
         var bus = try alloctr.create(Self);
@@ -41,6 +44,7 @@ pub const Bus = struct {
             else => unreachable,
         };
         bus.devices = DeviceList.init(allocator);
+        bus.registry = registry;
 
         return bus;
     }
@@ -76,5 +80,10 @@ pub const Bus = struct {
         switch (self.impl) {
             inline else => |it| try it.scan(),
         }
+    }
+
+    /// List devices on the bus
+    pub fn listDevices(self: *Self) !DeviceList {
+        return self.devices;
     }
 };
