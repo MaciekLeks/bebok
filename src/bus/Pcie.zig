@@ -6,9 +6,9 @@ const paging = @import("../paging.zig");
 const Bus = @import("bus.zig").Bus;
 const NvmeDriver = @import("mod.zig").NvmeDriver;
 
-const Device = @import("bus.zig").Device;
-const Driver = @import("bus.zig").Driver;
-const Registry = @import("bus.zig").Registry;
+const Device = @import("mod.zig").Device;
+const Driver = @import("mod.zig").Driver;
+const Registry = @import("mod.zig").Registry;
 
 const log = std.log.scoped(.pci);
 
@@ -455,12 +455,12 @@ pub fn registerDriver(self: *Pcie, driver: *const Driver) !void {
 }
 
 fn probeAndSetupDevice(self: *Pcie, addr: PcieAddress, class_code: u8, subclass: u8, prog_if: u8) !void {
-    const registry = self.base.registry;
-    for (registry) |d| {
-        if (d.probe(class_code, subclass, prog_if)) {
+    const drivers = self.base.registry.drivers;
+    for (drivers.items) |drv| {
+        if (drv.probe(&PcieProbeContext{ .class_code = class_code, .subclass = subclass, .prog_if = prog_if })) {
             const dev = try Device.init(allctr, .{ .pcie = addr });
             //let the driver fill the device struct
-            try d.setup(addr, dev);
+            try drv.setup(dev);
             try self.base.devices.append(dev);
         }
     }

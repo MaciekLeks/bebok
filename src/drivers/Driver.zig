@@ -8,19 +8,19 @@ ptr: *anyopaque,
 vtable: VTable,
 
 pub const VTable = struct {
-    probe: *const fn (ctx: *anyopaque, probe_ctx: *anyopaque) bool,
+    probe: *const fn (ctx: *anyopaque, probe_ctx: *const anyopaque) bool,
     setup: *const fn (ctx: *anyopaque, dev: *Device) anyerror!void,
     deinit: *const fn (ctx: *anyopaque) void,
 };
 
-pub fn init(ctx: *anyopaque, vtable: VTable) !Driver {
+pub fn init(ctx: *anyopaque, vtable: VTable) Driver {
     return .{
         .ptr = ctx,
         .vtable = vtable,
     };
 }
 
-pub fn probe(self: Driver, probe_ctx: *anyopaque) anyerror!void {
+pub fn probe(self: Driver, probe_ctx: *const anyopaque) bool {
     return @call(.auto, self.vtable.probe, .{ self.ptr, probe_ctx });
 }
 

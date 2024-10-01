@@ -106,7 +106,7 @@ export fn _start() callconv(.C) noreturn {
     int.initISRMap(arena_allocator.allocator());
     defer int.deinitISRMap();
 
-    int.addISR(0x30, .{ .unique_id = 0x01, .func = &testISR0 }) catch |err| {
+    int.addISR(0x30, &.{ .unique_id = 0x01, .ctx = null, .func = &testISR0 }) catch |err| {
         log.err("Failed to add Timer interrupt handler: {}", .{err});
     };
     //int.addISR(0x31, .{ .unique_id = 0x02, .func = &testISR1 }) catch |err| {
@@ -135,7 +135,7 @@ export fn _start() callconv(.C) noreturn {
         log.err("PCIe bus creation error: {}", .{err});
         @panic("PCIe bus creation error");
     };
-    pcie_bus.scan(registry) catch |err| {
+    pcie_bus.scan() catch |err| {
         log.err("PCI scan error: {}", .{err});
         @panic("PCI scan error");
     };
@@ -149,11 +149,11 @@ export fn _start() callconv(.C) noreturn {
     //log.debug("waiting for the first interrupt/2", .{});
 
     //list bus devices
-    for (pcie_bus.bus.devices.items) |dev| {
-        log.warn("Device: {x}", .{dev});
+    for (pcie_bus.devices.items) |dev| {
+        log.warn("Device: {}", .{dev});
     }
 
-    const my_dev = pcie_bus.bus.devices.items[0];
+    const my_dev = &pcie_bus.devices.items[0].spec.block_device.nvme;
 
     {
         log.info("Writing to NVMe starts.", .{});
@@ -192,7 +192,7 @@ export fn _start() callconv(.C) noreturn {
 }
 
 //TODO tbd
-fn testISR0() !void {
+fn testISR0(_: ?*anyopaque) !void {
     log.warn("apic: 0----->>>>!!!!", .{});
 }
 // fn testISR1() !void {

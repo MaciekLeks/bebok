@@ -632,13 +632,18 @@ fn writeRegister(T: type, bar: Pcie.Bar, register_set_field: @TypeOf(.enum_liter
 fn configureMsix(dev: *NvmeDevice, msix_table_idx: u11, int_vec_no: u8) !void {
     const addr = dev.base.addr.pcie;
     const unique_id = Pcie.uniqueId(addr);
-    try int.addISR(@intCast(int_vec_no), .{ .unique_id = unique_id, .func = createHandleInterruptClosure(dev) });
+
+    const isr_closure = try dev.base.alloctr.create(int.ISRHandler);
+    isr_closure.* = .{ .unique_id = unique_id, .ctx = dev, .func = handleInterrupt };
+    //TODO: who is responsible for freeing the closure?
+
+    try int.addISR(@intCast(int_vec_no), isr_closure);
     Pcie.addMsixMessageTableEntry(dev.msix_cap, dev.bar, msix_table_idx, int_vec_no); //add 0x31 at 0x01 offset
 }
 
 /// Devicer interface function to match the driver with the device
-pub fn probe(_: *anyopaque, probe_ctx: *anyopaque) bool {
-    const pcie_ctx: *Pcie.PcieProbeContext = @ptrCast(@alignCast(probe_ctx));
+pub fn probe(_: *anyopaque, probe_ctx: *const anyopaque) bool {
+    const pcie_ctx: *const Pcie.PcieProbeContext = @ptrCast(@alignCast(probe_ctx));
     return pcie_ctx.class_code == nvme_class_code and pcie_ctx.subclass == nvme_subclass and pcie_ctx.prog_if == nvme_prog_if;
 }
 
@@ -1434,15 +1439,15 @@ pub fn init(allocator: std.mem.Allocator) !*NvmeDriver {
 }
 
 pub fn driver(self: *NvmeDriver) Driver {
-    const vtable = &Driver.VTable{
+    const vtable = Driver.VTable{
         .probe = probe,
         .setup = setup,
         .deinit = deinit,
     };
-    return Driver.init(self.alloctr, driver, vtable);
+    return Driver.init(self, vtable);
 }
 
-pub fn deinit() void {
+pub fn deinit(_: *anyopaque) void {
     log.info("Deinitializing NVMe driver", .{});
     // TODO: for now we don't have a way to unregister the driver
 
@@ -1481,7 +1486,7 @@ fn enableController(bar: Pcie.Bar) void {
 /// @param cmd: SQEntry
 /// @param sq_no: Submission Queue number
 /// @param cq_no: Completion Queue number
-fn execAdminCommand(CDw0Type: type, dev: *Device, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEntry {
+fn execAdminCommand(CDw0Type: type, dev: *NvmeDevice, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEntry {
     const cdw0: *const CDw0Type = @ptrCast(@alignCast(&cmd));
     log.debug("Executing command: CDw0: {}", .{cdw0.*});
 
@@ -1553,27 +1558,18 @@ fn execAdminCommand(CDw0Type: type, dev: *Device, cmd: SQEntry, sqn: u16, cqn: u
     return cq_entry_ptr.*;
 }
 
-fn executeAdminCommand(dev: *Device, cmd: SQEntry) NvmeError!CQEntry {
+fn executeAdminCommand(dev: *NvmeDevice, cmd: SQEntry) NvmeError!CQEntry {
     return execAdminCommand(AdminCDw0, dev, cmd, 0, 0);
 }
 
 // TODO move to a separate module
-fn createHandleInterruptClosure(dev: *NvmeDevice) fn () int.ISRError!void {
-    const ctx = struct {
-        const Self = @This();
-        d: *NvmeDevice,
-        pub fn call(self: *Self) int.ISRError!void {
-            self.d.mutex = true;
-        }
-    }{ .d = dev };
-    return ctx.call;
+fn handleInterrupt(ctx: ?*anyopaque) !void {
+    var dev: *NvmeDevice = @ptrCast(@alignCast(ctx));
+    dev.mutex = true;
+    log.warn("apic : MSI-X : We've got it: NVMe interrupt handled.", .{});
 }
-//fn handleInterrupt() !void {
-//    dev.mutex = true;
-//log.warn("apic : MSI-X : We've got it: NVMe interrupt handled.", .{});
-//}
 
-fn execIoCommand(CDw0Type: type, drv: *Device, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEntry {
+fn execIoCommand(CDw0Type: type, drv: *NvmeDevice, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEntry {
     const cdw0: *const CDw0Type = @ptrCast(@alignCast(&cmd));
     log.debug("Executing command: CDw0: {}", .{cdw0.*});
 
@@ -1657,7 +1653,7 @@ fn execIoCommand(CDw0Type: type, drv: *Device, cmd: SQEntry, sqn: u16, cqn: u16)
     // return CQEntry{};
 }
 
-fn executeIoNvmCommand(drv: *Device, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEntry {
+fn executeIoNvmCommand(drv: *NvmeDevice, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEntry {
     return execIoCommand(IoNvmCDw0, drv, cmd, sqn, cqn);
 }
 //--- public functions ---
@@ -1666,7 +1662,7 @@ fn executeIoNvmCommand(drv: *Device, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError
 /// @param allocator : Allocator
 /// @param slba : Start Logical Block Address
 /// @param nlb : Number of Logical Blocks
-pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: *Device, nsid: u32, slba: u64, nlba: u16) ![]T {
+pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: *NvmeDevice, nsid: u32, slba: u64, nlba: u16) ![]T {
     const ns: NsInfo = drv.ns_info_map.get(nsid) orelse {
         log.err("Namespace {d} not found", .{nsid});
         return NvmeError.InvalidNsid;
@@ -1800,7 +1796,7 @@ pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: *Device, nsi
 /// @param nsid : Namespace ID
 /// @param slba : Start Logical Block Address
 /// @param data : Data to write
-pub fn write(T: type, allocator: std.mem.Allocator, dev: *Device, nsid: u32, slba: u64, data: []const T) !void {
+pub fn write(T: type, allocator: std.mem.Allocator, dev: *NvmeDevice, nsid: u32, slba: u64, data: []const T) !void {
     const ns: NsInfo = dev.ns_info_map.get(nsid) orelse {
         log.err("Namespace {d} not found", .{nsid});
         return NvmeError.InvalidNsid;
