@@ -1566,7 +1566,8 @@ fn executeAdminCommand(dev: *NvmeDevice, cmd: SQEntry) NvmeError!CQEntry {
 fn handleInterrupt(ctx: ?*anyopaque) !void {
     var dev: *NvmeDevice = @ptrCast(@alignCast(ctx));
     dev.mutex = true;
-    log.warn("apic : MSI-X : We've got it: NVMe interrupt handled.", .{});
+    // Never use log inside the interrupt handler
+    //log.warn("apic : MSI-X : We've got it: NVMe interrupt handled.", .{});
 }
 
 fn execIoCommand(CDw0Type: type, drv: *NvmeDevice, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEntry {
