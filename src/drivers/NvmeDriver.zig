@@ -42,42 +42,7 @@ alloctr: std.mem.Allocator,
 
 const NvmeError = error{ InvalidCommand, InvalidCommandSequence, AdminCommandNoData, AdminCommandFailed, MsiXMisconfigured, InvalidLBA, InvalidNsid, IONvmReadFailed };
 
-const ControllerType = enum(u8) {
-    io_controller = 1,
-    discovery_controller = 2,
-    admin_controller = 3,
-};
-
-const AdminOpcode = enum(u8) {
-    identify = 0x06,
-    abort = 0x0c,
-    set_features = 0x09,
-    get_features = 0x0a,
-    create_io_sq = 0x01,
-    delete_io_sq = 0x00,
-    create_io_cq = 0x05,
-    delete_io_cq = 0x04,
-};
-
-const IoNvmOpcode = enum(u8) {
-    write = 0x01,
-    read = 0x02,
-};
-
 const NsId = u32;
-
-fn GenNCDw0(OpcodeType: type) type {
-    return packed struct(u32) {
-        opc: OpcodeType,
-        fuse: u2 = 0, //0 for nromal operation
-        rsvd: u4 = 0,
-        psdt: u2 = 0, //0 for PRP tranfer
-        cid: u16,
-    };
-}
-
-pub const AdminCDw0 = GenNCDw0(AdminOpcode);
-const IoNvmCDw0 = GenNCDw0(IoNvmOpcode);
 
 // TODO: When packed tagged unions are supported, we can use the following definitions
 // const SQEntry = packed union(enum) {
@@ -87,7 +52,7 @@ const IoNvmCDw0 = GenNCDw0(IoNvmOpcode);
 // };
 
 const IdentifyCommand = packed struct(u512) {
-    cdw0: AdminCDw0, //00:03 byte
+    cdw0: cmds.AdminCDw0, //00:03 byte
     nsid: u32 = 0, //04:07 byte - nsid
     ignrd_b: u32 = 0, //08:11 byte - cdw2
     ignrd_c: u32 = 0, //12:15 byte = cdw3
@@ -110,7 +75,7 @@ const IdentifyCommand = packed struct(u512) {
 const IoNvmCommandSetCommand = packed union {
     const DatasetManagement = packed struct(u8) { access_frequency: u4, access_latency: u2, sequential_request: u1, incompressible: u1 };
     read: packed struct(u512) {
-        cdw0: IoNvmCDw0, //cdw0 - 00:03 byte
+        cdw0: cmds.IoNvmCDw0, //cdw0 - 00:03 byte
         nsid: NsId, //cdw1 - 04:07 byte - nsid
         elbst_eilbst_a: u48, //cdw2,cdw3 - Expected Logical Block Storage Tag and Expected Initial Logical Block Storage Tag
         rsrv_a: u16 = 0, //cdw3
@@ -131,7 +96,7 @@ const IoNvmCommandSetCommand = packed union {
         elbatm: u16, //cdw15 - Expected Logical Block Application Tag Mask
     },
     write: packed struct(u512) {
-        cdw0: IoNvmCDw0, //cdw0
+        cdw0: cmds.IoNvmCDw0, //cdw0
         nsid: NsId, //cdw1
         lbst_ilbst_a: u48, //cdw2,cdw3
         rsrv_a: u16 = 0, //cdw3
@@ -157,7 +122,7 @@ const IoNvmCommandSetCommand = packed union {
 
 const IoQueueCommand = packed union {
     create_completion_queue: packed struct(u512) {
-        cdw0: AdminCDw0, //cdw0
+        cdw0: cmds.AdminCDw0, //cdw0
         ignrd_a: u32 = 0, // nsid
         ignrd_b: u32 = 0, //cdw2
         ignrd_c: u32 = 0, //cdw3
@@ -175,7 +140,7 @@ const IoQueueCommand = packed union {
         ignrd_i: u32 = 0, //cdw15
     },
     delete_queue: packed struct(u512) {
-        cdw0: AdminCDw0, //cdw0
+        cdw0: cmds.AdminCDw0, //cdw0
         ignrd_a: u32 = 0, //nsid in cdw1
         ignrd_b: u32 = 0, //cdw2
         ignrd_c: u32 = 0, //cdw3
@@ -190,7 +155,7 @@ const IoQueueCommand = packed union {
         ignrd_l: u32 = 0, //cdw15
     },
     create_submission_queue: packed struct(u512) {
-        cdw0: AdminCDw0, //cdw0
+        cdw0: cmds.AdminCDw0, //cdw0
         ignrd_a: u32 = 0, //nsid - cdw1
         ignrd_b: u32 = 0, //cdw2
         ignrd_c: u32 = 0, //cdw3
@@ -666,7 +631,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
 
     const identify_info: *const Identify0x01Info = @ptrCast(@alignCast(prp1));
     log.info("Identify Controller Data Structure(cns: 0x01): {}", .{identify_info.*});
-    if (identify_info.cntrltype != @intFromEnum(ControllerType.io_controller)) {
+    if (identify_info.cntrltype != @intFromEnum(ctrl.ControllerType.io_controller)) {
         log.err("Unsupported NVMe controller type: {}", .{identify_info.cntrltype});
         return;
     }
@@ -1266,7 +1231,7 @@ fn execAdminCommand(CDw0Type: type, dev: *NvmeDevice, cmd: q.SQEntry, sqn: u16, 
 }
 
 fn executeAdminCommand(dev: *NvmeDevice, cmd: q.SQEntry) NvmeError!q.CQEntry {
-    return execAdminCommand(AdminCDw0, dev, cmd, 0, 0);
+    return execAdminCommand(cmds.AdminCDw0, dev, cmd, 0, 0);
 }
 
 fn execIoCommand(CDw0Type: type, drv: *NvmeDevice, cmd: q.SQEntry, sqn: u16, cqn: u16) NvmeError!q.CQEntry {
@@ -1354,7 +1319,7 @@ fn execIoCommand(CDw0Type: type, drv: *NvmeDevice, cmd: q.SQEntry, sqn: u16, cqn
 }
 
 fn executeIoNvmCommand(drv: *NvmeDevice, cmd: q.SQEntry, sqn: u16, cqn: u16) NvmeError!q.CQEntry {
-    return execIoCommand(IoNvmCDw0, drv, cmd, sqn, cqn);
+    return execIoCommand(cmds.IoNvmCDw0, drv, cmd, sqn, cqn);
 }
 //--- public functions ---
 

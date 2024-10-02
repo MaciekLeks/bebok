@@ -5,6 +5,12 @@ const log = std.log.scoped(.drivers_nvme);
 
 const regs = @import("registers.zig");
 
+pub const ControllerType = enum(u8) {
+    io_controller = 1,
+    discovery_controller = 2,
+    admin_controller = 3,
+};
+
 pub fn disableController(bar: Pcie.Bar) void {
     toggleController(bar, false);
 }
