@@ -1,6 +1,6 @@
 const std = @import("std");
 const log = std.log.scoped(.nvme);
-const Pcie = @import("../bus/Pcie.zig");
+const Pcie = @import("mod.zig").Pcie;
 const paging = @import("../paging.zig");
 const int = @import("../int.zig");
 const pmm = @import("../mem/pmm.zig");
@@ -12,6 +12,9 @@ const apic_test = @import("../arch/x86_64/apic.zig");
 const Device = @import("mod.zig").Device;
 const Driver = @import("Driver.zig");
 const NvmeDevice = @import("mod.zig").NvmeDevice;
+
+const msix = @import("nvme/msix.zig");
+const ctrl = @import("nvme/controller.zig");
 
 const nvme_class_code = 0x01;
 const nvme_subclass = 0x08;
@@ -74,7 +77,7 @@ const ArbitrationMechanism = enum(u3) {
     vendor_specific = 0b111,
 };
 
-const CCRegister = packed struct(u32) {
+pub const CCRegister = packed struct(u32) {
     en: u1, //0 use to reset the controller
     rsrvd_a: u3, //1-3
     css: u3, //4-6
@@ -94,7 +97,7 @@ const VSRegister = packed struct(u32) {
     rsvd: u8, //24-31
 };
 
-const CSTSRegister = packed struct(u32) {
+pub const CSTSRegister = packed struct(u32) {
     rdy: u1, //0
     cfs: u1, //1
     shst: u2, //2-3
@@ -617,28 +620,16 @@ pub const NsInfoMap = std.AutoHashMap(u32, NsInfo);
 
 //pub var drive: Device = undefined; //TODO only one drive now, make not public
 
-fn readRegister(T: type, bar: Pcie.Bar, register_set_field: @TypeOf(.enum_literal)) T {
+pub fn readRegister(T: type, bar: Pcie.Bar, register_set_field: @TypeOf(.enum_literal)) T {
     return switch (bar.address) {
         inline else => |addr| @as(*volatile T, @ptrFromInt(paging.virtFromMME(addr) + @offsetOf(RegisterSet, @tagName(register_set_field)))).*,
     };
 }
 
-fn writeRegister(T: type, bar: Pcie.Bar, register_set_field: @TypeOf(.enum_literal), value: T) void {
+pub fn writeRegister(T: type, bar: Pcie.Bar, register_set_field: @TypeOf(.enum_literal), value: T) void {
     switch (bar.address) {
         inline else => |addr| @as(*volatile T, @ptrFromInt(paging.virtFromMME(addr) + @offsetOf(RegisterSet, @tagName(register_set_field)))).* = value,
     }
-}
-
-fn configureMsix(dev: *NvmeDevice, msix_table_idx: u11, int_vec_no: u8) !void {
-    const addr = dev.base.addr.pcie;
-    const unique_id = Pcie.uniqueId(addr);
-
-    const isr_closure = try dev.base.alloctr.create(int.ISRHandler);
-    isr_closure.* = .{ .unique_id = unique_id, .ctx = dev, .func = handleInterrupt };
-    //TODO: who is responsible for freeing the closure?
-
-    try int.addISR(@intCast(int_vec_no), isr_closure);
-    Pcie.addMsixMessageTableEntry(dev.msix_cap, dev.bar, msix_table_idx, int_vec_no); //add 0x31 at 0x01 offset
 }
 
 /// Devicer interface function to match the driver with the device
@@ -705,7 +696,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     }
 
     //MSI-X
-    configureMsix(dev, tmp_msix_table_idx, tmp_irq) catch |err| {
+    msix.configureMsix(dev, tmp_msix_table_idx, tmp_irq) catch |err| {
         log.err("Failed to configure MSI-X: {}", .{err});
     };
     // const unique_id = Pcie.uniqueId(bus, slot, function);
@@ -820,7 +811,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     }
 
     // Reset the controllerg
-    disableController(dev.bar);
+    ctrl.disableController(dev.bar);
 
     // The host configures the Admin gQueue by setting the Admin Queue Attributes (AQA), Admin Submission Queue Base Address (ASQ), and Admin Completion Queue Base Address (ACQ) the appropriate values;
     //set AQA queue sizes
@@ -886,7 +877,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     writeRegister(CCRegister, dev.bar, .cc, cc);
     log.info("CC register post-modification: {}", .{readRegister(CCRegister, dev.bar, .cc)});
 
-    enableController(dev.bar);
+    ctrl.enableController(dev.bar);
 
     const doorbell_base: usize = virt + 0x1000;
     const doorbell_size = math.pow(u32, 2, 2 + cap.dstrd);
@@ -1456,30 +1447,6 @@ pub fn deinit(_: *anyopaque) void {
     // for (&dev.iosq) |*sq| heap.page_allocator.free(sq.entries);
 }
 
-// --- helper functions ---
-
-fn toggleController(bar: Pcie.Bar, enable: bool) void {
-    var cc = readRegister(CCRegister, bar, .cc);
-    log.info("CC register before toggle: {}", .{cc});
-    cc.en = if (enable) 1 else 0;
-    writeRegister(CCRegister, bar, .cc, cc);
-
-    cc = readRegister(CCRegister, bar, .cc);
-    log.info("CC register after toggle: {}", .{cc});
-
-    while (readRegister(CSTSRegister, bar, .csts).rdy != @intFromBool(enable)) {}
-
-    log.info("NVMe controller is {s}", .{if (enable) "enabled" else "disabled"});
-}
-
-fn disableController(bar: Pcie.Bar) void {
-    toggleController(bar, false);
-}
-
-fn enableController(bar: Pcie.Bar) void {
-    toggleController(bar, true);
-}
-
 /// Execute an admin command
 /// @param CDw0Type: Command Dword 0 type
 /// @param drv: Device
@@ -1560,14 +1527,6 @@ fn execAdminCommand(CDw0Type: type, dev: *NvmeDevice, cmd: SQEntry, sqn: u16, cq
 
 fn executeAdminCommand(dev: *NvmeDevice, cmd: SQEntry) NvmeError!CQEntry {
     return execAdminCommand(AdminCDw0, dev, cmd, 0, 0);
-}
-
-// TODO move to a separate module
-fn handleInterrupt(ctx: ?*anyopaque) !void {
-    var dev: *NvmeDevice = @ptrCast(@alignCast(ctx));
-    dev.mutex = true;
-    // Never use log inside the interrupt handler
-    //log.warn("apic : MSI-X : We've got it: NVMe interrupt handled.", .{});
 }
 
 fn execIoCommand(CDw0Type: type, drv: *NvmeDevice, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEntry {
