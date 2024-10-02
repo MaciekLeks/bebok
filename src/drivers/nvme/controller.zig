@@ -5,6 +5,14 @@ const log = std.log.scoped(.drivers_nvme);
 
 const regs = @import("registers.zig");
 
+pub fn disableController(bar: Pcie.Bar) void {
+    toggleController(bar, false);
+}
+
+pub fn enableController(bar: Pcie.Bar) void {
+    toggleController(bar, true);
+}
+
 fn toggleController(bar: Pcie.Bar, enable: bool) void {
     var cc = regs.readRegister(regs.CCRegister, bar, .cc);
     log.info("CC register before toggle: {}", .{cc});
@@ -17,12 +25,4 @@ fn toggleController(bar: Pcie.Bar, enable: bool) void {
     while (regs.readRegister(regs.CSTSRegister, bar, .csts).rdy != @intFromBool(enable)) {}
 
     log.info("NVMe controller is {s}", .{if (enable) "enabled" else "disabled"});
-}
-
-pub fn disableController(bar: Pcie.Bar) void {
-    toggleController(bar, false);
-}
-
-pub fn enableController(bar: Pcie.Bar) void {
-    toggleController(bar, true);
 }

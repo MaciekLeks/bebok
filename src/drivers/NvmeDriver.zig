@@ -16,6 +16,7 @@ const NvmeDevice = @import("mod.zig").NvmeDevice;
 const msix = @import("nvme/msix.zig");
 const ctrl = @import("nvme/controller.zig");
 const regs = @import("nvme/registers.zig");
+pub const q = @import("nvme/queue.zig");
 
 const nvme_class_code = 0x01;
 const nvme_subclass = 0x08;
@@ -92,8 +93,6 @@ const DataPointer = packed union {
 //    abort: AbortCommand,
 //    //...
 // };
-
-pub const SQEntry = u512;
 
 const IdentifyCommand = packed struct(u512) {
     cdw0: AdminCDw0, //00:03 byte
@@ -428,60 +427,6 @@ const Identify0x1cCommandSetVector = packed struct(u64) {
     rsrvd: u61,
 };
 
-const CQEStatusField = packed struct(u15) {
-    // Staus Code
-    sc: u8 = 0, //0-7
-    // Status Code Type
-    sct: u3 = 0, //8-10
-    // Command Retry Delay
-    crd: u2 = 0, //11-12
-    // More
-    m: u1 = 0, //13
-    // Do Not Retry
-    dnr: u1 = 0, //14
-
-};
-
-pub const CQEntry = packed struct(u128) {
-    cmd_res0: u32 = 0,
-    cmd_res1: u32 = 0,
-    sq_header_pos: u16 = 0, //it's called pointer but it's not a pointer it's an index in fact
-    sq_id: u16 = 0,
-    cmd_id: u16 = 0,
-    phase: u1 = 0,
-    status: CQEStatusField = .{},
-};
-
-pub fn Queue(EntryType: type) type {
-    return switch (EntryType) {
-        CQEntry => struct {
-            entries: []volatile EntryType = undefined,
-            head_pos: u32 = 0,
-            head_dbl: *volatile u32 = undefined,
-            tail_pos: u32 = 0,
-            tail_dbl: *volatile u32 = undefined,
-            expected_phase: u1 = 1,
-        },
-        SQEntry => struct {
-            entries: []volatile EntryType = undefined,
-            head_pos: u32 = 0,
-            head_dbl: *volatile u32 = undefined,
-            tail_pos: u32 = 0,
-            tail_dbl: *volatile u32 = undefined,
-        },
-        else => unreachable,
-    };
-    // return struct {
-    //     entries: []volatile EntryType = undefined,
-    //     tail_pos: u32 = 0, // private counter to keep track and update tail_dbl
-    //     tail_dbl: *volatile u32 = undefined, //each doorbell value is u32, minmal doorbell stride is 4 (2^(2+CAP.DSTRD))
-    //     head_pos: u32 = 0,
-    //     head_dbl: *volatile u32 = undefined, //each doorbell value is u32, minmal doorbell stride is 4 (2^(2+CAP.DSTRD))
-    //
-    //     expected_phase: u1 = 1, //TODO nod needed for sq
-    // };
-}
-
 pub const NsInfoMap = std.AutoHashMap(u32, NsInfo);
 
 // const Device = struct {
@@ -719,14 +664,14 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     log.info("NVMe AQA Register post-modification: {}", .{aqa});
 
     // ASQ and ACQ setup
-    dev.sq[0].entries = heap.page_allocator.alloc(SQEntry, nvme_ioasqs) catch |err| {
+    dev.sq[0].entries = heap.page_allocator.alloc(q.SQEntry, nvme_ioasqs) catch |err| {
         log.err("Failed to allocate memory for admin submission queue entries: {}", .{err});
         return;
     };
     defer heap.page_allocator.free(@volatileCast(dev.sq[0].entries));
     @memset(dev.sq[0].entries, 0);
 
-    dev.cq[0].entries = heap.page_allocator.alloc(CQEntry, nvme_ioacqs) catch |err| {
+    dev.cq[0].entries = heap.page_allocator.alloc(q.CQEntry, nvme_ioacqs) catch |err| {
         log.err("Failed to allocate memory for admin completion queue entries: {}", .{err});
         return;
     };
@@ -1224,7 +1169,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
         var cq = &dev.cq[cq_id];
         cq.* = .{};
 
-        cq.entries = heap.page_allocator.alloc(CQEntry, nvme_iocqs) catch |err| {
+        cq.entries = heap.page_allocator.alloc(q.CQEntry, nvme_iocqs) catch |err| {
             log.err("Failed to allocate memory for completion queue entries: {}", .{err});
             return;
         };
@@ -1268,7 +1213,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
         var sq = &dev.sq[sq_id];
         sq.* = .{};
 
-        sq.entries = heap.page_allocator.alloc(SQEntry, nvme_iosqs) catch |err| {
+        sq.entries = heap.page_allocator.alloc(q.SQEntry, nvme_iosqs) catch |err| {
             log.err("Failed to allocate memory for submission queue entries: {}", .{err});
             return;
         };
@@ -1348,7 +1293,7 @@ pub fn deinit(_: *anyopaque) void {
 /// @param cmd: SQEntry
 /// @param sq_no: Submission Queue number
 /// @param cq_no: Completion Queue number
-fn execAdminCommand(CDw0Type: type, dev: *NvmeDevice, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEntry {
+fn execAdminCommand(CDw0Type: type, dev: *NvmeDevice, cmd: q.SQEntry, sqn: u16, cqn: u16) NvmeError!q.CQEntry {
     const cdw0: *const CDw0Type = @ptrCast(@alignCast(&cmd));
     log.debug("Executing command: CDw0: {}", .{cdw0.*});
 
@@ -1420,11 +1365,11 @@ fn execAdminCommand(CDw0Type: type, dev: *NvmeDevice, cmd: SQEntry, sqn: u16, cq
     return cq_entry_ptr.*;
 }
 
-fn executeAdminCommand(dev: *NvmeDevice, cmd: SQEntry) NvmeError!CQEntry {
+fn executeAdminCommand(dev: *NvmeDevice, cmd: q.SQEntry) NvmeError!q.CQEntry {
     return execAdminCommand(AdminCDw0, dev, cmd, 0, 0);
 }
 
-fn execIoCommand(CDw0Type: type, drv: *NvmeDevice, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEntry {
+fn execIoCommand(CDw0Type: type, drv: *NvmeDevice, cmd: q.SQEntry, sqn: u16, cqn: u16) NvmeError!q.CQEntry {
     const cdw0: *const CDw0Type = @ptrCast(@alignCast(&cmd));
     log.debug("Executing command: CDw0: {}", .{cdw0.*});
 
@@ -1508,7 +1453,7 @@ fn execIoCommand(CDw0Type: type, drv: *NvmeDevice, cmd: SQEntry, sqn: u16, cqn: 
     // return CQEntry{};
 }
 
-fn executeIoNvmCommand(drv: *NvmeDevice, cmd: SQEntry, sqn: u16, cqn: u16) NvmeError!CQEntry {
+fn executeIoNvmCommand(drv: *NvmeDevice, cmd: q.SQEntry, sqn: u16, cqn: u16) NvmeError!q.CQEntry {
     return execIoCommand(IoNvmCDw0, drv, cmd, sqn, cqn);
 }
 //--- public functions ---
