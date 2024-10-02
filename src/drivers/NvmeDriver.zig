@@ -16,7 +16,9 @@ const NvmeDevice = @import("mod.zig").NvmeDevice;
 const msix = @import("nvme/msix.zig");
 const ctrl = @import("nvme/controller.zig");
 const regs = @import("nvme/registers.zig");
-pub const q = @import("nvme/queue.zig");
+pub const q = @import("nvme/queue.zig"); //re-export
+const feat = @import("nvme/features.zig");
+const cmds = @import("nvme/commands.zig");
 
 const nvme_class_code = 0x01;
 const nvme_subclass = 0x08;
@@ -74,18 +76,8 @@ fn GenNCDw0(OpcodeType: type) type {
     };
 }
 
-const AdminCDw0 = GenNCDw0(AdminOpcode);
+pub const AdminCDw0 = GenNCDw0(AdminOpcode);
 const IoNvmCDw0 = GenNCDw0(IoNvmOpcode);
-
-const DataPointer = packed union {
-    prp: packed struct(u128) {
-        prp1: u64,
-        prp2: u64 = 0,
-    },
-    sgl: packed struct(u128) {
-        sgl1: u128,
-    },
-};
 
 // TODO: When packed tagged unions are supported, we can use the following definitions
 // const SQEntry = packed union(enum) {
@@ -100,7 +92,7 @@ const IdentifyCommand = packed struct(u512) {
     ignrd_b: u32 = 0, //08:11 byte - cdw2
     ignrd_c: u32 = 0, //12:15 byte = cdw3
     ignrd_e: u64 = 0, //16:23 byte = mptr
-    dptr: DataPointer, //24:39 byte = prp1, prp2
+    dptr: cmds.DataPointer, //24:39 byte = prp1, prp2
     cns: u8, //00:07 id cdw10
     rsrv_a: u8 = 0, //08:15 in cdw10
     cntid: u16 = 0, //16-31 in cdw10
@@ -115,98 +107,6 @@ const IdentifyCommand = packed struct(u512) {
     ignrd_j: u32 = 0, //60-63 in cdw15
 };
 
-const GetSetFeaturesCommand = packed union {
-    const FeatureSelect = enum(u3) {
-        current = 0b000,
-        default = 0b001,
-        saved = 0b010,
-        supported_capabilities = 0b011,
-    };
-    get_number_of_queues: packed struct(u512) {
-        cdw0: AdminCDw0, //cdw0,
-        ignrd_a: u32 = 0, //cdw1,
-        ignrd_b: u32 = 0, //cdw2
-        ignrd_c: u32 = 0, //cdw3
-        ignrd_e: u64 = 0, //cdw4, cdw5
-        ignrd_f: u128 = 0, //cdw6, cdw7, cdw8,cdw9
-        fid: u8 = 0x07, //cdw10 - Feature Identifier
-        sel: FeatureSelect, //cdw10 - Select
-        rsrv_a: u21 = 0, //11-31 in cdw10 - Reserved
-        ignrd_g: u32 = 0, //32-63 in cdw11 - I/O Command Set Combination Index
-        ignrd_h: u32 = 0, //48-52 in cdw12
-        ignrd_i: u32 = 0, //52-55 in cdw13
-        ignrd_j: u32 = 0, //56-59 in cdw14
-        ignrd_k: u32 = 0, //60-63 in cdw15
-    },
-    set_number_of_queues: packed struct(u512) {
-        cdw0: AdminCDw0, //cdw0,
-        ignrd_a: u32 = 0, //cdw1,
-        ignrd_b: u32 = 0, //cdw2
-        ignrd_c: u32 = 0, //cdw3
-        ignrd_e: u64 = 0, //cdw4, cdw5
-        ignrd_f: u128 = 0, //cdw6, cdw7, cdw8,cdw10
-        fid: u8 = 0x07, //cdw10 - Feature Identifier
-        rsrvd_a: u24 = 0, //cdw10
-        ncqr: u16, //cdw11 - I/O Command Set Combination Index
-        nsqr: u16 = 0, // cdw11
-        ignrd_g: u32 = 0, //cdw12
-        ignrd_h: u32 = 0, //cdw13
-        ignrd_i: u32 = 0, //cdw14
-        ignrd_j: u32 = 0, //cdw15
-    },
-    set_io_command_profile: packed struct(u512) {
-        cdw0: AdminCDw0, //cdw0
-        ignrd_a: u32 = 0, //cdw1
-        ignrd_b: u32 = 0, //cdw2
-        ignrd_c: u32 = 0, //cdw3
-        ignrd_e: u64 = 0, //cdw5
-        dptr: DataPointer, //cdw6, cdw7, cdw8,cdw9
-        fid: u8 = 0x19, //cdw10 - Feature Identifier
-        rsrv_a: u23 = 0, //cdw10
-        sv: u1, //cdw10 - Save
-        iosci: u9, //cdw11 - I/O Command Set Combination Index
-        rsrvd_b: u23 = 0, //cdw11
-        ignrd_f: u32 = 0, //cdw12
-        ignrd_g: u32 = 0, //cdw13
-        uuid: u7 = 0, //cdw14 - UUID
-        rsrvd_c: u25 = 0, //cdw14
-        ignrd_h: u32 = 0, //cdw15
-    },
-    get_interrupt_coalescing: packed struct(u512) {
-        cdw0: AdminCDw0, //cdw0
-        ignrd_a: u32 = 0, //cdw1
-        ignrd_b: u32 = 0, //cdw2
-        ignrd_c: u32 = 0, //cdw3
-        ignrd_e: u64 = 0, //cdw5
-        ignrd_f: u128 = 0, //cdw6, cdw7, cdw8,cdw9
-        fid: u8 = 0x08, //cdw10 - Feature Identifier
-        sel: FeatureSelect, //cdw10 - Select
-        rsrv_a: u21 = 0, //cdw10
-        ignrd_g: u32 = 0, //cdw11
-        ignrd_h: u32 = 0, //cdw12
-        ignrd_i: u32 = 0, //cdw13
-        ignrd_j: u32 = 0, //cdw14
-        ignrd_k: u32 = 0, //cdw15
-    },
-    SetInterruptCoalescing: packed struct(u512) {
-        cdw0: AdminCDw0, //cdw0
-        ignrd_a: u32 = 0, //cdw1
-        ignrd_b: u32 = 0, //cdw2
-        ignrd_c: u32 = 0, //cdw3
-        ignrd_e: u64 = 0, //cdw5
-        ignrd_f: u128 = 0, //cdw6, cdw7, cdw8,cdw9
-        fid: u8 = 0x08, //cdw10 - Feature Identifier
-        rsrv_a: u24 = 0, //cdw10
-        thr: u8, //cdw11 - Aggregation Threshold
-        time: u8, //cdw11 - Aggregation Time
-        rsrv_b: u16 = 0, //cdw11
-        ignrd_g: u32 = 0, //cdw12
-        ignrd_h: u32 = 0, //cdw13
-        ignrd_i: u32 = 0, //cdw14
-        ignrd_j: u32 = 0, //cdw15
-    },
-};
-
 const IoNvmCommandSetCommand = packed union {
     const DatasetManagement = packed struct(u8) { access_frequency: u4, access_latency: u2, sequential_request: u1, incompressible: u1 };
     read: packed struct(u512) {
@@ -215,7 +115,7 @@ const IoNvmCommandSetCommand = packed union {
         elbst_eilbst_a: u48, //cdw2,cdw3 - Expected Logical Block Storage Tag and Expected Initial Logical Block Storage Tag
         rsrv_a: u16 = 0, //cdw3
         mptr: u64, //cdw4,cdw5 - Metadata Pointer
-        dptr: DataPointer, //cdw6,cdw7,cdw8,cdw9 - Data Pointer
+        dptr: cmds.DataPointer, //cdw6,cdw7,cdw8,cdw9 - Data Pointer
         slba: u64, //cdw10,cdw11 - Starting LBA
         nlb: u16, //cdw12 - Number of Logical Blocks
         rsrv_b: u8 = 0, //cdw12 - Reserved
@@ -236,7 +136,7 @@ const IoNvmCommandSetCommand = packed union {
         lbst_ilbst_a: u48, //cdw2,cdw3
         rsrv_a: u16 = 0, //cdw3
         mptr: u64, //cdw4,cdw5
-        dptr: DataPointer, //cdw6,cdw7,cdw8,cdw9
+        dptr: cmds.DataPointer, //cdw6,cdw7,cdw8,cdw9
         slba: u64, //cdw10,cdw11
         nlb: u16, //cdw12
         rsrv_b: u4 = 0, //cdw12
@@ -262,7 +162,7 @@ const IoQueueCommand = packed union {
         ignrd_b: u32 = 0, //cdw2
         ignrd_c: u32 = 0, //cdw3
         ignrd_e: u64 = 0, // cdw4,cdw5
-        dptr: DataPointer, //cdw6, cdw7, cdw8, cdw9
+        dptr: cmds.DataPointer, //cdw6, cdw7, cdw8, cdw9
         qid: u16, //cdw10 - Queue Identifier
         qsize: u16, //cdw10 - Queue Size
         pc: bool, //cdw11 - Physically Contiguous
@@ -295,7 +195,7 @@ const IoQueueCommand = packed union {
         ignrd_b: u32 = 0, //cdw2
         ignrd_c: u32 = 0, //cdw3
         ignrd_e: u64 = 0, //mptr - cdw4,cwd5
-        dptr: DataPointer, //prp1, prp2 - cdw6, cdw7, cdw8, cdw9
+        dptr: cmds.DataPointer, //prp1, prp2 - cdw6, cdw7, cdw8, cdw9
         qid: u16, //cdw10 - Queue Identifier
         qsize: u16, //cdw10 - Queue Size
         // cqid: u16, //cdw11 - Completion Queue Identifier
@@ -813,7 +713,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
 
     // Set I/O Command Set Profile with Command Set Combination index
     @memset(prp1, 0);
-    _ = executeAdminCommand(dev, @bitCast(GetSetFeaturesCommand{
+    _ = executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
         .set_io_command_profile = .{
             .cdw0 = .{
                 .opc = .set_features,
@@ -971,7 +871,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     }
 
     // Get current I/O number of completion/submission queues
-    const get_current_number_of_queues_res = executeAdminCommand(dev, @bitCast(GetSetFeaturesCommand{
+    const get_current_number_of_queues_res = executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
         .get_number_of_queues = .{
             .cdw0 = .{
                 .opc = .get_features,
@@ -989,7 +889,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     log.debug("Get Number of Queues: Current Number Of Completion/Submission Queues: {d}/{d}", .{ current_ncqr, current_nsqr });
 
     // Get default I/O number of completion/submission queues
-    const get_default_number_of_queues_res = executeAdminCommand(dev, @bitCast(GetSetFeaturesCommand{
+    const get_default_number_of_queues_res = executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
         .get_number_of_queues = .{
             .cdw0 = .{
                 .opc = .get_features,
@@ -1132,7 +1032,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     //
 
     // Set Interrupt Coalescing
-    _ = executeAdminCommand(dev, @bitCast(GetSetFeaturesCommand{
+    _ = executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
         .SetInterruptCoalescing = .{
             .cdw0 = .{
                 .opc = .set_features,
@@ -1146,7 +1046,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     };
 
     // Get Interrupt Coalescing
-    const get_interrupt_coalescing_res = executeAdminCommand(dev, @bitCast(GetSetFeaturesCommand{
+    const get_interrupt_coalescing_res = executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
         .get_interrupt_coalescing = .{
             .cdw0 = .{
                 .opc = .get_features,
