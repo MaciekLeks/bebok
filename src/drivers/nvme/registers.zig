@@ -1,6 +1,20 @@
 const std = @import("std");
+const Pcie = @import("mod.zig").Pcie;
+const paging = @import("mod.zig").paging;
 
 const log = std.log.scoped(.drivers_nvme);
+
+pub fn readRegister(T: type, bar: Pcie.Bar, register_set_field: @TypeOf(.enum_literal)) T {
+    return switch (bar.address) {
+        inline else => |addr| @as(*volatile T, @ptrFromInt(paging.virtFromMME(addr) + @offsetOf(RegisterSet, @tagName(register_set_field)))).*,
+    };
+}
+
+pub fn writeRegister(T: type, bar: Pcie.Bar, register_set_field: @TypeOf(.enum_literal), value: T) void {
+    switch (bar.address) {
+        inline else => |addr| @as(*volatile T, @ptrFromInt(paging.virtFromMME(addr) + @offsetOf(RegisterSet, @tagName(register_set_field)))).* = value,
+    }
+}
 
 pub const RegisterSet = packed struct {
     cap: CAPRegister,

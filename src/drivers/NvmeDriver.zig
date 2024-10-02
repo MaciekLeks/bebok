@@ -527,18 +527,6 @@ pub const NsInfoMap = std.AutoHashMap(u32, NsInfo);
 
 //pub var drive: Device = undefined; //TODO only one drive now, make not public
 
-pub fn readRegister(T: type, bar: Pcie.Bar, register_set_field: @TypeOf(.enum_literal)) T {
-    return switch (bar.address) {
-        inline else => |addr| @as(*volatile T, @ptrFromInt(paging.virtFromMME(addr) + @offsetOf(regs.RegisterSet, @tagName(register_set_field)))).*,
-    };
-}
-
-pub fn writeRegister(T: type, bar: Pcie.Bar, register_set_field: @TypeOf(.enum_literal), value: T) void {
-    switch (bar.address) {
-        inline else => |addr| @as(*volatile T, @ptrFromInt(paging.virtFromMME(addr) + @offsetOf(regs.RegisterSet, @tagName(register_set_field)))).* = value,
-    }
-}
-
 /// Devicer interface function to match the driver with the device
 pub fn probe(_: *anyopaque, probe_ctx: *const anyopaque) bool {
     const pcie_ctx: *const Pcie.PcieProbeContext = @ptrCast(@alignCast(probe_ctx));
@@ -687,7 +675,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     });
 
     // Check the controller version
-    const vs = readRegister(regs.VSRegister, dev.bar, .vs);
+    const vs = regs.readRegister(regs.VSRegister, dev.bar, .vs);
     log.info("NVMe controller version: {}.{}.{}", .{ vs.mjn, vs.mnr, vs.tet });
 
     // support only NVMe 1.4 and 2.0
@@ -697,7 +685,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     }
 
     // Check if the controller supports NVM Command Set and Admin Command Set
-    const cap = readRegister(regs.CAPRegister, dev.bar, .cap);
+    const cap = regs.readRegister(regs.CAPRegister, dev.bar, .cap);
     log.info("NVME CAP Register: {}", .{cap});
     if (cap.css.nvmcs == 0) {
         log.err("NVMe controller does not support NVM Command Set", .{});
@@ -722,12 +710,12 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
 
     // The host configures the Admin gQueue by setting the Admin Queue Attributes (AQA), Admin Submission Queue Base Address (ASQ), and Admin Completion Queue Base Address (ACQ) the appropriate values;
     //set AQA queue sizes
-    var aqa = readRegister(regs.AQARegister, dev.bar, .aqa);
+    var aqa = regs.readRegister(regs.AQARegister, dev.bar, .aqa);
     log.info("NVMe AQA Register pre-modification: {}", .{aqa});
     aqa.asqs = nvme_ioasqs;
     aqa.acqs = nvme_ioacqs;
-    writeRegister(regs.AQARegister, dev.bar, .aqa, aqa);
-    aqa = readRegister(regs.AQARegister, dev.bar, .aqa);
+    regs.writeRegister(regs.AQARegister, dev.bar, .aqa, aqa);
+    aqa = regs.readRegister(regs.AQARegister, dev.bar, .aqa);
     log.info("NVMe AQA Register post-modification: {}", .{aqa});
 
     // ASQ and ACQ setup
@@ -756,21 +744,21 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
 
     log.debug("ASQ: virt: {*}, phys:0x{x}; ACQ: virt:{*}, phys:0x{x}", .{ dev.sq[0].entries, sqa_phys, dev.cq[0].entries, cqa_phys });
 
-    var asq = readRegister(regs.ASQEntry, dev.bar, .asq);
+    var asq = regs.readRegister(regs.ASQEntry, dev.bar, .asq);
     log.info("ASQ Register pre-modification: 0x{x}", .{@shlExact(asq.asqb, 12)});
     asq.asqb = @intCast(@shrExact(sqa_phys, 12)); // 4kB aligned
-    writeRegister(regs.ASQEntry, dev.bar, .asq, asq);
-    asq = readRegister(regs.ASQEntry, dev.bar, .asq);
+    regs.writeRegister(regs.ASQEntry, dev.bar, .asq, asq);
+    asq = regs.readRegister(regs.ASQEntry, dev.bar, .asq);
     log.info("ASQ Register post-modification: 0x{x}", .{@shlExact(asq.asqb, 12)});
 
-    var acq = readRegister(regs.ACQEntry, dev.bar, .acq);
+    var acq = regs.readRegister(regs.ACQEntry, dev.bar, .acq);
     log.info("ACQ Register pre-modification: 0x{x}", .{@shlExact(acq.acqb, 12)});
     acq.acqb = @intCast(@shrExact(cqa_phys, 12)); // 4kB aligned
-    writeRegister(regs.ACQEntry, dev.bar, .acq, acq);
-    acq = readRegister(regs.ACQEntry, dev.bar, .acq);
+    regs.writeRegister(regs.ACQEntry, dev.bar, .acq, acq);
+    acq = regs.readRegister(regs.ACQEntry, dev.bar, .acq);
     log.info("ACQ Register post-modification: 0x{x}", .{@shlExact(acq.acqb, 12)});
 
-    var cc = readRegister(regs.CCRegister, dev.bar, .cc);
+    var cc = regs.readRegister(regs.CCRegister, dev.bar, .cc);
     log.info("CC register pre-modification: {}", .{cc});
     //CC.css settings
     if (cap.css.acs == 1) cc.css = 0b111;
@@ -781,8 +769,8 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     cc.ams = .round_robin;
     cc.iosqes = 6; // 64 bytes - set to recommened value
     cc.iocqes = 4; // 16 bytes - set to
-    writeRegister(regs.CCRegister, dev.bar, .cc, cc);
-    log.info("CC register post-modification: {}", .{readRegister(regs.CCRegister, dev.bar, .cc)});
+    regs.writeRegister(regs.CCRegister, dev.bar, .cc, cc);
+    log.info("CC register post-modification: {}", .{regs.readRegister(regs.CCRegister, dev.bar, .cc)});
 
     ctrl.enableController(dev.bar);
 
@@ -1379,7 +1367,7 @@ fn execAdminCommand(CDw0Type: type, dev: *NvmeDevice, cmd: SQEntry, sqn: u16, cq
         //log phase mismatch
         //log.debug("Phase mismatch(loop): CQEntry: {}, expected phase: {}", .{ cq_entry_ptr.*, drv.cq[cqn].expected_phase });
 
-        const csts = readRegister(regs.CSTSRegister, dev.bar, .csts);
+        const csts = regs.readRegister(regs.CSTSRegister, dev.bar, .csts);
         if (csts.cfs == 1) {
             log.err("Command failed", .{});
             return NvmeError.InvalidCommand;
@@ -1470,7 +1458,7 @@ fn execIoCommand(CDw0Type: type, drv: *NvmeDevice, cmd: SQEntry, sqn: u16, cqn: 
     drv.mutex = false;
 
     while (cq_entry_ptr.phase != drv.cq[cqn].expected_phase) {
-        const csts = readRegister(regs.CSTSRegister, drv.bar, .csts);
+        const csts = regs.readRegister(regs.CSTSRegister, drv.bar, .csts);
         if (csts.cfs == 1) {
             log.err("Command failed", .{});
             return NvmeError.InvalidCommand;
