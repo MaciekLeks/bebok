@@ -1,4 +1,5 @@
-const cmds = @import("commands.zig");
+const cmd = @import("command.zig");
+const com = @import("../commons.zig");
 
 pub const GetSetFeaturesCommand = packed union {
     const FeatureSelect = enum(u3) {
@@ -8,7 +9,7 @@ pub const GetSetFeaturesCommand = packed union {
         supported_capabilities = 0b011,
     };
     get_number_of_queues: packed struct(u512) {
-        cdw0: cmds.AdminCDw0, //cdw0,
+        cdw0: cmd.AdminCDw0, //cdw0,
         ignrd_a: u32 = 0, //cdw1,
         ignrd_b: u32 = 0, //cdw2
         ignrd_c: u32 = 0, //cdw3
@@ -24,7 +25,7 @@ pub const GetSetFeaturesCommand = packed union {
         ignrd_k: u32 = 0, //60-63 in cdw15
     },
     set_number_of_queues: packed struct(u512) {
-        cdw0: cmds.AdminCDw0, //cdw0,
+        cdw0: cmd.AdminCDw0, //cdw0,
         ignrd_a: u32 = 0, //cdw1,
         ignrd_b: u32 = 0, //cdw2
         ignrd_c: u32 = 0, //cdw3
@@ -40,12 +41,12 @@ pub const GetSetFeaturesCommand = packed union {
         ignrd_j: u32 = 0, //cdw15
     },
     set_io_command_profile: packed struct(u512) {
-        cdw0: cmds.AdminCDw0, //cdw0
+        cdw0: cmd.AdminCDw0, //cdw0
         ignrd_a: u32 = 0, //cdw1
         ignrd_b: u32 = 0, //cdw2
         ignrd_c: u32 = 0, //cdw3
         ignrd_e: u64 = 0, //cdw5
-        dptr: cmds.DataPointer, //cdw6, cdw7, cdw8,cdw9
+        dptr: com.DataPointer, //cdw6, cdw7, cdw8,cdw9
         fid: u8 = 0x19, //cdw10 - Feature Identifier
         rsrv_a: u23 = 0, //cdw10
         sv: u1, //cdw10 - Save
@@ -58,7 +59,7 @@ pub const GetSetFeaturesCommand = packed union {
         ignrd_h: u32 = 0, //cdw15
     },
     get_interrupt_coalescing: packed struct(u512) {
-        cdw0: cmds.AdminCDw0, //cdw0
+        cdw0: cmd.AdminCDw0, //cdw0
         ignrd_a: u32 = 0, //cdw1
         ignrd_b: u32 = 0, //cdw2
         ignrd_c: u32 = 0, //cdw3
@@ -74,7 +75,7 @@ pub const GetSetFeaturesCommand = packed union {
         ignrd_k: u32 = 0, //cdw15
     },
     SetInterruptCoalescing: packed struct(u512) {
-        cdw0: cmds.AdminCDw0, //cdw0
+        cdw0: cmd.AdminCDw0, //cdw0
         ignrd_a: u32 = 0, //cdw1
         ignrd_b: u32 = 0, //cdw2
         ignrd_c: u32 = 0, //cdw3

@@ -16,11 +16,14 @@ const NvmeDevice = @import("mod.zig").NvmeDevice;
 const msix = @import("nvme/msix.zig");
 const ctrl = @import("nvme/controller.zig");
 const regs = @import("nvme/registers.zig");
-pub const q = @import("nvme/queue.zig"); //re-export
-const feat = @import("nvme/features.zig");
-const cmds = @import("nvme/commands.zig");
+const feat = @import("nvme/admin/features.zig");
+const acmd = @import("nvme/admin/command.zig");
+const iocmd = @import("nvme/io/command.zig");
+const aq = @import("nvme/admin/queue.zig");
+const io = @import("nvme/io/io.zig");
 const e = @import("nvme/errors.zig");
-const id = @import("nvme/identify.zig");
+const id = @import("nvme/admin/identify.zig");
+pub const com = @import("nvme/commons.zig");
 
 const nvme_class_code = 0x01;
 const nvme_subclass = 0x08;
@@ -45,123 +48,12 @@ const NvmeDriver = @This();
 //Fields
 alloctr: std.mem.Allocator,
 
-const NsId = u32;
-
 // TODO: When packed tagged unions are supported, we can use the following definitions
 // const SQEntry = packed union(enum) {
 //    identify: IdentifyCommand, //or body of the command
 //    abort: AbortCommand,
 //    //...
 // };
-
-const IoNvmCommandSetCommand = packed union {
-    const DatasetManagement = packed struct(u8) { access_frequency: u4, access_latency: u2, sequential_request: u1, incompressible: u1 };
-    read: packed struct(u512) {
-        cdw0: cmds.IoNvmCDw0, //cdw0 - 00:03 byte
-        nsid: NsId, //cdw1 - 04:07 byte - nsid
-        elbst_eilbst_a: u48, //cdw2,cdw3 - Expected Logical Block Storage Tag and Expected Initial Logical Block Storage Tag
-        rsrv_a: u16 = 0, //cdw3
-        mptr: u64, //cdw4,cdw5 - Metadata Pointer
-        dptr: cmds.DataPointer, //cdw6,cdw7,cdw8,cdw9 - Data Pointer
-        slba: u64, //cdw10,cdw11 - Starting LBA
-        nlb: u16, //cdw12 - Number of Logical Blocks
-        rsrv_b: u8 = 0, //cdw12 - Reserved
-        stc: u1, //cdw12 - Storage Tag Check
-        rsrv_c: u1 = 0, //cdw12 - Reserved
-        prinfo: u4, //cdw12 - Protection Information Field
-        fua: u1, //cdw12 - Force Unit Access
-        lr: u1, //cdw12 - Limited Retry
-        dsm: DatasetManagement, //cdw13 - Dataset Management
-        rsrv_d: u24 = 0, //cdw13 - Reserved
-        elbst_eilbst_b: u32, //cdw14 - Expected Logical Block Storage Tag and Expected Initial Logical Block Storage Tag
-        elbat: u16, //cdw15 - Expected Logical Block Application Tag
-        elbatm: u16, //cdw15 - Expected Logical Block Application Tag Mask
-    },
-    write: packed struct(u512) {
-        cdw0: cmds.IoNvmCDw0, //cdw0
-        nsid: NsId, //cdw1
-        lbst_ilbst_a: u48, //cdw2,cdw3
-        rsrv_a: u16 = 0, //cdw3
-        mptr: u64, //cdw4,cdw5
-        dptr: cmds.DataPointer, //cdw6,cdw7,cdw8,cdw9
-        slba: u64, //cdw10,cdw11
-        nlb: u16, //cdw12
-        rsrv_b: u4 = 0, //cdw12
-        dtype: u4, //cdw12 - Directive type
-        stc: u1, //cdw12 - Storage Tag Check
-        rsrv_c: u1 = 0, //cdw12
-        prinfo: u4, //cdw12 - Protection Information Field
-        fua: u1, //cdw12 - Force Unit Access
-        lr: u1, //cdw12 - Limited Retry
-        dsm: DatasetManagement, //cdw13 - Dataset Management
-        rsrv_d: u8 = 0, //cdw13
-        dspec: u16, //cdw14 - Directive Specific
-        lbst_ilbst_b: u32, //cdw15
-        lbat: u16, //cdw15 - Logical Block Application Tag
-        lbatm: u16, //cdw15 - Logical Block Application Tag Mask
-    },
-};
-
-const IoQueueCommand = packed union {
-    create_completion_queue: packed struct(u512) {
-        cdw0: cmds.AdminCDw0, //cdw0
-        ignrd_a: u32 = 0, // nsid
-        ignrd_b: u32 = 0, //cdw2
-        ignrd_c: u32 = 0, //cdw3
-        ignrd_e: u64 = 0, // cdw4,cdw5
-        dptr: cmds.DataPointer, //cdw6, cdw7, cdw8, cdw9
-        qid: u16, //cdw10 - Queue Identifier
-        qsize: u16, //cdw10 - Queue Size
-        pc: bool, //cdw11 - Physically Contiguous
-        ien: bool, //cdw11 - Interrupt Enable
-        rsrvd_a: u14 = 0, // cdw11
-        iv: u16, //cdw11- Interrupt Vector
-        ignrd_f: u32 = 0, //cdw12
-        ignrd_g: u32 = 0, //cdw13
-        ignrd_h: u32 = 0, //cdw14
-        ignrd_i: u32 = 0, //cdw15
-    },
-    delete_queue: packed struct(u512) {
-        cdw0: cmds.AdminCDw0, //cdw0
-        ignrd_a: u32 = 0, //nsid in cdw1
-        ignrd_b: u32 = 0, //cdw2
-        ignrd_c: u32 = 0, //cdw3
-        ignrd_e: u64 = 0, //mptr
-        ignrd_f: u128 = 0, //prp1, prp2
-        qid: u16, //Queue Identifier
-        rsrvd: u16 = 0, //cdw10
-        ignrd_h: u32 = 0, //cdw11
-        ignrd_i: u32 = 0, //cdw12
-        ignrd_j: u32 = 0, //cdw13
-        ignrd_k: u32 = 0, //cdw14
-        ignrd_l: u32 = 0, //cdw15
-    },
-    create_submission_queue: packed struct(u512) {
-        cdw0: cmds.AdminCDw0, //cdw0
-        ignrd_a: u32 = 0, //nsid - cdw1
-        ignrd_b: u32 = 0, //cdw2
-        ignrd_c: u32 = 0, //cdw3
-        ignrd_e: u64 = 0, //mptr - cdw4,cwd5
-        dptr: cmds.DataPointer, //prp1, prp2 - cdw6, cdw7, cdw8, cdw9
-        qid: u16, //cdw10 - Queue Identifier
-        qsize: u16, //cdw10 - Queue Size
-        // cqid: u16, //cdw11 - Completion Queue Identifier
-        pc: bool, //cdw11 - Physically Contiguous
-        qprio: enum(u2) {
-            urgent = 0b00,
-            high = 0b01,
-            medium = 0b10,
-            low = 0b11,
-        }, //cdw11 - Queue Priority
-        rsrvd_a: u13 = 0, //cdw11
-        cqid: u16, //cdw11 - Completion Queue Identifier
-        nvmsetid: u16, //cdw12 - NVM Set Identifier
-        rsrvd_b: u16 = 0, //cdw12
-        ignrd_f: u32 = 0, //cdw13
-        ignrd_h: u32 = 0, //cdw14
-        ignrd_i: u32 = 0, //cdw15
-    },
-};
 
 pub const NsInfoMap = std.AutoHashMap(u32, id.NsInfo);
 
@@ -400,14 +292,14 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     log.info("NVMe AQA Register post-modification: {}", .{aqa});
 
     // ASQ and ACQ setup
-    dev.sq[0].entries = heap.page_allocator.alloc(q.SQEntry, nvme_ioasqs) catch |err| {
+    dev.sq[0].entries = heap.page_allocator.alloc(com.SQEntry, nvme_ioasqs) catch |err| {
         log.err("Failed to allocate memory for admin submission queue entries: {}", .{err});
         return;
     };
     defer heap.page_allocator.free(@volatileCast(dev.sq[0].entries));
     @memset(dev.sq[0].entries, 0);
 
-    dev.cq[0].entries = heap.page_allocator.alloc(q.CQEntry, nvme_ioacqs) catch |err| {
+    dev.cq[0].entries = heap.page_allocator.alloc(com.CQEntry, nvme_ioacqs) catch |err| {
         log.err("Failed to allocate memory for admin completion queue entries: {}", .{err});
         return;
     };
@@ -483,7 +375,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
         log.err("Failed to get physical address of identify command: {}", .{err});
         return;
     };
-    _ = cmds.executeAdminCommand(dev, @bitCast(id.IdentifyCommand{
+    _ = acmd.executeAdminCommand(dev, @bitCast(id.IdentifyCommand{
         .cdw0 = .{
             .opc = .identify,
             .cid = 0x01, //our id
@@ -514,7 +406,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
 
     //Reusing prp1
     @memset(prp1, 0);
-    _ = cmds.executeAdminCommand(dev, @bitCast(id.IdentifyCommand{
+    _ = acmd.executeAdminCommand(dev, @bitCast(id.IdentifyCommand{
         .cdw0 = .{
             .opc = .identify,
             .cid = 0x02, //our id
@@ -549,7 +441,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
 
     // Set I/O Command Set Profile with Command Set Combination index
     @memset(prp1, 0);
-    _ = cmds.executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
+    _ = acmd.executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
         .set_io_command_profile = .{
             .cdw0 = .{
                 .opc = .set_features,
@@ -579,7 +471,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
         if (csi == 0) continue;
         log.info("I/O Command Set specific Active Namespace ID list(0x07): command set idx:{d} -> csi:{d}", .{ i, csi });
         @memset(prp1, 0);
-        _ = cmds.executeAdminCommand(dev, @bitCast(id.IdentifyCommand{
+        _ = acmd.executeAdminCommand(dev, @bitCast(id.IdentifyCommand{
             .cdw0 = .{
                 .opc = .identify,
                 .cid = 0x04, //our id
@@ -596,7 +488,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
             return;
         };
 
-        const io_command_set_active_nsid_lst: *const [1024]NsId = @ptrCast(@alignCast(prp1));
+        const io_command_set_active_nsid_lst: *const [1024]com.NsId = @ptrCast(@alignCast(prp1));
         for (io_command_set_active_nsid_lst, 0..) |nsid, j| {
             //stop on first non-zero nsid
             //log.info("Identify I/O Command Set Active Namespace ID List(0x07): command set idx:{d} nsid idx:{d}, nsid:{d}", .{ i, j, nsid });
@@ -605,7 +497,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
 
                 // Identify Namespace Data Structure (CNS 0x00)
                 @memset(prp1, 0);
-                _ = cmds.executeAdminCommand(dev, @bitCast(id.IdentifyCommand{
+                _ = acmd.executeAdminCommand(dev, @bitCast(id.IdentifyCommand{
                     .cdw0 = .{
                         .opc = .identify,
                         .cid = 0x05, //our id
@@ -635,7 +527,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
                     log.debug("vs2: {}", .{vs});
                     // CNS 05h: I/O Command Set specific Identify Namespace data structure
                     @memset(prp1, 0);
-                    _ = cmds.executeAdminCommand(dev, @bitCast(id.IdentifyCommand{
+                    _ = acmd.executeAdminCommand(dev, @bitCast(id.IdentifyCommand{
                         .cdw0 = .{
                             .opc = .identify,
                             .cid = 0x06, //our id
@@ -658,7 +550,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
 
                     // CNS 06h: I/O Command Set specific Identify Controller data structure
                     @memset(prp1, 0);
-                    _ = cmds.executeAdminCommand(dev, @bitCast(id.IdentifyCommand{
+                    _ = acmd.executeAdminCommand(dev, @bitCast(id.IdentifyCommand{
                         .cdw0 = .{
                             .opc = .identify,
                             .cid = 0x07, //our id
@@ -681,7 +573,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
 
                     // CNS 08h: I/O Command Set independent Identify Namespace data structure
                     @memset(prp1, 0);
-                    _ = cmds.executeAdminCommand(dev, @bitCast(id.IdentifyCommand{
+                    _ = acmd.executeAdminCommand(dev, @bitCast(id.IdentifyCommand{
                         .cdw0 = .{
                             .opc = .identify,
                             .cid = 0x08, //our id
@@ -707,7 +599,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     }
 
     // Get current I/O number of completion/submission queues
-    const get_current_number_of_queues_res = cmds.executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
+    const get_current_number_of_queues_res = acmd.executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
         .get_number_of_queues = .{
             .cdw0 = .{
                 .opc = .get_features,
@@ -725,7 +617,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     log.debug("Get Number of Queues: Current Number Of Completion/Submission Queues: {d}/{d}", .{ current_ncqr, current_nsqr });
 
     // Get default I/O number of completion/submission queues
-    const get_default_number_of_queues_res = cmds.executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
+    const get_default_number_of_queues_res = acmd.executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
         .get_number_of_queues = .{
             .cdw0 = .{
                 .opc = .get_features,
@@ -868,7 +760,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     //
 
     // Set Interrupt Coalescing
-    _ = cmds.executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
+    _ = acmd.executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
         .SetInterruptCoalescing = .{
             .cdw0 = .{
                 .opc = .set_features,
@@ -882,7 +774,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     };
 
     // Get Interrupt Coalescing
-    const get_interrupt_coalescing_res = cmds.executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
+    const get_interrupt_coalescing_res = acmd.executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
         .get_interrupt_coalescing = .{
             .cdw0 = .{
                 .opc = .get_features,
@@ -905,7 +797,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
         var cq = &dev.cq[cq_id];
         cq.* = .{};
 
-        cq.entries = heap.page_allocator.alloc(q.CQEntry, nvme_iocqs) catch |err| {
+        cq.entries = heap.page_allocator.alloc(com.CQEntry, nvme_iocqs) catch |err| {
             log.err("Failed to allocate memory for completion queue entries: {}", .{err});
             return;
         };
@@ -916,7 +808,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
         };
         @memset(cq.entries, .{});
 
-        const create_iocq_res = cmds.executeAdminCommand(dev, @bitCast(IoQueueCommand{
+        const create_iocq_res = acmd.executeAdminCommand(dev, @bitCast(aq.IoQueueCommand{
             .create_completion_queue = .{
                 .cdw0 = .{
                     .opc = .create_io_cq,
@@ -949,7 +841,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
         var sq = &dev.sq[sq_id];
         sq.* = .{};
 
-        sq.entries = heap.page_allocator.alloc(q.SQEntry, nvme_iosqs) catch |err| {
+        sq.entries = heap.page_allocator.alloc(com.SQEntry, nvme_iosqs) catch |err| {
             log.err("Failed to allocate memory for submission queue entries: {}", .{err});
             return;
         };
@@ -960,7 +852,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
         };
         @memset(sq.entries, 0);
 
-        const create_iosq_res = cmds.executeAdminCommand(dev, @bitCast(IoQueueCommand{
+        const create_iosq_res = acmd.executeAdminCommand(dev, @bitCast(aq.IoQueueCommand{
             .create_submission_queue = .{
                 .cdw0 = .{
                     .opc = .create_io_sq,
@@ -1118,7 +1010,7 @@ pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: *NvmeDevice,
     const cqn = 1;
 
     log.debug("Executing I/O NVM Command Set Read command", .{});
-    _ = cmds.executeIoNvmCommand(drv, @bitCast(IoNvmCommandSetCommand{
+    _ = iocmd.executeIoNvmCommand(drv, @bitCast(io.IoNvmCommandSetCommand{
         .read = .{
             .cdw0 = .{
                 .opc = .read,
@@ -1249,7 +1141,7 @@ pub fn write(T: type, allocator: std.mem.Allocator, dev: *NvmeDevice, nsid: u32,
     const cqn = 1;
 
     log.debug("Executing I/O NVM Command Set Read command", .{});
-    _ = cmds.executeIoNvmCommand(dev, @bitCast(IoNvmCommandSetCommand{
+    _ = iocmd.executeIoNvmCommand(dev, @bitCast(io.IoNvmCommandSetCommand{
         .write = .{
             .cdw0 = .{
                 .opc = .write,

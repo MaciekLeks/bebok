@@ -1,6 +1,13 @@
-const std = @import("std");
-
-const log = std.log.scoped(.drivers_nvme);
+// TODO: is that the right place for this struct?
+pub const DataPointer = packed union {
+    prp: packed struct(u128) {
+        prp1: u64,
+        prp2: u64 = 0,
+    },
+    sgl: packed struct(u128) {
+        sgl1: u128,
+    },
+};
 
 pub const SQEntry = u512;
 
@@ -47,3 +54,15 @@ pub fn Queue(EntryType: type) type {
         else => unreachable,
     };
 }
+
+pub fn GenNCDw0(OpcodeType: type) type {
+    return packed struct(u32) {
+        opc: OpcodeType,
+        fuse: u2 = 0, //0 for nromal operation
+        rsvd: u4 = 0,
+        psdt: u2 = 0, //0 for PRP tranfer
+        cid: u16,
+    };
+}
+
+pub const NsId = u32;

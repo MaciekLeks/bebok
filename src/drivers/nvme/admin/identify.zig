@@ -1,12 +1,13 @@
-const cmds = @import("commands.zig");
+const cmd = @import("command.zig");
+const com = @import("../commons.zig");
 
 pub const IdentifyCommand = packed struct(u512) {
-    cdw0: cmds.AdminCDw0, //00:03 byte
+    cdw0: cmd.AdminCDw0, //00:03 byte
     nsid: u32 = 0, //04:07 byte - nsid
     ignrd_b: u32 = 0, //08:11 byte - cdw2
     ignrd_c: u32 = 0, //12:15 byte = cdw3
     ignrd_e: u64 = 0, //16:23 byte = mptr
-    dptr: cmds.DataPointer, //24:39 byte = prp1, prp2
+    dptr: com.DataPointer, //24:39 byte = prp1, prp2
     cns: u8, //00:07 id cdw10
     rsrv_a: u8 = 0, //08:15 in cdw10
     cntid: u16 = 0, //16-31 in cdw10
