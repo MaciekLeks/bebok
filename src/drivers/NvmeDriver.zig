@@ -19,6 +19,7 @@ const regs = @import("nvme/registers.zig");
 pub const q = @import("nvme/queue.zig"); //re-export
 const feat = @import("nvme/features.zig");
 const cmds = @import("nvme/commands.zig");
+const e = @import("nvme/errors.zig");
 
 const nvme_class_code = 0x01;
 const nvme_subclass = 0x08;
@@ -29,18 +30,19 @@ const nvme_iocqs = 0x8; //completion queue size
 const nvme_ioacqs = 0x2; //admin completion queue size
 const nvme_ioasqs = 0x2; //admin submission queue size
 
-const tmp_msix_table_idx = 0x01;
-const tmp_irq = 0x33;
-
 //const nvme_ncqr = 0x1 + 0x1; //number of completion queues requested (+1 is admin cq)
 //const nvme_nsqr = nvme_ncqr; //number of submission queues requested
+//
+//
+
+//TODO: refactor this
+const tmp_msix_table_idx = 0x01;
+const tmp_irq = 0x33;
 
 const NvmeDriver = @This();
 
 //Fields
 alloctr: std.mem.Allocator,
-
-const NvmeError = error{ InvalidCommand, InvalidCommandSequence, AdminCommandNoData, AdminCommandFailed, MsiXMisconfigured, InvalidLBA, InvalidNsid, IONvmReadFailed };
 
 const NsId = u32;
 
@@ -372,7 +374,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     dev.msix_cap = try Pcie.readCapability(Pcie.MsixCap, addr);
     log.debug("MSI-X capability pre-modification: {}", .{dev.msix_cap});
 
-    if (dev.msix_cap.tbir != 0) return NvmeError.MsiXMisconfigured; //TODO: it should work on any of the bar but for now we support only bar0
+    if (dev.msix_cap.tbir != 0) return e.NvmeError.MsiXMisconfigured; //TODO: it should work on any of the bar but for now we support only bar0
 
     //enable MSI-X
     dev.msix_cap.mc.mxe = true;
@@ -612,7 +614,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
         log.err("Failed to get physical address of identify command: {}", .{err});
         return;
     };
-    _ = executeAdminCommand(dev, @bitCast(IdentifyCommand{
+    _ = cmds.executeAdminCommand(dev, @bitCast(IdentifyCommand{
         .cdw0 = .{
             .opc = .identify,
             .cid = 0x01, //our id
@@ -643,7 +645,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
 
     //Reusing prp1
     @memset(prp1, 0);
-    _ = executeAdminCommand(dev, @bitCast(IdentifyCommand{
+    _ = cmds.executeAdminCommand(dev, @bitCast(IdentifyCommand{
         .cdw0 = .{
             .opc = .identify,
             .cid = 0x02, //our id
@@ -678,7 +680,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
 
     // Set I/O Command Set Profile with Command Set Combination index
     @memset(prp1, 0);
-    _ = executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
+    _ = cmds.executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
         .set_io_command_profile = .{
             .cdw0 = .{
                 .opc = .set_features,
@@ -708,7 +710,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
         if (csi == 0) continue;
         log.info("I/O Command Set specific Active Namespace ID list(0x07): command set idx:{d} -> csi:{d}", .{ i, csi });
         @memset(prp1, 0);
-        _ = executeAdminCommand(dev, @bitCast(IdentifyCommand{
+        _ = cmds.executeAdminCommand(dev, @bitCast(IdentifyCommand{
             .cdw0 = .{
                 .opc = .identify,
                 .cid = 0x04, //our id
@@ -734,7 +736,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
 
                 // Identify Namespace Data Structure (CNS 0x00)
                 @memset(prp1, 0);
-                _ = executeAdminCommand(dev, @bitCast(IdentifyCommand{
+                _ = cmds.executeAdminCommand(dev, @bitCast(IdentifyCommand{
                     .cdw0 = .{
                         .opc = .identify,
                         .cid = 0x05, //our id
@@ -764,7 +766,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
                     log.debug("vs2: {}", .{vs});
                     // CNS 05h: I/O Command Set specific Identify Namespace data structure
                     @memset(prp1, 0);
-                    _ = executeAdminCommand(dev, @bitCast(IdentifyCommand{
+                    _ = cmds.executeAdminCommand(dev, @bitCast(IdentifyCommand{
                         .cdw0 = .{
                             .opc = .identify,
                             .cid = 0x06, //our id
@@ -787,7 +789,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
 
                     // CNS 06h: I/O Command Set specific Identify Controller data structure
                     @memset(prp1, 0);
-                    _ = executeAdminCommand(dev, @bitCast(IdentifyCommand{
+                    _ = cmds.executeAdminCommand(dev, @bitCast(IdentifyCommand{
                         .cdw0 = .{
                             .opc = .identify,
                             .cid = 0x07, //our id
@@ -810,7 +812,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
 
                     // CNS 08h: I/O Command Set independent Identify Namespace data structure
                     @memset(prp1, 0);
-                    _ = executeAdminCommand(dev, @bitCast(IdentifyCommand{
+                    _ = cmds.executeAdminCommand(dev, @bitCast(IdentifyCommand{
                         .cdw0 = .{
                             .opc = .identify,
                             .cid = 0x08, //our id
@@ -836,7 +838,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     }
 
     // Get current I/O number of completion/submission queues
-    const get_current_number_of_queues_res = executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
+    const get_current_number_of_queues_res = cmds.executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
         .get_number_of_queues = .{
             .cdw0 = .{
                 .opc = .get_features,
@@ -854,7 +856,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     log.debug("Get Number of Queues: Current Number Of Completion/Submission Queues: {d}/{d}", .{ current_ncqr, current_nsqr });
 
     // Get default I/O number of completion/submission queues
-    const get_default_number_of_queues_res = executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
+    const get_default_number_of_queues_res = cmds.executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
         .get_number_of_queues = .{
             .cdw0 = .{
                 .opc = .get_features,
@@ -997,7 +999,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     //
 
     // Set Interrupt Coalescing
-    _ = executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
+    _ = cmds.executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
         .SetInterruptCoalescing = .{
             .cdw0 = .{
                 .opc = .set_features,
@@ -1011,7 +1013,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     };
 
     // Get Interrupt Coalescing
-    const get_interrupt_coalescing_res = executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
+    const get_interrupt_coalescing_res = cmds.executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
         .get_interrupt_coalescing = .{
             .cdw0 = .{
                 .opc = .get_features,
@@ -1045,7 +1047,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
         };
         @memset(cq.entries, .{});
 
-        const create_iocq_res = executeAdminCommand(dev, @bitCast(IoQueueCommand{
+        const create_iocq_res = cmds.executeAdminCommand(dev, @bitCast(IoQueueCommand{
             .create_completion_queue = .{
                 .cdw0 = .{
                     .opc = .create_io_cq,
@@ -1089,7 +1091,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
         };
         @memset(sq.entries, 0);
 
-        const create_iosq_res = executeAdminCommand(dev, @bitCast(IoQueueCommand{
+        const create_iosq_res = cmds.executeAdminCommand(dev, @bitCast(IoQueueCommand{
             .create_submission_queue = .{
                 .cdw0 = .{
                     .opc = .create_io_sq,
@@ -1152,175 +1154,6 @@ pub fn deinit(_: *anyopaque) void {
     // for (&dev.iosq) |*sq| heap.page_allocator.free(sq.entries);
 }
 
-/// Execute an admin command
-/// @param CDw0Type: Command Dword 0 type
-/// @param drv: Device
-/// @param cmd: SQEntry
-/// @param sq_no: Submission Queue number
-/// @param cq_no: Completion Queue number
-fn execAdminCommand(CDw0Type: type, dev: *NvmeDevice, cmd: q.SQEntry, sqn: u16, cqn: u16) NvmeError!q.CQEntry {
-    const cdw0: *const CDw0Type = @ptrCast(@alignCast(&cmd));
-    log.debug("Executing command: CDw0: {}", .{cdw0.*});
-
-    dev.sq[sqn].entries[dev.sq[sqn].tail_pos] = cmd;
-
-    dev.sq[sqn].tail_pos += 1;
-    if (dev.sq[sqn].tail_pos >= dev.sq[sqn].entries.len) dev.sq[sqn].tail_pos = 0;
-
-    const cq_entry_ptr = &dev.cq[cqn].entries[dev.cq[cqn].head_pos];
-
-    // press the doorbell
-    dev.sq[sqn].tail_dbl.* = dev.sq[sqn].tail_pos;
-
-    log.debug("Phase mismatch: CQEntry: {}, expected phase: {}", .{ cq_entry_ptr.phase, dev.cq[cqn].expected_phase });
-    while (cq_entry_ptr.phase != dev.cq[cqn].expected_phase) {
-        //log phase mismatch
-        //log.debug("Phase mismatch(loop): CQEntry: {}, expected phase: {}", .{ cq_entry_ptr.*, drv.cq[cqn].expected_phase });
-
-        const csts = regs.readRegister(regs.CSTSRegister, dev.bar, .csts);
-        if (csts.cfs == 1) {
-            log.err("Command failed", .{});
-            return NvmeError.InvalidCommand;
-        }
-        if (csts.shst != 0) {
-            if (csts.st == 1) log.err("NVE Subsystem is in shutdown state", .{}) else log.err("Controller is in shutdown state", .{});
-
-            log.err("Controller is in shutdown state", .{});
-            return NvmeError.InvalidCommand;
-        }
-        if (csts.nssro == 1) {
-            log.err("Controller is not ready", .{});
-            return NvmeError.InvalidCommand;
-        }
-        if (csts.pp == 1) {
-            log.err("Controller is in paused state", .{});
-            return NvmeError.InvalidCommand;
-        }
-    }
-
-    if (cdw0.cid != cq_entry_ptr.cmd_id) {
-        log.err("Invalid CID in CQEntry: {} for CDw0: {}", .{ cq_entry_ptr.*, cdw0 });
-        return NvmeError.InvalidCommandSequence;
-    }
-
-    // TODO: do we need to check if conntroller is ready to accept new commands?
-    //--  drv.asqa.header_pos = cqa_entry_ptr.sq_header_pos; //the controller position retuned in CQEntry as sq_header_pos
-
-    dev.cq[cqn].head_pos += 1;
-    if (dev.cq[cqn].head_pos >= dev.cq[cqn].entries.len) {
-        dev.cq[cqn].head_pos = 0;
-        // every new cycle we need to toggle the phase
-        dev.cq[cqn].expected_phase = ~dev.cq[cqn].expected_phase;
-    }
-
-    //press the doorbell
-    dev.cq[cqn].head_dbl.* = dev.cq[cqn].head_pos;
-
-    if (sqn != cq_entry_ptr.sq_id) {
-        log.err("Invalid SQ ID in CQEntry: {} for CDw0: {}", .{ cq_entry_ptr.*, cdw0 });
-        return NvmeError.InvalidCommandSequence;
-    }
-
-    if (cq_entry_ptr.status.sc != 0) {
-        log.err("Command failed (sc != 0): CDw0: {}, CQEntry: {}", .{ cdw0, cq_entry_ptr.* });
-        return NvmeError.AdminCommandFailed;
-    }
-
-    log.debug("Command executed successfully: CDw0: {}, CQEntry = {}", .{ cdw0, cq_entry_ptr.* });
-    return cq_entry_ptr.*;
-}
-
-fn executeAdminCommand(dev: *NvmeDevice, cmd: q.SQEntry) NvmeError!q.CQEntry {
-    return execAdminCommand(cmds.AdminCDw0, dev, cmd, 0, 0);
-}
-
-fn execIoCommand(CDw0Type: type, drv: *NvmeDevice, cmd: q.SQEntry, sqn: u16, cqn: u16) NvmeError!q.CQEntry {
-    const cdw0: *const CDw0Type = @ptrCast(@alignCast(&cmd));
-    log.debug("Executing command: CDw0: {}", .{cdw0.*});
-
-    drv.sq[sqn].entries[drv.sq[sqn].tail_pos] = cmd;
-
-    log.debug("commented out /1", .{});
-
-    drv.sq[sqn].tail_pos += 1;
-    if (drv.sq[sqn].tail_pos >= drv.sq[sqn].entries.len) drv.sq[sqn].tail_pos = 0;
-
-    log.debug("commented out /2", .{});
-
-    const cq_entry_ptr = &drv.cq[cqn].entries[drv.cq[cqn].head_pos];
-
-    // press the doorbell
-    drv.sq[sqn].tail_dbl.* = drv.sq[sqn].tail_pos;
-    log.debug("commented out /3", .{});
-
-    log.debug("commented out /4", .{});
-
-    log.debug("commented out /5", .{});
-
-    // TODO: this silly loop must be removed
-    while (!drv.mutex) {
-        log.debug("Waiting for the controller to be ready", .{});
-        const pending_bit = Pcie.readMsixPendingBitArrayBit(drv.msix_cap, drv.bar, tmp_msix_table_idx);
-        log.debug("MSI-X pending bit: {}", .{pending_bit});
-        apic_test.logRegistryState();
-        cpu.halt();
-    }
-    drv.mutex = false;
-
-    while (cq_entry_ptr.phase != drv.cq[cqn].expected_phase) {
-        const csts = regs.readRegister(regs.CSTSRegister, drv.bar, .csts);
-        if (csts.cfs == 1) {
-            log.err("Command failed", .{});
-            return NvmeError.InvalidCommand;
-        }
-        if (csts.shst != 0) {
-            if (csts.st == 1) log.err("NVE Subsystem is in shutdown state", .{}) else log.err("Controller is in shutdown state", .{});
-
-            log.err("Controller is in shutdown state", .{});
-            return NvmeError.InvalidCommand;
-        }
-        if (csts.nssro == 1) {
-            log.err("Controller is not ready", .{});
-            return NvmeError.InvalidCommand;
-        }
-        if (csts.pp == 1) {
-            log.err("Controller is in paused state", .{});
-            return NvmeError.InvalidCommand;
-        }
-    }
-
-    log.debug("commented out /5", .{});
-
-    // TODO: do we need to check if conntroller is ready to accept new commands?
-    //--  drv.asqa.header_pos = cqa_entry_ptr.sq_header_pos; //the controller position retuned in CQEntry as sq_header_pos
-    drv.cq[cqn].head_pos += 1;
-    if (drv.cq[cqn].head_pos >= drv.cq[cqn].entries.len) {
-        drv.cq[cqn].head_pos = 0;
-        // every new cycle we need to toggle the phase
-        drv.cq[cqn].expected_phase = ~drv.cq[cqn].expected_phase;
-    }
-
-    //press the doorbell
-    drv.cq[cqn].head_dbl.* = drv.cq[cqn].head_pos;
-
-    if (sqn != cq_entry_ptr.sq_id) {
-        log.err("Invalid SQ ID in CQEntry: {} for CDw0: {}", .{ cq_entry_ptr.*, cdw0 });
-        return NvmeError.InvalidCommandSequence;
-    }
-
-    if (cq_entry_ptr.status.sc != 0) {
-        log.err("Command failed: {}", .{cq_entry_ptr.*});
-        return NvmeError.AdminCommandFailed;
-    }
-
-    log.debug("Command executed successfully: CDw0: {}, CQEntry = {}", .{ cdw0, cq_entry_ptr.* });
-    return cq_entry_ptr.*;
-    // return CQEntry{};
-}
-
-fn executeIoNvmCommand(drv: *NvmeDevice, cmd: q.SQEntry, sqn: u16, cqn: u16) NvmeError!q.CQEntry {
-    return execIoCommand(cmds.IoNvmCDw0, drv, cmd, sqn, cqn);
-}
 //--- public functions ---
 
 /// Read from the NVMe drive
@@ -1330,12 +1163,12 @@ fn executeIoNvmCommand(drv: *NvmeDevice, cmd: q.SQEntry, sqn: u16, cqn: u16) Nvm
 pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: *NvmeDevice, nsid: u32, slba: u64, nlba: u16) ![]T {
     const ns: NsInfo = drv.ns_info_map.get(nsid) orelse {
         log.err("Namespace {d} not found", .{nsid});
-        return NvmeError.InvalidNsid;
+        return cmds.NvmeError.InvalidNsid;
     };
 
     log.debug("Namespace {d} info: {}", .{ nsid, ns });
 
-    if (slba > ns.nsize) return NvmeError.InvalidLBA;
+    if (slba > ns.nsize) return cmds.cmds.NvmeError.InvalidLBA;
 
     const flbaf = ns.lbaf[ns.flbas];
     log.debug("LBA Format Index: {d}, LBA Format: {}", .{ ns.flbas, flbaf });
@@ -1416,7 +1249,7 @@ pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: *NvmeDevice,
     const cqn = 1;
 
     log.debug("Executing I/O NVM Command Set Read command", .{});
-    _ = executeIoNvmCommand(drv, @bitCast(IoNvmCommandSetCommand{
+    _ = cmds.executeIoNvmCommand(drv, @bitCast(IoNvmCommandSetCommand{
         .read = .{
             .cdw0 = .{
                 .opc = .read,
@@ -1446,7 +1279,7 @@ pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: *NvmeDevice,
         },
     }), sqn, cqn) catch |err| {
         log.err("Failed to execute IO NVM Command Set Read command: {}", .{err});
-        return NvmeError.IONvmReadFailed;
+        return cmds.NvmeError.IONvmReadFailed;
     };
 
     //log metadata
@@ -1464,12 +1297,12 @@ pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: *NvmeDevice,
 pub fn write(T: type, allocator: std.mem.Allocator, dev: *NvmeDevice, nsid: u32, slba: u64, data: []const T) !void {
     const ns: NsInfo = dev.ns_info_map.get(nsid) orelse {
         log.err("Namespace {d} not found", .{nsid});
-        return NvmeError.InvalidNsid;
+        return e.NvmeError.InvalidNsid;
     };
 
     log.debug("Namespace {d} info: {}", .{ nsid, ns });
 
-    if (slba > ns.nsize) return NvmeError.InvalidLBA;
+    if (slba > ns.nsize) return e.NvmeError.InvalidLBA;
 
     const flbaf = ns.lbaf[ns.flbas];
     log.debug("LBA Format Index: {d}, LBA Format: {}", .{ ns.flbas, flbaf });
@@ -1547,7 +1380,7 @@ pub fn write(T: type, allocator: std.mem.Allocator, dev: *NvmeDevice, nsid: u32,
     const cqn = 1;
 
     log.debug("Executing I/O NVM Command Set Read command", .{});
-    _ = executeIoNvmCommand(dev, @bitCast(IoNvmCommandSetCommand{
+    _ = cmds.executeIoNvmCommand(dev, @bitCast(IoNvmCommandSetCommand{
         .write = .{
             .cdw0 = .{
                 .opc = .write,
@@ -1579,7 +1412,7 @@ pub fn write(T: type, allocator: std.mem.Allocator, dev: *NvmeDevice, nsid: u32,
         },
     }), sqn, cqn) catch |err| {
         log.err("Failed to execute IO NVM Command Set Read command: {}", .{err});
-        return NvmeError.IONvmReadFailed;
+        return cmds.NvmeError.IONvmReadFailed;
     };
 
     //log metadata
