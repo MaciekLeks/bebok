@@ -1163,12 +1163,12 @@ pub fn deinit(_: *anyopaque) void {
 pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: *NvmeDevice, nsid: u32, slba: u64, nlba: u16) ![]T {
     const ns: NsInfo = drv.ns_info_map.get(nsid) orelse {
         log.err("Namespace {d} not found", .{nsid});
-        return cmds.NvmeError.InvalidNsid;
+        return e.NvmeError.InvalidNsid;
     };
 
     log.debug("Namespace {d} info: {}", .{ nsid, ns });
 
-    if (slba > ns.nsize) return cmds.cmds.NvmeError.InvalidLBA;
+    if (slba > ns.nsize) return e.NvmeError.InvalidLBA;
 
     const flbaf = ns.lbaf[ns.flbas];
     log.debug("LBA Format Index: {d}, LBA Format: {}", .{ ns.flbas, flbaf });
@@ -1279,7 +1279,7 @@ pub fn readToOwnedSlice(T: type, allocator: std.mem.Allocator, drv: *NvmeDevice,
         },
     }), sqn, cqn) catch |err| {
         log.err("Failed to execute IO NVM Command Set Read command: {}", .{err});
-        return cmds.NvmeError.IONvmReadFailed;
+        return e.NvmeError.IONvmReadFailed;
     };
 
     //log metadata
@@ -1412,7 +1412,7 @@ pub fn write(T: type, allocator: std.mem.Allocator, dev: *NvmeDevice, nsid: u32,
         },
     }), sqn, cqn) catch |err| {
         log.err("Failed to execute IO NVM Command Set Read command: {}", .{err});
-        return cmds.NvmeError.IONvmReadFailed;
+        return e.NvmeError.IONvmReadFailed;
     };
 
     //log metadata

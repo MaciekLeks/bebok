@@ -50,7 +50,7 @@ pub const IoNvmCDw0 = GenNCDw0(IoNvmOpcode);
 
 /// Execute an admin command
 /// @param CDw0Type: Command Dword 0 type
-/// @param drv: Device
+/// @param dev: NvmeDevice
 /// @param cmd: SQEntry
 /// @param sq_no: Submission Queue number
 /// @param cq_no: Completion Queue number
@@ -126,27 +126,27 @@ fn execAdminCommand(CDw0Type: type, dev: *NvmeDevice, cmd: q.SQEntry, sqn: u16, 
     return cq_entry_ptr.*;
 }
 
-fn executeAdminCommand(dev: *NvmeDevice, cmd: q.SQEntry) e.NvmeError!q.CQEntry {
+pub fn executeAdminCommand(dev: *NvmeDevice, cmd: q.SQEntry) e.NvmeError!q.CQEntry {
     return execAdminCommand(AdminCDw0, dev, cmd, 0, 0);
 }
 
-fn execIoCommand(CDw0Type: type, drv: *NvmeDevice, cmd: q.SQEntry, sqn: u16, cqn: u16) e.NvmeError!q.CQEntry {
+fn execIoCommand(CDw0Type: type, dev: *NvmeDevice, cmd: q.SQEntry, sqn: u16, cqn: u16) e.NvmeError!q.CQEntry {
     const cdw0: *const CDw0Type = @ptrCast(@alignCast(&cmd));
     log.debug("Executing command: CDw0: {}", .{cdw0.*});
 
-    drv.sq[sqn].entries[drv.sq[sqn].tail_pos] = cmd;
+    dev.sq[sqn].entries[dev.sq[sqn].tail_pos] = cmd;
 
     log.debug("commented out /1", .{});
 
-    drv.sq[sqn].tail_pos += 1;
-    if (drv.sq[sqn].tail_pos >= drv.sq[sqn].entries.len) drv.sq[sqn].tail_pos = 0;
+    dev.sq[sqn].tail_pos += 1;
+    if (dev.sq[sqn].tail_pos >= dev.sq[sqn].entries.len) dev.sq[sqn].tail_pos = 0;
 
     log.debug("commented out /2", .{});
 
-    const cq_entry_ptr = &drv.cq[cqn].entries[drv.cq[cqn].head_pos];
+    const cq_entry_ptr = &dev.cq[cqn].entries[dev.cq[cqn].head_pos];
 
     // press the doorbell
-    drv.sq[sqn].tail_dbl.* = drv.sq[sqn].tail_pos;
+    dev.sq[sqn].tail_dbl.* = dev.sq[sqn].tail_pos;
     log.debug("commented out /3", .{});
 
     log.debug("commented out /4", .{});
@@ -154,17 +154,17 @@ fn execIoCommand(CDw0Type: type, drv: *NvmeDevice, cmd: q.SQEntry, sqn: u16, cqn
     log.debug("commented out /5", .{});
 
     // TODO: this silly loop must be removed
-    while (!drv.mutex) {
+    while (!dev.mutex) {
         log.debug("Waiting for the controller to be ready", .{});
         // TODO: refactor this
         //const pending_bit = Pcie.readMsixPendingBitArrayBit(drv.msix_cap, drv.bar, tmp_msix_table_idx);
         //log.debug("MSI-X pending bit: {}", .{pending_bit});
         cpu.halt();
     }
-    drv.mutex = false;
+    dev.mutex = false;
 
-    while (cq_entry_ptr.phase != drv.cq[cqn].expected_phase) {
-        const csts = regs.readRegister(regs.CSTSRegister, drv.bar, .csts);
+    while (cq_entry_ptr.phase != dev.cq[cqn].expected_phase) {
+        const csts = regs.readRegister(regs.CSTSRegister, dev.bar, .csts);
         if (csts.cfs == 1) {
             log.err("Command failed", .{});
             return e.NvmeError.InvalidCommand;
@@ -189,15 +189,15 @@ fn execIoCommand(CDw0Type: type, drv: *NvmeDevice, cmd: q.SQEntry, sqn: u16, cqn
 
     // TODO: do we need to check if conntroller is ready to accept new commands?
     //--  drv.asqa.header_pos = cqa_entry_ptr.sq_header_pos; //the controller position retuned in CQEntry as sq_header_pos
-    drv.cq[cqn].head_pos += 1;
-    if (drv.cq[cqn].head_pos >= drv.cq[cqn].entries.len) {
-        drv.cq[cqn].head_pos = 0;
+    dev.cq[cqn].head_pos += 1;
+    if (dev.cq[cqn].head_pos >= dev.cq[cqn].entries.len) {
+        dev.cq[cqn].head_pos = 0;
         // every new cycle we need to toggle the phase
-        drv.cq[cqn].expected_phase = ~drv.cq[cqn].expected_phase;
+        dev.cq[cqn].expected_phase = ~dev.cq[cqn].expected_phase;
     }
 
     //press the doorbell
-    drv.cq[cqn].head_dbl.* = drv.cq[cqn].head_pos;
+    dev.cq[cqn].head_dbl.* = dev.cq[cqn].head_pos;
 
     if (sqn != cq_entry_ptr.sq_id) {
         log.err("Invalid SQ ID in CQEntry: {} for CDw0: {}", .{ cq_entry_ptr.*, cdw0 });
@@ -214,6 +214,6 @@ fn execIoCommand(CDw0Type: type, drv: *NvmeDevice, cmd: q.SQEntry, sqn: u16, cqn
     // return CQEntry{};
 }
 
-fn executeIoNvmCommand(drv: *NvmeDevice, cmd: q.SQEntry, sqn: u16, cqn: u16) e.NvmeError!q.CQEntry {
-    return execIoCommand(IoNvmCDw0, drv, cmd, sqn, cqn);
+pub fn executeIoNvmCommand(dev: *NvmeDevice, cmd: q.SQEntry, sqn: u16, cqn: u16) e.NvmeError!q.CQEntry {
+    return execIoCommand(IoNvmCDw0, dev, cmd, sqn, cqn);
 }
