@@ -21,7 +21,7 @@ pub const IdentifyCommand = packed struct(u512) {
     ignrd_j: u32 = 0, //60-63 in cdw15
 };
 
-const Identify0x00Info = extern struct {
+pub const Identify0x00Info = extern struct {
     const LBAFormatInfo = packed struct(u32) {
         ms: u16, //0-15 - Metadata Size
         lbads: u8, //4-7 - LBA Data Size
@@ -62,7 +62,7 @@ const Identify0x00Info = extern struct {
 
 pub const NsInfo = Identify0x00Info; //alias for Identify0x00Info
 
-const Identify0x01Info = extern struct {
+pub const Identify0x01Info = extern struct {
     vid: u16, // 2bytes
     ssvid: u16, //2bytes
     sn: [20]u8, //20bytes
@@ -93,7 +93,7 @@ const Identify0x01Info = extern struct {
 
 };
 
-const Identify0x05Info = extern struct {
+pub const Identify0x05Info = extern struct {
     lbmstm: u64, //8bytes Logical Block Memory Storage Tag Mask
     pic: u8, //1byte Protection Information Capabilities
     rsrvd_a: u16 = 0, //2byte s
@@ -101,7 +101,7 @@ const Identify0x05Info = extern struct {
     elbaf: [64]u32, //4bytes Extend LBA Format 0 Support
 };
 
-const Identify0x06Info = extern struct {
+pub const Identify0x06Info = extern struct {
     vsl: u8, //1byte Verify Size Limit
     wzsl: u8, //1byte Write Zeroes Size Limit
     wusl: u8, //1byte Write Uncorrectable Size Limit
@@ -110,7 +110,7 @@ const Identify0x06Info = extern struct {
     dmsl: u64, //8bytes Dataset Management Size Limit
 };
 
-const Identify0x08Info = extern struct {
+pub const Identify0x08Info = extern struct {
     nsfeat: u8, //1byte Namespace Features
     nmic: u8, //1byte Namespace Multi-path I/O and Namespace Sharing Capabilities
     rescap: u8, //1byte Reservation Capabilities
@@ -124,7 +124,7 @@ const Identify0x08Info = extern struct {
 };
 
 // Each vector consists of 0 to 3 command set indexes, each 1 byte long
-const Identify0x1cCommandSetVector = packed struct(u64) {
+pub const Identify0x1cCommandSetVector = packed struct(u64) {
     nvmcs: u1, //0 - NVM Command Set
     kvcs: u1, //1 - Key Value Command Set
     zncs: u1, //2 - Zone Namespace Command Set
