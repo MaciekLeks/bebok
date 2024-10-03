@@ -1,7 +1,7 @@
 const std = @import("std");
 const NvmeDevice = @import("mod.zig").NvmeDevice;
 const q = @import("queue.zig");
-const e = @import("erros.zig");
+const e = @import("errors.zig");
 const regs = @import("registers.zig");
 const cpu = @import("mod.zig").cpu;
 const Pcie = @import("mod.zig").Pcie;
@@ -156,8 +156,9 @@ fn execIoCommand(CDw0Type: type, drv: *NvmeDevice, cmd: q.SQEntry, sqn: u16, cqn
     // TODO: this silly loop must be removed
     while (!drv.mutex) {
         log.debug("Waiting for the controller to be ready", .{});
+        // TODO: refactor this
         //const pending_bit = Pcie.readMsixPendingBitArrayBit(drv.msix_cap, drv.bar, tmp_msix_table_idx);
-        log.debug("MSI-X pending bit: {}", .{pending_bit});
+        //log.debug("MSI-X pending bit: {}", .{pending_bit});
         cpu.halt();
     }
     drv.mutex = false;
@@ -166,21 +167,21 @@ fn execIoCommand(CDw0Type: type, drv: *NvmeDevice, cmd: q.SQEntry, sqn: u16, cqn
         const csts = regs.readRegister(regs.CSTSRegister, drv.bar, .csts);
         if (csts.cfs == 1) {
             log.err("Command failed", .{});
-            return NvmeError.InvalidCommand;
+            return e.NvmeError.InvalidCommand;
         }
         if (csts.shst != 0) {
             if (csts.st == 1) log.err("NVE Subsystem is in shutdown state", .{}) else log.err("Controller is in shutdown state", .{});
 
             log.err("Controller is in shutdown state", .{});
-            return NvmeError.InvalidCommand;
+            return e.NvmeError.InvalidCommand;
         }
         if (csts.nssro == 1) {
             log.err("Controller is not ready", .{});
-            return NvmeError.InvalidCommand;
+            return e.NvmeError.InvalidCommand;
         }
         if (csts.pp == 1) {
             log.err("Controller is in paused state", .{});
-            return NvmeError.InvalidCommand;
+            return e.NvmeError.InvalidCommand;
         }
     }
 
@@ -200,12 +201,12 @@ fn execIoCommand(CDw0Type: type, drv: *NvmeDevice, cmd: q.SQEntry, sqn: u16, cqn
 
     if (sqn != cq_entry_ptr.sq_id) {
         log.err("Invalid SQ ID in CQEntry: {} for CDw0: {}", .{ cq_entry_ptr.*, cdw0 });
-        return NvmeError.InvalidCommandSequence;
+        return e.NvmeError.InvalidCommandSequence;
     }
 
     if (cq_entry_ptr.status.sc != 0) {
         log.err("Command failed: {}", .{cq_entry_ptr.*});
-        return NvmeError.AdminCommandFailed;
+        return e.NvmeError.AdminCommandFailed;
     }
 
     log.debug("Command executed successfully: CDw0: {}, CQEntry = {}", .{ cdw0, cq_entry_ptr.* });
@@ -213,6 +214,6 @@ fn execIoCommand(CDw0Type: type, drv: *NvmeDevice, cmd: q.SQEntry, sqn: u16, cqn
     // return CQEntry{};
 }
 
-fn executeIoNvmCommand(drv: *NvmeDevice, cmd: q.SQEntry, sqn: u16, cqn: u16) NvmeError!q.CQEntry {
-    return execIoCommand(cmds.IoNvmCDw0, drv, cmd, sqn, cqn);
+fn executeIoNvmCommand(drv: *NvmeDevice, cmd: q.SQEntry, sqn: u16, cqn: u16) e.NvmeError!q.CQEntry {
+    return execIoCommand(IoNvmCDw0, drv, cmd, sqn, cqn);
 }
