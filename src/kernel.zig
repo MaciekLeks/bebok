@@ -153,19 +153,19 @@ export fn _start() callconv(.C) noreturn {
         log.warn("Device: {}", .{dev});
     }
 
-    const my_dev = &pcie_bus.devices.items[0].spec.block_device.nvme;
+    const my_ctrl = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl;
 
     {
         log.info("Writing to NVMe starts.", .{});
         defer log.info("Writing to NVMe ends.", .{});
 
         const mlk_data: []const u8 = &.{ 'M', 'a', 'c', 'i', 'e', 'k', ' ', 'L', 'e', 'k', 's', ' ', 'x' };
-        my_dev.write(u8, heap.page_allocator, 1, 0, mlk_data) catch |err| {
+        my_ctrl.write(u8, heap.page_allocator, 1, 0, mlk_data) catch |err| {
             log.err("Nvme write error: {}", .{err});
         };
     }
 
-    const data = my_dev.readToOwnedSlice(u8, heap.page_allocator, 1, 0, 1) catch |err| blk: {
+    const data = my_ctrl.readToOwnedSlice(u8, heap.page_allocator, 1, 0, 1) catch |err| blk: {
         log.err("Nvme read error: {}", .{err});
         break :blk null;
     };

@@ -1,6 +1,6 @@
 const std = @import("std");
 const log = std.log.scoped(.driver);
-const BlockDevice = @import("block/block.zig").BlockDevice;
+const BlockDevice = @import("block/BlockDevice.zig");
 
 const BusDeviceAddress = @import("deps.zig").BusDeviceAddress;
 const Bus = @import("deps.zig").Bus;
@@ -12,9 +12,9 @@ const Device = @This();
 alloctr: std.mem.Allocator,
 addr: BusDeviceAddress,
 spec: union(enum) { //set by the driver
-    block_device: BlockDevice,
+    block: *BlockDevice,
 },
-driver: Driver,
+driver: Driver, //Driver is an interface only
 
 pub fn init(allocator: std.mem.Allocator, addr: BusDeviceAddress) !*Device {
     var dev = try allocator.create(Device);

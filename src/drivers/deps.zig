@@ -1,4 +1,5 @@
 pub const Device = @import("../devices/Device.zig"); //re-export
+pub const BlockDevice = @import("../devices/block/BlockDevice.zig");
 pub const NvmeController = @import("../devices/block/nvme/NvmeController.zig");
 pub const Pcie = @import("../bus/Pcie.zig");
 pub const int = @import("../int.zig");

@@ -1,4 +1,5 @@
 pub const Pcie = @import("../deps.zig").Pcie;
+pub const BlockDevice = @import("../deps.zig").BlockDevice;
 pub const NvmeController = @import("../deps.zig").NvmeController;
 pub const Device = @import("../deps.zig").Device;
 pub const int = @import("../deps.zig").int;

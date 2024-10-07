@@ -13,7 +13,7 @@ const e = @import("deps.zig").nvme_e;
 const iocmd = @import("deps.zig").nvme_iocmd;
 const regs = @import("deps.zig").nvme_regs;
 
-const BlockDevice = @import("../block.zig").BlockDevice;
+const BlockDevice = @import("../BlockDevice.zig");
 const Device = @import("../../Device.zig");
 
 const NvmeController = @This();
@@ -30,7 +30,7 @@ pub const ControllerType = enum(u8) {
     discovery_controller = 2,
     admin_controller = 3,
 };
-
+alloctr: std.mem.Allocator,
 base: *Device,
 type: ControllerType = ControllerType.io_controller, //only IO controller supported
 
@@ -52,7 +52,15 @@ ns_info_map: NvmeDriver.NsInfoMap = undefined,
 
 mutex: bool = false,
 
+pub fn init(allocator: std.mem.Allocator, base: *Device) !*NvmeController {
+    var self = try allocator.create(NvmeController);
+    self.alloctr = allocator;
+    self.base = base;
+    return self;
+}
+
 pub fn deinit(self: *NvmeController) void {
+    defer self.alloctr.destroy(self.base);
     self.ns_info_map.deinit();
 }
 

@@ -11,6 +11,7 @@ const heap = @import("deps.zig").heap;
 
 const Device = @import("deps.zig").Device;
 const Driver = @import("deps.zig").Driver;
+const BlockDevice = @import("deps.zig").BlockDevice;
 const NvmeController = @import("deps.zig").NvmeController;
 const Pcie = @import("deps.zig").Pcie;
 
@@ -111,10 +112,13 @@ pub fn probe(_: *anyopaque, probe_ctx: *const anyopaque) bool {
 pub fn setup(ctx: *anyopaque, base: *Device) !void {
     const self: *NvmeDriver = @ptrCast(@alignCast(ctx));
     base.driver = self.driver();
-    base.spec = .{ .block_device = .{ .nvme = .{ .base = base } } };
+    //base.spec = .{ .block = .{ .nvme = .{ .base = base } } };
+    var block = try BlockDevice.init(base.alloctr, base);
+    const ctrl = try NvmeController.init(base.alloctr, base);
+    block.spec.nvme_ctrl = ctrl;
+    base.spec.block = block;
 
     // now we can access the NVMe device
-    const ctrl = &base.spec.block_device.nvme;
     const addr = base.addr.pcie;
 
     //const pcie_version = try Pcie.readPcieVersion(function, slot, bus); //we need PCIe version 2.0 at least
