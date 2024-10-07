@@ -1,8 +1,8 @@
-const NvmeDevice = @import("deps.zig").NvmeDevice;
+const NvmeController = @import("deps.zig").NvmeController;
 const Pcie = @import("deps.zig").Pcie;
 const int = @import("deps.zig").int;
 
-pub fn configureMsix(dev: *NvmeDevice, msix_table_idx: u11, int_vec_no: u8) !void {
+pub fn configureMsix(dev: *NvmeController, msix_table_idx: u11, int_vec_no: u8) !void {
     const addr = dev.base.addr.pcie;
     const unique_id = Pcie.uniqueId(addr);
 
@@ -16,7 +16,7 @@ pub fn configureMsix(dev: *NvmeDevice, msix_table_idx: u11, int_vec_no: u8) !voi
 
 // TODO move to a separate module
 pub fn handleInterrupt(ctx: ?*anyopaque) !void {
-    var dev: *NvmeDevice = @ptrCast(@alignCast(ctx));
+    var dev: *NvmeController = @ptrCast(@alignCast(ctx));
     dev.mutex = true;
     // Never use log inside the interrupt handler
     //log.warn("apic : MSI-X : We've got it: NVMe interrupt handled.", .{});

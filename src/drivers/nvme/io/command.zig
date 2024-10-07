@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const NvmeDevice = @import("../deps.zig").NvmeDevice;
+const NvmeController = @import("../deps.zig").NvmeController;
 const cpu = @import("../deps.zig").cpu;
 const Pcie = @import("../deps.zig").Pcie;
 
@@ -17,7 +17,7 @@ const IoNvmOpcode = enum(u8) {
 
 pub const IoNvmCDw0 = com.GenNCDw0(IoNvmOpcode);
 
-fn execIoCommand(CDw0Type: type, dev: *NvmeDevice, cmd: com.SQEntry, sqn: u16, cqn: u16) e.NvmeError!com.CQEntry {
+fn execIoCommand(CDw0Type: type, dev: *NvmeController, cmd: com.SQEntry, sqn: u16, cqn: u16) e.NvmeError!com.CQEntry {
     const cdw0: *const CDw0Type = @ptrCast(@alignCast(&cmd));
     log.debug("Executing command: CDw0: {}", .{cdw0.*});
 
@@ -101,6 +101,6 @@ fn execIoCommand(CDw0Type: type, dev: *NvmeDevice, cmd: com.SQEntry, sqn: u16, c
     // return CQEntry{};
 }
 
-pub fn executeIoNvmCommand(dev: *NvmeDevice, cmd: com.SQEntry, sqn: u16, cqn: u16) e.NvmeError!com.CQEntry {
+pub fn executeIoNvmCommand(dev: *NvmeController, cmd: com.SQEntry, sqn: u16, cqn: u16) e.NvmeError!com.CQEntry {
     return execIoCommand(IoNvmCDw0, dev, cmd, sqn, cqn);
 }

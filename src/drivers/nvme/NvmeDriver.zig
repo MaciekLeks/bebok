@@ -11,11 +11,11 @@ const heap = @import("deps.zig").heap;
 
 const Device = @import("deps.zig").Device;
 const Driver = @import("deps.zig").Driver;
-const NvmeDevice = @import("deps.zig").NvmeDevice;
+const NvmeController = @import("deps.zig").NvmeController;
 const Pcie = @import("deps.zig").Pcie;
 
 const msix = @import("msix.zig");
-const ctrl = @import("controller.zig");
+//const ctrl = @import("controller.zig");
 const regs = @import("registers.zig");
 const feat = @import("admin/features.zig");
 const acmd = @import("admin/command.zig");
@@ -108,14 +108,14 @@ pub fn probe(_: *anyopaque, probe_ctx: *const anyopaque) bool {
 }
 
 /// Devicer interface function
-pub fn setup(ctx: *anyopaque, device: *Device) !void {
+pub fn setup(ctx: *anyopaque, base: *Device) !void {
     const self: *NvmeDriver = @ptrCast(@alignCast(ctx));
-    device.driver = self.driver();
-    device.spec = .{ .block_device = .{ .nvme = .{ .base = device } } };
+    base.driver = self.driver();
+    base.spec = .{ .block_device = .{ .nvme = .{ .base = base } } };
 
     // now we can access the NVMe device
-    const dev = &device.spec.block_device.nvme;
-    const addr = device.addr.pcie;
+    const ctrl = &base.spec.block_device.nvme;
+    const addr = base.addr.pcie;
 
     //const pcie_version = try Pcie.readPcieVersion(function, slot, bus); //we need PCIe version 2.0 at least
     const pcie_version = try Pcie.readCapability(Pcie.VersionCap, addr);
@@ -133,17 +133,17 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     };
     log.debug("MSI capability: {?}", .{msi_cap});
 
-    dev.msix_cap = try Pcie.readCapability(Pcie.MsixCap, addr);
-    log.debug("MSI-X capability pre-modification: {}", .{dev.msix_cap});
+    ctrl.msix_cap = try Pcie.readCapability(Pcie.MsixCap, addr);
+    log.debug("MSI-X capability pre-modification: {}", .{ctrl.msix_cap});
 
-    if (dev.msix_cap.tbir != 0) return e.NvmeError.MsiXMisconfigured; //TODO: it should work on any of the bar but for now we support only bar0
+    if (ctrl.msix_cap.tbir != 0) return e.NvmeError.MsiXMisconfigured; //TODO: it should work on any of the bar but for now we support only bar0
 
     //enable MSI-X
-    dev.msix_cap.mc.mxe = true;
-    try Pcie.writeCapability(Pcie.MsixCap, dev.msix_cap, addr);
+    ctrl.msix_cap.mc.mxe = true;
+    try Pcie.writeCapability(Pcie.MsixCap, ctrl.msix_cap, addr);
 
-    dev.msix_cap = try Pcie.readCapability(Pcie.MsixCap, addr); //TODO: could be removed
-    log.info("MSI-X capability post-modification: {}", .{dev.msix_cap});
+    ctrl.msix_cap = try Pcie.readCapability(Pcie.MsixCap, addr); //TODO: could be removed
+    log.info("MSI-X capability post-modification: {}", .{ctrl.msix_cap});
 
     //- var pci_cmd_reg = Pcie.readRegisterWithArgs(u16, .command, function, slot, bus);
     //disable interrupts while using MSI-X
@@ -151,21 +151,21 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     //-Pcie.writeRegisterWithArgs(u16, .command, function, slot, bus, pci_cmd_reg);
     // const VEC_NO: u16 = 0x20 + interrupt_line; //TODO: we need MSI/MSI-X support first - PIC does not work here
 
-    dev.ns_info_map = NsInfoMap.init(device.alloctr);
-    dev.bar = Pcie.readBarWithArgs(.bar0, addr);
+    ctrl.ns_info_map = NsInfoMap.init(base.alloctr);
+    ctrl.bar = Pcie.readBarWithArgs(.bar0, addr);
 
     // Initialize queues to the default values
-    for (&dev.sq) |*sq| {
+    for (&ctrl.sq) |*sq| {
         //Add code here if needed
         sq.* = .{};
     }
-    for (&dev.cq) |*cq| {
+    for (&ctrl.cq) |*cq| {
         //Add code here if needed
         cq.* = .{};
     }
 
     //MSI-X
-    msix.configureMsix(dev, tmp_msix_table_idx, tmp_irq) catch |err| {
+    msix.configureMsix(ctrl, tmp_msix_table_idx, tmp_irq) catch |err| {
         log.err("Failed to configure MSI-X: {}", .{err});
     };
     // const unique_id = Pcie.uniqueId(bus, slot, function);
@@ -185,7 +185,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     // }
 
     //log pending bit in MSI-X
-    const pending_bit = Pcie.readMsixPendingBitArrayBit(dev.msix_cap, dev.bar, 0x0);
+    const pending_bit = Pcie.readMsixPendingBitArrayBit(ctrl.msix_cap, ctrl.bar, 0x0);
     log.info("MSI-X pending bit: {}", .{pending_bit});
 
     //  bus-mastering DMA, and memory space access in the PCI configuration space
@@ -194,7 +194,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     // Enable interrupts, bus-mastering DMA, and memory space access in the PCI configuration space for the function.
     Pcie.writeRegisterWithArgs(u16, .command, addr, command | 0b110);
 
-    const virt = switch (dev.bar.address) {
+    const virt = switch (ctrl.bar.address) {
         inline else => |phys| paging.virtFromMME(phys),
     };
 
@@ -211,9 +211,9 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     const register_set_ptr: *volatile regs.RegisterSet = @ptrFromInt(virt);
 
     // Adjust if needed page PAT to write-through
-    const size: usize = switch (dev.bar.size) {
-        .as32 => dev.bar.size.as32,
-        .as64 => dev.bar.size.as64,
+    const size: usize = switch (ctrl.bar.size) {
+        .as32 => ctrl.bar.size.as32,
+        .as64 => ctrl.bar.size.as64,
     };
 
     //TODO uncomment this
@@ -235,7 +235,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
         \\cc: 0b{b:0>32}, csts: 0b{b:0>32}
         \\aqa: 0b{b:0>32}, asq: 0b{b:0>64}, acq: 0b{b:0>64}
     , .{
-        dev.bar,
+        ctrl.bar,
         virt,
         cap_reg_ptr.*,
         vs_reg_ptr.*,
@@ -249,7 +249,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     });
 
     // Check the controller version
-    const vs = regs.readRegister(regs.VSRegister, dev.bar, .vs);
+    const vs = regs.readRegister(regs.VSRegister, ctrl.bar, .vs);
     log.info("NVMe controller version: {}.{}.{}", .{ vs.mjn, vs.mnr, vs.tet });
 
     // support only NVMe 1.4 and 2.0
@@ -259,7 +259,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     }
 
     // Check if the controller supports NVM Command Set and Admin Command Set
-    const cap = regs.readRegister(regs.CAPRegister, dev.bar, .cap);
+    const cap = regs.readRegister(regs.CAPRegister, ctrl.bar, .cap);
     log.info("NVME CAP Register: {}", .{cap});
     if (cap.css.nvmcs == 0) {
         log.err("NVMe controller does not support NVM Command Set", .{});
@@ -280,59 +280,59 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     }
 
     // Reset the controllerg
-    ctrl.disableController(dev.bar);
+    ctrl.disableController();
 
     // The host configures the Admin gQueue by setting the Admin Queue Attributes (AQA), Admin Submission Queue Base Address (ASQ), and Admin Completion Queue Base Address (ACQ) the appropriate values;
     //set AQA queue sizes
-    var aqa = regs.readRegister(regs.AQARegister, dev.bar, .aqa);
+    var aqa = regs.readRegister(regs.AQARegister, ctrl.bar, .aqa);
     log.info("NVMe AQA Register pre-modification: {}", .{aqa});
     aqa.asqs = nvme_ioasqs;
     aqa.acqs = nvme_ioacqs;
-    regs.writeRegister(regs.AQARegister, dev.bar, .aqa, aqa);
-    aqa = regs.readRegister(regs.AQARegister, dev.bar, .aqa);
+    regs.writeRegister(regs.AQARegister, ctrl.bar, .aqa, aqa);
+    aqa = regs.readRegister(regs.AQARegister, ctrl.bar, .aqa);
     log.info("NVMe AQA Register post-modification: {}", .{aqa});
 
     // ASQ and ACQ setup
-    dev.sq[0].entries = heap.page_allocator.alloc(com.SQEntry, nvme_ioasqs) catch |err| {
+    ctrl.sq[0].entries = heap.page_allocator.alloc(com.SQEntry, nvme_ioasqs) catch |err| {
         log.err("Failed to allocate memory for admin submission queue entries: {}", .{err});
         return;
     };
-    defer heap.page_allocator.free(@volatileCast(dev.sq[0].entries));
-    @memset(dev.sq[0].entries, 0);
+    defer heap.page_allocator.free(@volatileCast(ctrl.sq[0].entries));
+    @memset(ctrl.sq[0].entries, 0);
 
-    dev.cq[0].entries = heap.page_allocator.alloc(com.CQEntry, nvme_ioacqs) catch |err| {
+    ctrl.cq[0].entries = heap.page_allocator.alloc(com.CQEntry, nvme_ioacqs) catch |err| {
         log.err("Failed to allocate memory for admin completion queue entries: {}", .{err});
         return;
     };
-    defer heap.page_allocator.free(@volatileCast(dev.cq[0].entries));
-    @memset(dev.cq[0].entries, .{});
+    defer heap.page_allocator.free(@volatileCast(ctrl.cq[0].entries));
+    @memset(ctrl.cq[0].entries, .{});
 
-    const sqa_phys = paging.physFromPtr(dev.sq[0].entries.ptr) catch |err| {
+    const sqa_phys = paging.physFromPtr(ctrl.sq[0].entries.ptr) catch |err| {
         log.err("Failed to get physical address of admin submission queue: {}", .{err});
         return;
     };
-    const cqa_phys = paging.physFromPtr(dev.cq[0].entries.ptr) catch |err| {
+    const cqa_phys = paging.physFromPtr(ctrl.cq[0].entries.ptr) catch |err| {
         log.err("Failed to get physical address of admin completion queue: {}", .{err});
         return;
     };
 
-    log.debug("ASQ: virt: {*}, phys:0x{x}; ACQ: virt:{*}, phys:0x{x}", .{ dev.sq[0].entries, sqa_phys, dev.cq[0].entries, cqa_phys });
+    log.debug("ASQ: virt: {*}, phys:0x{x}; ACQ: virt:{*}, phys:0x{x}", .{ ctrl.sq[0].entries, sqa_phys, ctrl.cq[0].entries, cqa_phys });
 
-    var asq = regs.readRegister(regs.ASQEntry, dev.bar, .asq);
+    var asq = regs.readRegister(regs.ASQEntry, ctrl.bar, .asq);
     log.info("ASQ Register pre-modification: 0x{x}", .{@shlExact(asq.asqb, 12)});
     asq.asqb = @intCast(@shrExact(sqa_phys, 12)); // 4kB aligned
-    regs.writeRegister(regs.ASQEntry, dev.bar, .asq, asq);
-    asq = regs.readRegister(regs.ASQEntry, dev.bar, .asq);
+    regs.writeRegister(regs.ASQEntry, ctrl.bar, .asq, asq);
+    asq = regs.readRegister(regs.ASQEntry, ctrl.bar, .asq);
     log.info("ASQ Register post-modification: 0x{x}", .{@shlExact(asq.asqb, 12)});
 
-    var acq = regs.readRegister(regs.ACQEntry, dev.bar, .acq);
+    var acq = regs.readRegister(regs.ACQEntry, ctrl.bar, .acq);
     log.info("ACQ Register pre-modification: 0x{x}", .{@shlExact(acq.acqb, 12)});
     acq.acqb = @intCast(@shrExact(cqa_phys, 12)); // 4kB aligned
-    regs.writeRegister(regs.ACQEntry, dev.bar, .acq, acq);
-    acq = regs.readRegister(regs.ACQEntry, dev.bar, .acq);
+    regs.writeRegister(regs.ACQEntry, ctrl.bar, .acq, acq);
+    acq = regs.readRegister(regs.ACQEntry, ctrl.bar, .acq);
     log.info("ACQ Register post-modification: 0x{x}", .{@shlExact(acq.acqb, 12)});
 
-    var cc = regs.readRegister(regs.CCRegister, dev.bar, .cc);
+    var cc = regs.readRegister(regs.CCRegister, ctrl.bar, .cc);
     log.info("CC register pre-modification: {}", .{cc});
     //CC.css settings
     if (cap.css.acs == 1) cc.css = 0b111;
@@ -343,15 +343,15 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     cc.ams = .round_robin;
     cc.iosqes = 6; // 64 bytes - set to recommened value
     cc.iocqes = 4; // 16 bytes - set to
-    regs.writeRegister(regs.CCRegister, dev.bar, .cc, cc);
-    log.info("CC register post-modification: {}", .{regs.readRegister(regs.CCRegister, dev.bar, .cc)});
+    regs.writeRegister(regs.CCRegister, ctrl.bar, .cc, cc);
+    log.info("CC register post-modification: {}", .{regs.readRegister(regs.CCRegister, ctrl.bar, .cc)});
 
-    ctrl.enableController(dev.bar);
+    ctrl.enableController();
 
     const doorbell_base: usize = virt + 0x1000;
     const doorbell_size = math.pow(u32, 2, 2 + cap.dstrd);
-    dev.sq[0].tail_dbl = @ptrFromInt(doorbell_base + doorbell_size * 0);
-    dev.cq[0].head_dbl = @ptrFromInt(doorbell_base + doorbell_size * 1);
+    ctrl.sq[0].tail_dbl = @ptrFromInt(doorbell_base + doorbell_size * 0);
+    ctrl.cq[0].head_dbl = @ptrFromInt(doorbell_base + doorbell_size * 1);
     // for (&dev.iosq, 1..) |*sq, sq_dbl_idx| {
     //     sq.tail_dbl = @ptrFromInt(doorbell_base + doorbell_size * (2 * sq_dbl_idx));
     // }
@@ -376,7 +376,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
         log.err("Failed to get physical address of identify command: {}", .{err});
         return;
     };
-    _ = acmd.executeAdminCommand(dev, @bitCast(id.IdentifyCommand{
+    _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
         .cdw0 = .{
             .opc = .identify,
             .cid = 0x01, //our id
@@ -395,19 +395,19 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
 
     const identify_info: *const id.Identify0x01Info = @ptrCast(@alignCast(prp1));
     log.info("Identify Controller Data Structure(cns: 0x01): {}", .{identify_info.*});
-    if (identify_info.cntrltype != @intFromEnum(ctrl.ControllerType.io_controller)) {
+    if (identify_info.cntrltype != @intFromEnum(NvmeController.ControllerType.io_controller)) {
         log.err("Unsupported NVMe controller type: {}", .{identify_info.cntrltype});
         return;
     }
 
-    dev.mdts_bytes = math.pow(u32, 2, 12 + cc.mps + identify_info.mdts);
-    log.info("MDTS in kbytes: {}", .{dev.mdts_bytes / 1024});
+    ctrl.mdts_bytes = math.pow(u32, 2, 12 + cc.mps + identify_info.mdts);
+    log.info("MDTS in kbytes: {}", .{ctrl.mdts_bytes / 1024});
 
     // I/O Command Set specific initialization
 
     //Reusing prp1
     @memset(prp1, 0);
-    _ = acmd.executeAdminCommand(dev, @bitCast(id.IdentifyCommand{
+    _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
         .cdw0 = .{
             .opc = .identify,
             .cid = 0x02, //our id
@@ -442,7 +442,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
 
     // Set I/O Command Set Profile with Command Set Combination index
     @memset(prp1, 0);
-    _ = acmd.executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
+    _ = acmd.executeAdminCommand(ctrl, @bitCast(feat.GetSetFeaturesCommand{
         .set_io_command_profile = .{
             .cdw0 = .{
                 .opc = .set_features,
@@ -472,7 +472,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
         if (csi == 0) continue;
         log.info("I/O Command Set specific Active Namespace ID list(0x07): command set idx:{d} -> csi:{d}", .{ i, csi });
         @memset(prp1, 0);
-        _ = acmd.executeAdminCommand(dev, @bitCast(id.IdentifyCommand{
+        _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
             .cdw0 = .{
                 .opc = .identify,
                 .cid = 0x04, //our id
@@ -498,7 +498,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
 
                 // Identify Namespace Data Structure (CNS 0x00)
                 @memset(prp1, 0);
-                _ = acmd.executeAdminCommand(dev, @bitCast(id.IdentifyCommand{
+                _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
                     .cdw0 = .{
                         .opc = .identify,
                         .cid = 0x05, //our id
@@ -518,7 +518,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
                 const ns_info: *const id.Identify0x00Info = @ptrCast(@alignCast(prp1));
                 log.info("Identify Namespace Data Structure(cns: 0x00): nsid:{d}, info:{}", .{ nsid, ns_info.* });
 
-                try dev.ns_info_map.put(nsid, ns_info.*);
+                try ctrl.ns_info_map.put(nsid, ns_info.*);
 
                 log.debug("vs: {}", .{vs});
                 if (vs.mjn == 2) {
@@ -528,7 +528,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
                     log.debug("vs2: {}", .{vs});
                     // CNS 05h: I/O Command Set specific Identify Namespace data structure
                     @memset(prp1, 0);
-                    _ = acmd.executeAdminCommand(dev, @bitCast(id.IdentifyCommand{
+                    _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
                         .cdw0 = .{
                             .opc = .identify,
                             .cid = 0x06, //our id
@@ -551,7 +551,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
 
                     // CNS 06h: I/O Command Set specific Identify Controller data structure
                     @memset(prp1, 0);
-                    _ = acmd.executeAdminCommand(dev, @bitCast(id.IdentifyCommand{
+                    _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
                         .cdw0 = .{
                             .opc = .identify,
                             .cid = 0x07, //our id
@@ -574,7 +574,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
 
                     // CNS 08h: I/O Command Set independent Identify Namespace data structure
                     @memset(prp1, 0);
-                    _ = acmd.executeAdminCommand(dev, @bitCast(id.IdentifyCommand{
+                    _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
                         .cdw0 = .{
                             .opc = .identify,
                             .cid = 0x08, //our id
@@ -600,7 +600,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     }
 
     // Get current I/O number of completion/submission queues
-    const get_current_number_of_queues_res = acmd.executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
+    const get_current_number_of_queues_res = acmd.executeAdminCommand(ctrl, @bitCast(feat.GetSetFeaturesCommand{
         .get_number_of_queues = .{
             .cdw0 = .{
                 .opc = .get_features,
@@ -618,7 +618,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     log.debug("Get Number of Queues: Current Number Of Completion/Submission Queues: {d}/{d}", .{ current_ncqr, current_nsqr });
 
     // Get default I/O number of completion/submission queues
-    const get_default_number_of_queues_res = acmd.executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
+    const get_default_number_of_queues_res = acmd.executeAdminCommand(ctrl, @bitCast(feat.GetSetFeaturesCommand{
         .get_number_of_queues = .{
             .cdw0 = .{
                 .opc = .get_features,
@@ -635,7 +635,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     const supported_nsqr: u16 = @truncate(get_default_number_of_queues_res.cmd_res0 + 1); //0-based value
     log.debug("Get Number of Queues Command: Default Number Of Completion/Submission Queues: {d}/{d}", .{ supported_ncqr, supported_nsqr });
 
-    if (dev.ncqr > supported_ncqr or dev.nsqr > supported_nsqr) {
+    if (ctrl.ncqr > supported_ncqr or ctrl.nsqr > supported_nsqr) {
         log.err("Requested number of completion/submission queues is not supported", .{});
     }
 
@@ -761,7 +761,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     //
 
     // Set Interrupt Coalescing
-    _ = acmd.executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
+    _ = acmd.executeAdminCommand(ctrl, @bitCast(feat.GetSetFeaturesCommand{
         .SetInterruptCoalescing = .{
             .cdw0 = .{
                 .opc = .set_features,
@@ -775,7 +775,7 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
     };
 
     // Get Interrupt Coalescing
-    const get_interrupt_coalescing_res = acmd.executeAdminCommand(dev, @bitCast(feat.GetSetFeaturesCommand{
+    const get_interrupt_coalescing_res = acmd.executeAdminCommand(ctrl, @bitCast(feat.GetSetFeaturesCommand{
         .get_interrupt_coalescing = .{
             .cdw0 = .{
                 .opc = .get_features,
@@ -794,8 +794,8 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
 
     log.info("Create I/O Completion Queues", .{});
     // for (&dev.cq, 1..) |*cq, cq_id| {
-    for (1..dev.cq.len) |cq_id| {
-        var cq = &dev.cq[cq_id];
+    for (1..ctrl.cq.len) |cq_id| {
+        var cq = &ctrl.cq[cq_id];
         cq.* = .{};
 
         cq.entries = heap.page_allocator.alloc(com.CQEntry, nvme_iocqs) catch |err| {
@@ -803,13 +803,13 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
             return;
         };
 
-        const cq_phys = paging.physFromPtr(dev.cq[cq_id].entries.ptr) catch |err| {
+        const cq_phys = paging.physFromPtr(ctrl.cq[cq_id].entries.ptr) catch |err| {
             log.err("Failed to get physical address of I/O Completion Queue: {}", .{err});
             return;
         };
         @memset(cq.entries, .{});
 
-        const create_iocq_res = acmd.executeAdminCommand(dev, @bitCast(aq.IoQueueCommand{
+        const create_iocq_res = acmd.executeAdminCommand(ctrl, @bitCast(aq.IoQueueCommand{
             .create_completion_queue = .{
                 .cdw0 = .{
                     .opc = .create_io_cq,
@@ -838,8 +838,8 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
 
     log.info("Create I/O Submission Queues", .{});
     //for (&dev.sq[1..], 1..) |*sq, sq_id| {
-    for (1..dev.sq.len) |sq_id| {
-        var sq = &dev.sq[sq_id];
+    for (1..ctrl.sq.len) |sq_id| {
+        var sq = &ctrl.sq[sq_id];
         sq.* = .{};
 
         sq.entries = heap.page_allocator.alloc(com.SQEntry, nvme_iosqs) catch |err| {
@@ -847,13 +847,13 @@ pub fn setup(ctx: *anyopaque, device: *Device) !void {
             return;
         };
 
-        const sq_phys = paging.physFromPtr(dev.sq[sq_id].entries.ptr) catch |err| {
+        const sq_phys = paging.physFromPtr(ctrl.sq[sq_id].entries.ptr) catch |err| {
             log.err("Failed to get physical address of I/O Submission Queue: {}", .{err});
             return;
         };
         @memset(sq.entries, 0);
 
-        const create_iosq_res = acmd.executeAdminCommand(dev, @bitCast(aq.IoQueueCommand{
+        const create_iosq_res = acmd.executeAdminCommand(ctrl, @bitCast(aq.IoQueueCommand{
             .create_submission_queue = .{
                 .cdw0 = .{
                     .opc = .create_io_sq,

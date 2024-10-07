@@ -6,15 +6,17 @@ const paging = @import("../../../paging.zig");
 
 const Pcie = @import("../../deps.zig").Pcie;
 const NvmeDriver = @import("../../deps.zig").NvmeDriver;
-const io = @import("../../deps.zig").nvme_io;
-const id = @import("../../deps.zig").nvme_id;
-const e = @import("../../deps.zig").nvme_e;
-const iocmd = @import("../../deps.zig").nvme_iocmd;
+
+const io = @import("deps.zig").nvme_io;
+const id = @import("deps.zig").nvme_id;
+const e = @import("deps.zig").nvme_e;
+const iocmd = @import("deps.zig").nvme_iocmd;
+const regs = @import("deps.zig").nvme_regs;
 
 const BlockDevice = @import("../block.zig").BlockDevice;
 const Device = @import("../../Device.zig");
 
-const NvmeDevice = @This();
+const NvmeController = @This();
 
 const log = std.log.scoped(.nvme_device);
 
@@ -23,7 +25,14 @@ const nvme_nsqr = nvme_ncqr; //number of submission queues requested
 
 pub const NsInfoMap = std.AutoHashMap(u32, id.NsInfo);
 
+pub const ControllerType = enum(u8) {
+    io_controller = 1,
+    discovery_controller = 2,
+    admin_controller = 3,
+};
+
 base: *Device,
+type: ControllerType = ControllerType.io_controller, //only IO controller supported
 
 bar: Pcie.Bar = undefined,
 msix_cap: Pcie.MsixCap = undefined,
@@ -43,7 +52,7 @@ ns_info_map: NvmeDriver.NsInfoMap = undefined,
 
 mutex: bool = false,
 
-pub fn deinit(self: *NvmeDevice) void {
+pub fn deinit(self: *NvmeController) void {
     self.ns_info_map.deinit();
 }
 
@@ -51,7 +60,7 @@ pub fn deinit(self: *NvmeDevice) void {
 /// @param allocator : Allocator
 /// @param slba : Start Logical Block Address
 /// @param nlb : Number of Logical Blocks
-pub fn readToOwnedSlice(self: *NvmeDevice, T: type, allocator: std.mem.Allocator, nsid: u32, slba: u64, nlba: u16) ![]T {
+pub fn readToOwnedSlice(self: *NvmeController, T: type, allocator: std.mem.Allocator, nsid: u32, slba: u64, nlba: u16) ![]T {
     const ns: id.NsInfo = self.ns_info_map.get(nsid) orelse {
         log.err("Namespace {d} not found", .{nsid});
         return e.NvmeError.InvalidNsid;
@@ -185,7 +194,7 @@ pub fn readToOwnedSlice(self: *NvmeDevice, T: type, allocator: std.mem.Allocator
 /// @param nsid : Namespace ID
 /// @param slba : Start Logical Block Address
 /// @param data : Data to write
-pub fn write(self: *NvmeDevice, T: type, allocator: std.mem.Allocator, nsid: u32, slba: u64, data: []const T) !void {
+pub fn write(self: *NvmeController, T: type, allocator: std.mem.Allocator, nsid: u32, slba: u64, data: []const T) !void {
     const ns: id.NsInfo = self.ns_info_map.get(nsid) orelse {
         log.err("Namespace {d} not found", .{nsid});
         return e.NvmeError.InvalidNsid;
@@ -308,4 +317,28 @@ pub fn write(self: *NvmeDevice, T: type, allocator: std.mem.Allocator, nsid: u32
 
     //log metadata
     for (metadata) |m| log.debug("Metadata: 0x{x}", .{m});
+}
+
+pub fn disableController(self: *NvmeController) void {
+    const bar = self.bar;
+    toggleController(bar, false);
+}
+
+pub fn enableController(self: *NvmeController) void {
+    const bar = self.bar;
+    toggleController(bar, true);
+}
+
+fn toggleController(bar: Pcie.Bar, enable: bool) void {
+    var cc = regs.readRegister(regs.CCRegister, bar, .cc);
+    log.info("CC register before toggle: {}", .{cc});
+    cc.en = if (enable) 1 else 0;
+    regs.writeRegister(regs.CCRegister, bar, .cc, cc);
+
+    cc = regs.readRegister(regs.CCRegister, bar, .cc);
+    log.info("CC register after toggle: {}", .{cc});
+
+    while (regs.readRegister(regs.CSTSRegister, bar, .csts).rdy != @intFromBool(enable)) {}
+
+    log.info("NVMe controller is {s}", .{if (enable) "enabled" else "disabled"});
 }

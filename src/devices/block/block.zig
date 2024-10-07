@@ -1,8 +1,8 @@
-const NvmeDevice = @import("nvme/NvmeDevice.zig");
+const NvmeController = @import("nvme/NvmeController.zig");
 const Device = @import("../Device.zig");
 
 pub const BlockDevice = union(enum) {
-    nvme: NvmeDevice,
+    nvme: NvmeController,
 
     pub fn deinit(self: BlockDevice) void {
         return switch (self) {
