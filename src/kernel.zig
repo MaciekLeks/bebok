@@ -160,12 +160,12 @@ export fn _start() callconv(.C) noreturn {
         defer log.info("Writing to NVMe ends.", .{});
 
         const mlk_data: []const u8 = &.{ 'M', 'a', 'c', 'i', 'e', 'k', ' ', 'L', 'e', 'k', 's', ' ', 'x' };
-        NvmeDriver.write(u8, heap.page_allocator, my_dev, 1, 0, mlk_data) catch |err| {
+        my_dev.write(u8, heap.page_allocator, 1, 0, mlk_data) catch |err| {
             log.err("Nvme write error: {}", .{err});
         };
     }
 
-    const data = NvmeDriver.readToOwnedSlice(u8, heap.page_allocator, my_dev, 1, 0, 1) catch |err| blk: {
+    const data = my_dev.readToOwnedSlice(u8, heap.page_allocator, 1, 0, 1) catch |err| blk: {
         log.err("Nvme read error: {}", .{err});
         break :blk null;
     };
