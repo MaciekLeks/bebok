@@ -1,9 +1,11 @@
 const std = @import("std");
-const NvmeDevice = @import("../mod.zig").NvmeDevice;
+
+const NvmeDevice = @import("../deps.zig").NvmeDevice;
+const cpu = @import("../deps.zig").cpu;
+const Pcie = @import("../deps.zig").Pcie;
+
 const e = @import("../errors.zig");
 const regs = @import("../registers.zig");
-const cpu = @import("../mod.zig").cpu;
-const Pcie = @import("../mod.zig").Pcie;
 const com = @import("../commons.zig");
 
 const log = std.log.scoped(.drivers_nvme);

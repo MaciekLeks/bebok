@@ -1,29 +1,30 @@
 const std = @import("std");
 const log = std.log.scoped(.nvme);
-const Pcie = @import("mod.zig").Pcie;
-const paging = @import("../paging.zig");
-const int = @import("../int.zig");
-const pmm = @import("../mem/pmm.zig");
-const heap = @import("../mem/heap.zig").heap;
 const math = std.math;
-const cpu = @import("../cpu.zig");
-const apic_test = @import("../arch/x86_64/apic.zig");
 
-const Device = @import("mod.zig").Device;
-const Driver = @import("Driver.zig");
-const NvmeDevice = @import("mod.zig").NvmeDevice;
+//const apic_test = @import("../arch/x86_64/apic.zig");
+const cpu = @import("deps.zig").cpu;
+const int = @import("deps.zig").int;
+const pmm = @import("deps.zig").pmm;
+const paging = @import("deps.zig").paging;
+const heap = @import("deps.zig").heap;
 
-const msix = @import("nvme/msix.zig");
-const ctrl = @import("nvme/controller.zig");
-const regs = @import("nvme/registers.zig");
-const feat = @import("nvme/admin/features.zig");
-const acmd = @import("nvme/admin/command.zig");
-const iocmd = @import("nvme/io/command.zig");
-const aq = @import("nvme/admin/queue.zig");
-const io = @import("nvme/io/io.zig");
-const e = @import("nvme/errors.zig");
-const id = @import("nvme/admin/identify.zig");
-pub const com = @import("nvme/commons.zig");
+const Device = @import("deps.zig").Device;
+const Driver = @import("deps.zig").Driver;
+const NvmeDevice = @import("deps.zig").NvmeDevice;
+const Pcie = @import("deps.zig").Pcie;
+
+const msix = @import("msix.zig");
+const ctrl = @import("controller.zig");
+const regs = @import("registers.zig");
+const feat = @import("admin/features.zig");
+const acmd = @import("admin/command.zig");
+const iocmd = @import("io/command.zig");
+const aq = @import("admin/queue.zig");
+const io = @import("io/io.zig");
+const e = @import("errors.zig");
+const id = @import("admin/identify.zig");
+pub const com = @import("commons.zig");
 
 const nvme_class_code = 0x01;
 const nvme_subclass = 0x08;

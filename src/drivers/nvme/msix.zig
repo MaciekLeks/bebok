@@ -1,6 +1,6 @@
-const NvmeDevice = @import("mod.zig").NvmeDevice;
-const Pcie = @import("mod.zig").Pcie;
-const int = @import("mod.zig").int;
+const NvmeDevice = @import("deps.zig").NvmeDevice;
+const Pcie = @import("deps.zig").Pcie;
+const int = @import("deps.zig").int;
 
 pub fn configureMsix(dev: *NvmeDevice, msix_table_idx: u11, int_vec_no: u8) !void {
     const addr = dev.base.addr.pcie;

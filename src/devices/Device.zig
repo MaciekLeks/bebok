@@ -2,9 +2,9 @@ const std = @import("std");
 const log = std.log.scoped(.driver);
 const BlockDevice = @import("block/block.zig").BlockDevice;
 
-const BusDeviceAddress = @import("mod.zig").BusDeviceAddress;
-const Bus = @import("mod.zig").Bus;
-const Driver = @import("mod.zig").Driver;
+const BusDeviceAddress = @import("deps.zig").BusDeviceAddress;
+const Bus = @import("deps.zig").Bus;
+const Driver = @import("deps.zig").Driver;
 
 const Device = @This();
 

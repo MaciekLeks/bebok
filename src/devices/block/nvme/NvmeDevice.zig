@@ -4,12 +4,12 @@ const math = std.math;
 const pmm = @import("../../../mem/pmm.zig");
 const paging = @import("../../../paging.zig");
 
-const Pcie = @import("../../../bus/Pcie.zig");
-const NvmeDriver = @import("../../mod.zig").NvmeDriver;
-const io = @import("../../mod.zig").nvme_io;
-const id = @import("../../mod.zig").nvme_id;
-const e = @import("../../mod.zig").nvme_e;
-const iocmd = @import("../../mod.zig").nvme_iocmd;
+const Pcie = @import("../../deps.zig").Pcie;
+const NvmeDriver = @import("../../deps.zig").NvmeDriver;
+const io = @import("../../deps.zig").nvme_io;
+const id = @import("../../deps.zig").nvme_id;
+const e = @import("../../deps.zig").nvme_e;
+const iocmd = @import("../../deps.zig").nvme_iocmd;
 
 const BlockDevice = @import("../block.zig").BlockDevice;
 const Device = @import("../../Device.zig");

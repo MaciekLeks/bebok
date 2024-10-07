@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Device = @import("mod.zig").Device;
+const Device = @import("deps.zig").Device;
 
 const Driver = @This();
 

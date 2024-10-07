@@ -1,5 +1,6 @@
 const std = @import("std");
-const Pcie = @import("mod.zig").Pcie;
+
+const Pcie = @import("deps.zig").Pcie;
 
 const log = std.log.scoped(.drivers_nvme);
 
