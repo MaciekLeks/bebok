@@ -59,49 +59,6 @@ alloctr: std.mem.Allocator,
 
 pub const NsInfoMap = std.AutoHashMap(u32, id.NsInfo);
 
-// const Device = struct {
-//     const nvme_ncqr = 0x2; //number of completion queues requested (+1 is admin cq)
-//     const nvme_nsqr = nvme_ncqr; //number of submission queues requested
-//
-//     //-    sqa: []volatile SQEntry = undefined,
-//     //-    cqa: []volatile CQEntry = undefined,
-//     //sq: []volatile SQEntry = undefined,
-//     //cq: []volatile CQEntry = undefined,
-//
-//     //-   sqa_tail_pos: u32 = 0, // private counter to keep track and update sqa_tail_dbl
-//     //-   sqa_header_pos: u32 = 0, //contoller position retuned in CQEntry as sq_header_pos
-//     //-   sqa_tail_dbl: *volatile u32 = undefined, //each doorbell value is u32, minmal doorbell stride is 4 (2^(2+CAP.DSTRD))
-//     //-   cqa_head_pos: u32 = 0 ,
-//     //-   cqa_head_dbl: *volatile u32 = undefined, //each doorbell value is u32, minmal doorbell stride is 4 (2^(2+CAP.DSTRD))
-//
-//     //sq_tail_pos: u32 = 0, //private counter to keep track and update sq_tail_dbl
-//     //sq_tail_dbl: *volatile u32 = undefined,
-//     //cq_head_dbl: *volatile u32 = undefined,
-//
-//     //-acq: Queue(CQEntry) = undefined,
-//     //-asq: Queue(SQEntry) = undefined,
-//
-//     bar: Pcie.Bar = undefined,
-//     msix_cap: Pcie.MsixCap = undefined,
-//
-//     //expected_phase: u1 = 1, //private counter to keep track of the expected phase
-//     mdts_bytes: u32 = 0, // Maximum Data Transfer Size in bytes
-//
-//     ncqr: u16 = nvme_ncqr, //number of completion queues requested - TODO only one cq now
-//     nsqr: u16 = nvme_nsqr, //number of submission queues requested - TODO only one sq now
-//
-//     cq: [nvme_ncqr]Queue(CQEntry) = undefined, //+1 for admin cq
-//     //cq: [nvme_ncqr + 1]Queue(CQEntry) = undefined, //+1 for admin
-//     sq: [nvme_nsqr]Queue(SQEntry) = undefined, //+1 for admin sq
-//
-//     //slice of NsInfo
-//     ns_info_map: NsInfoMap = undefined,
-//
-//     mutex: bool = false,
-// };
-
-//pub var drive: Device = undefined; //TODO only one drive now, make not public
-
 /// Devicer interface function to match the driver with the device
 pub fn probe(_: *anyopaque, probe_ctx: *const anyopaque) bool {
     const pcie_ctx: *const Pcie.PcieProbeContext = @ptrCast(@alignCast(probe_ctx));
@@ -124,25 +81,27 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
     try validatePcieVersion(addr);
 
     //read MSI capability to check if's disabled or enabled
-    const msi_cap: ?Pcie.MsiCap = Pcie.readCapability(Pcie.MsiCap, addr) catch |err| blk: {
-        log.err("Failed to read MSI capability: {}", .{err});
-        break :blk null;
-    };
-    log.debug("MSI capability: {?}", .{msi_cap});
+    // const msi_cap: ?Pcie.MsiCap = Pcie.readCapability(Pcie.MsiCap, addr) catch |err| blk: {
+    //     log.err("Failed to read MSI capability: {}", .{err});
+    //     break :blk null;
+    // };
+    // log.debug("MSI capability: {?}", .{msi_cap});
+    try ctrl.disableMsi();
 
-    ctrl.msix_cap = try Pcie.readCapability(Pcie.MsixCap, addr);
-    log.debug("MSI-X capability pre-modification: {}", .{ctrl.msix_cap});
+    // ctrl.msix_cap = try Pcie.readCapability(Pcie.MsixCap, addr);
+    // log.debug("MSI-X capability pre-modification: {}", .{ctrl.msix_cap});
+    //
+    // if (ctrl.msix_cap.tbir != 0) return e.NvmeError.MsiXMisconfigured; //TODO: it should work on any of the bar but for now we support only bar0
+    //
+    // //enable MSI-X
+    // ctrl.msix_cap.mc.mxe = true;
+    // try Pcie.writeCapability(Pcie.MsixCap, ctrl.msix_cap, addr);
+    //
+    // ctrl.msix_cap = try Pcie.readCapability(Pcie.MsixCap, addr); //TODO: could be removed
+    // log.info("MSI-X capability post-modification: {}", .{ctrl.msix_cap});
+    try ctrl.enableMsix();
 
-    if (ctrl.msix_cap.tbir != 0) return e.NvmeError.MsiXMisconfigured; //TODO: it should work on any of the bar but for now we support only bar0
-
-    //enable MSI-X
-    ctrl.msix_cap.mc.mxe = true;
-    try Pcie.writeCapability(Pcie.MsixCap, ctrl.msix_cap, addr);
-
-    ctrl.msix_cap = try Pcie.readCapability(Pcie.MsixCap, addr); //TODO: could be removed
-    log.info("MSI-X capability post-modification: {}", .{ctrl.msix_cap});
-
-    //- var pci_cmd_reg = Pcie.readRegisterWithArgs(u16, .command, function, slot, bus);
+    // //- var pci_cmd_reg = Pcie.readRegisterWithArgs(u16, .command, function, slot, bus);
     //disable interrupts while using MSI-X
     //-pci_cmd_reg |= 1 << 15;
     //-Pcie.writeRegisterWithArgs(u16, .command, function, slot, bus, pci_cmd_reg);

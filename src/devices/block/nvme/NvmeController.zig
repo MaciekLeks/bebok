@@ -350,3 +350,41 @@ fn toggleController(bar: Pcie.Bar, enable: bool) void {
 
     log.info("NVMe controller is {s}", .{if (enable) "enabled" else "disabled"});
 }
+
+fn toggleMsi(ctrl: *NvmeController, enable: bool) !void {
+    const addr = ctrl.base.addr.pcie;
+    var msi_cap: ?Pcie.MsiCap = Pcie.readCapability(Pcie.MsiCap, addr) catch |err| blk: {
+        log.err("Can't find MSI capability: {}", .{err});
+        break :blk null;
+    };
+    log.debug("MSI capability: {?}", .{msi_cap});
+
+    if (msi_cap) |*cap| {
+        cap.mc.msie = enable;
+        try Pcie.writeCapability(Pcie.MsiCap, cap.*, addr);
+        log.debug("MSI turned off", .{});
+    }
+}
+
+pub fn disableMsi(ctrl: *NvmeController) !void {
+    try toggleMsi(ctrl, false);
+}
+
+fn toggleMsix(ctrl: *NvmeController, enable: bool) !void {
+    const addr = ctrl.base.addr.pcie;
+    ctrl.msix_cap = try Pcie.readCapability(Pcie.MsixCap, addr);
+    log.debug("MSI-X capability pre-modification: {}", .{ctrl.msix_cap});
+
+    if (ctrl.msix_cap.tbir != 0) return e.NvmeError.MsiXMisconfigured; //TODO: it should work on any of the bar but for now we support only bar0
+
+    ctrl.msix_cap.mc.mxe = enable;
+    try Pcie.writeCapability(Pcie.MsixCap, ctrl.msix_cap, addr);
+
+    //TODO: remove the following
+    ctrl.msix_cap = try Pcie.readCapability(Pcie.MsixCap, addr); //TODO: could be removed
+    log.info("MSI-X capability post-modification: {}", .{ctrl.msix_cap});
+}
+
+pub fn enableMsix(ctrl: *NvmeController) !void {
+    try toggleMsix(ctrl, true);
+}
