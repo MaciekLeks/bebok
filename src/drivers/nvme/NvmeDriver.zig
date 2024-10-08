@@ -121,14 +121,7 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
     // now we can access the NVMe device
     const addr = base.addr.pcie;
 
-    //const pcie_version = try Pcie.readPcieVersion(function, slot, bus); //we need PCIe version 2.0 at least
-    const pcie_version = try Pcie.readCapability(Pcie.VersionCap, addr);
-    log.info("PCIe version: {}", .{pcie_version});
-
-    if (pcie_version.major < 2) {
-        log.err("Unsupported PCIe version: {}.{}", .{ pcie_version.major, pcie_version.minor });
-        return;
-    }
+    try validatePcieVersion(addr);
 
     //read MSI capability to check if's disabled or enabled
     const msi_cap: ?Pcie.MsiCap = Pcie.readCapability(Pcie.MsiCap, addr) catch |err| blk: {
@@ -920,4 +913,13 @@ pub fn deinit(_: *anyopaque) void {
     // for (&dev.iosq) |*sq| heap.page_allocator.free(sq.entries);
 }
 
-//--- public functions ---
+//--- private functions
+fn validatePcieVersion(addr: Pcie.PcieAddress) !void {
+    const pcie_version = try Pcie.readCapability(Pcie.VersionCap, addr);
+    log.info("PCIe version: {}", .{pcie_version});
+
+    if (pcie_version.major < 2) {
+        log.err("Unsupported PCIe version: {}.{}", .{ pcie_version.major, pcie_version.minor });
+        return error.UnsupportedPcieVersion;
+    }
+}
