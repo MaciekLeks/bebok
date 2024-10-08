@@ -79,26 +79,7 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
     const addr = base.addr.pcie;
 
     try validatePcieVersion(addr);
-
-    //read MSI capability to check if's disabled or enabled
-    // const msi_cap: ?Pcie.MsiCap = Pcie.readCapability(Pcie.MsiCap, addr) catch |err| blk: {
-    //     log.err("Failed to read MSI capability: {}", .{err});
-    //     break :blk null;
-    // };
-    // log.debug("MSI capability: {?}", .{msi_cap});
     try ctrl.disableMsi();
-
-    // ctrl.msix_cap = try Pcie.readCapability(Pcie.MsixCap, addr);
-    // log.debug("MSI-X capability pre-modification: {}", .{ctrl.msix_cap});
-    //
-    // if (ctrl.msix_cap.tbir != 0) return e.NvmeError.MsiXMisconfigured; //TODO: it should work on any of the bar but for now we support only bar0
-    //
-    // //enable MSI-X
-    // ctrl.msix_cap.mc.mxe = true;
-    // try Pcie.writeCapability(Pcie.MsixCap, ctrl.msix_cap, addr);
-    //
-    // ctrl.msix_cap = try Pcie.readCapability(Pcie.MsixCap, addr); //TODO: could be removed
-    // log.info("MSI-X capability post-modification: {}", .{ctrl.msix_cap});
     try ctrl.enableMsix();
 
     // //- var pci_cmd_reg = Pcie.readRegisterWithArgs(u16, .command, function, slot, bus);
@@ -121,6 +102,7 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
     }
 
     //MSI-X
+    // TODO: refactor me:
     msix.configureMsix(ctrl, tmp_msix_table_idx, tmp_irq) catch |err| {
         log.err("Failed to configure MSI-X: {}", .{err});
     };
@@ -349,7 +331,7 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
         return;
     };
 
-    const identify_info: *const id.Identify0x01Info = @ptrCast(@alignCast(prp1));
+    const identify_info: *const id.ControllerInfo = @ptrCast(@alignCast(prp1));
     log.info("Identify Controller Data Structure(cns: 0x01): {}", .{identify_info.*});
     if (identify_info.cntrltype != @intFromEnum(NvmeController.ControllerType.io_controller)) {
         log.err("Unsupported NVMe controller type: {}", .{identify_info.cntrltype});
@@ -379,9 +361,9 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
         return;
     };
 
-    const io_command_set_combination_lst: *const [512]id.Identify0x1cCommandSetVector = @ptrCast(@alignCast(prp1));
+    const io_command_set_combination_lst: *const [512]id.IoCommandSet = @ptrCast(@alignCast(prp1));
     //TODO: find only one command set vector combination (comman set with specific ), that's not true cause there could be more than one
-    var cmd_set_cmb: id.Identify0x1cCommandSetVector = undefined; //we choose the first combination
+    var cmd_set_cmb: id.IoCommandSet = undefined; //we choose the first combination
     const cs_idx: u9 = blk: {
         for (io_command_set_combination_lst, 0..) |cs, i| {
             //stop on first non-zero command set

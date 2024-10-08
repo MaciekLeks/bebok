@@ -63,7 +63,8 @@ pub const Identify0x00Info = extern struct {
 
 pub const NsInfo = Identify0x00Info; //alias for Identify0x00Info
 
-pub const Identify0x01Info = extern struct {
+/// Identify CNS = 0x01
+pub const ControllerInfo = extern struct {
     vid: u16, // 2bytes
     ssvid: u16, //2bytes
     sn: [20]u8, //20bytes
@@ -124,8 +125,9 @@ pub const Identify0x08Info = extern struct {
     nstate: u8, //1byte Namespace State
 };
 
+// Identify CNS = 0x1c
 // Each vector consists of 0 to 3 command set indexes, each 1 byte long
-pub const Identify0x1cCommandSetVector = packed struct(u64) {
+pub const IoCommandSet = packed struct(u64) {
     nvmcs: u1, //0 - NVM Command Set
     kvcs: u1, //1 - Key Value Command Set
     zncs: u1, //2 - Zone Namespace Command Set
