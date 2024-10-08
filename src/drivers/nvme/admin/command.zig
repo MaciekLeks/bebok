@@ -99,6 +99,6 @@ fn execAdminCommand(CDw0Type: type, ctrl: *NvmeController, cmd: com.SQEntry, sqn
     return cq_entry_ptr.*;
 }
 
-pub fn executeAdminCommand(dev: *NvmeController, cmd: com.SQEntry) e.NvmeError!com.CQEntry {
-    return execAdminCommand(AdminCDw0, dev, cmd, 0, 0);
+pub fn executeAdminCommand(ctrl: *NvmeController, cmd: com.SQEntry) e.NvmeError!com.CQEntry {
+    return execAdminCommand(AdminCDw0, ctrl, cmd, 0, 0);
 }
