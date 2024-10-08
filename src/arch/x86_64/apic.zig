@@ -200,7 +200,7 @@ pub fn setTimerTest() void {
     // Initialize the timer
     log.info("Setting up the timer", .{});
     writeRegister(u32, .timer_divide_config, 0x0011); //divide by 16 (2nd bit is always 0), see Figure 11.10 in the Intel System Programming Guide
-    writeRegister(u32, .timer_initial_count, 0x10000);
+    writeRegister(u32, .timer_initial_count, 0xffff_ffff);
     writeRegister(u32, .lvt_timer, 0x00 << 17 | 0x30); //0x01 - periodic - 17-18 bits,  we do not use 0x20 for PIC even it's masked
 
 }
