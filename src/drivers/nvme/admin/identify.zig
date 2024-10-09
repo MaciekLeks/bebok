@@ -22,7 +22,8 @@ pub const IdentifyCommand = packed struct(u512) {
     ignrd_j: u32 = 0, //60-63 in cdw15
 };
 
-pub const Identify0x00Info = extern struct {
+// Identify CNS = 0x00
+pub const IdentifyNamespaceInfo = extern struct {
     const LBAFormatInfo = packed struct(u32) {
         ms: u16, //0-15 - Metadata Size
         lbads: u8, //4-7 - LBA Data Size
@@ -61,7 +62,7 @@ pub const Identify0x00Info = extern struct {
     // ignrd_b: [4096 - 384]u8,
 };
 
-pub const NsInfo = Identify0x00Info; //alias for Identify0x00Info
+pub const NsInfo = IdentifyNamespaceInfo; //alias for Identify0x00Info
 
 /// Identify CNS = 0x01
 pub const ControllerInfo = extern struct {
@@ -95,7 +96,8 @@ pub const ControllerInfo = extern struct {
 
 };
 
-pub const Identify0x05Info = extern struct {
+/// Identify CNS = 0x05
+pub const IoCommandSetNamespaceInfo = extern struct {
     lbmstm: u64, //8bytes Logical Block Memory Storage Tag Mask
     pic: u8, //1byte Protection Information Capabilities
     rsrvd_a: u16 = 0, //2byte s
@@ -103,7 +105,8 @@ pub const Identify0x05Info = extern struct {
     elbaf: [64]u32, //4bytes Extend LBA Format 0 Support
 };
 
-pub const Identify0x06Info = extern struct {
+// Identify CNS = 0x06
+pub const IoCommandSetControllerInfo = extern struct {
     vsl: u8, //1byte Verify Size Limit
     wzsl: u8, //1byte Write Zeroes Size Limit
     wusl: u8, //1byte Write Uncorrectable Size Limit
@@ -112,7 +115,8 @@ pub const Identify0x06Info = extern struct {
     dmsl: u64, //8bytes Dataset Management Size Limit
 };
 
-pub const Identify0x08Info = extern struct {
+// Identify CNS = 0x08
+pub const IoCommandSetIndependentNamespaceInfo = extern struct {
     nsfeat: u8, //1byte Namespace Features
     nmic: u8, //1byte Namespace Multi-path I/O and Namespace Sharing Capabilities
     rescap: u8, //1byte Reservation Capabilities

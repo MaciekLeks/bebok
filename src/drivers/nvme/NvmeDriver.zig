@@ -669,7 +669,7 @@ fn discoverNamespacesByIoCommandSet(ctrl: *NvmeController) !void {
                     continue; // we do not return as we want to continue with other namespaces
                 };
 
-                const ns_info: *const id.Identify0x00Info = @ptrCast(@alignCast(prp1));
+                const ns_info: *const id.IdentifyNamespaceInfo = @ptrCast(@alignCast(prp1));
                 log.info("Identify Namespace Data Structure(cns: 0x00): nsid:{d}, info:{}", .{ nsid, ns_info.* });
 
                 try ctrl.ns_info_map.put(nsid, ns_info.*);
@@ -701,7 +701,7 @@ fn discoverNamespacesByIoCommandSet(ctrl: *NvmeController) !void {
                         return e.NvmeError.FailedToExecuteIdentifyCommand;
                     };
 
-                    const ns_io_info: *const id.Identify0x05Info = @ptrCast(@alignCast(prp1));
+                    const ns_io_info: *const id.IoCommandSetNamespaceInfo = @ptrCast(@alignCast(prp1));
                     log.info("Identify I/O Command Set specific Identify Namespace data structure for the specified NSID (cns: 0x05): nsid:{d}, info:{}", .{ nsid, ns_io_info.* });
 
                     // CNS 06h: I/O Command Set specific Identify Controller data structure
@@ -724,7 +724,7 @@ fn discoverNamespacesByIoCommandSet(ctrl: *NvmeController) !void {
                         return e.NvmeError.FailedToExecuteIdentifyCommand;
                     };
 
-                    const ns_ctrl_info: *const id.Identify0x06Info = @ptrCast(@alignCast(prp1));
+                    const ns_ctrl_info: *const id.IoCommandSetControllerInfo = @ptrCast(@alignCast(prp1));
                     log.info("Identify I/O Command Set specific Identify Controller data structure for the specified NSID (cns: 0x06): nsid:{d}, info:{}", .{ nsid, ns_ctrl_info.* });
 
                     // CNS 08h: I/O Command Set independent Identify Namespace data structure
@@ -747,7 +747,7 @@ fn discoverNamespacesByIoCommandSet(ctrl: *NvmeController) !void {
                         return e.NvmeError.FailedToExecuteIdentifyCommand;
                     };
 
-                    const ns_indep_info: *const id.Identify0x08Info = @ptrCast(@alignCast(prp1));
+                    const ns_indep_info: *const id.IoCommandSetIndependentNamespaceInfo = @ptrCast(@alignCast(prp1));
                     log.info("Identify I/O Command Set Independent Identify Namespace data structure for the specified NSID (cns: 0x08): nsid:{d}, info:{}", .{ nsid, ns_indep_info.* });
                 } //vs.mjr==2
             }
