@@ -186,110 +186,18 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
         acq_reg_ptr.*,
     });
 
-    // Check the controller version
-    const vs = regs.readRegister(regs.VSRegister, ctrl.bar, .vs);
-    log.info("NVMe controller version: {}.{}.{}", .{ vs.mjn, vs.mnr, vs.tet });
-
-    // support only NVMe 1.4 and 2.0
-    if (vs.mjn == 1 and vs.mnr < 4) {
-        log.err("Unsupported NVMe controller major version:  {}.{}.{}", .{ vs.mjn, vs.mnr, vs.tet });
-        return;
-    }
-
-    // Check if the controller supports NVM Command Set and Admin Command Set
-    const cap = regs.readRegister(regs.CAPRegister, ctrl.bar, .cap);
-    log.info("NVME CAP Register: {}", .{cap});
-    if (cap.css.nvmcs == 0) {
-        log.err("NVMe controller does not support NVM Command Set", .{});
-        return;
-    }
-
-    if (cap.css.acs == 0) {
-        log.err("NVMe controller does not support Admin Command Set", .{});
-        return;
-    }
-
-    log.info("NVMe controller supports min/max memory page size: 2^(12 + cap.mpdmin:{d}) -> 2^(12 + cap.mpdmssx: {d}), 2^(12 + cc.mps: {d})", .{ cap.mpsmin, cap.mpsmax, @as(*regs.CCRegister, @ptrCast(@volatileCast(cc_reg_ptr))).*.mps });
-
-    const sys_mps: u4 = @intCast(math.log2(pmm.page_size) - 12);
-    if (cap.mpsmin < sys_mps or sys_mps > cap.mpsmax) {
-        log.err("NVMe controller does not support the host's memory page size", .{});
-        return;
-    }
+    try verifyController(ctrl);
 
     // Reset the controllerg
     ctrl.disableController();
 
-    // The host configures the Admin Queue by setting the Admin Queue Attributes (AQA), Admin Submission Queue Base Address (ASQ), and Admin Completion Queue Base Address (ACQ) the appropriate values;
-    //set AQA queue sizes
-    var aqa = regs.readRegister(regs.AQARegister, ctrl.bar, .aqa);
-    log.info("NVMe AQA Register pre-modification: {}", .{aqa});
-    aqa.asqs = nvme_ioasqs;
-    aqa.acqs = nvme_ioacqs;
-    regs.writeRegister(regs.AQARegister, ctrl.bar, .aqa, aqa);
-    aqa = regs.readRegister(regs.AQARegister, ctrl.bar, .aqa);
-    log.info("NVMe AQA Register post-modification: {}", .{aqa});
+    const doorbell_base: usize = virt + 0x1000;
+    const cap = regs.readRegister(regs.CAPRegister, ctrl.bar, .cap);
+    const doorbell_size = math.pow(u32, 2, 2 + cap.dstrd);
 
-    // ASQ and ACQ setup
-    ctrl.sq[0].entries = heap.page_allocator.alloc(com.SQEntry, nvme_ioasqs) catch |err| {
-        log.err("Failed to allocate memory for admin submission queue entries: {}", .{err});
-        return;
-    };
-    defer heap.page_allocator.free(@volatileCast(ctrl.sq[0].entries));
-    @memset(ctrl.sq[0].entries, 0);
-
-    ctrl.cq[0].entries = heap.page_allocator.alloc(com.CQEntry, nvme_ioacqs) catch |err| {
-        log.err("Failed to allocate memory for admin completion queue entries: {}", .{err});
-        return;
-    };
-    defer heap.page_allocator.free(@volatileCast(ctrl.cq[0].entries));
-    @memset(ctrl.cq[0].entries, .{});
-
-    const sqa_phys = paging.physFromPtr(ctrl.sq[0].entries.ptr) catch |err| {
-        log.err("Failed to get physical address of admin submission queue: {}", .{err});
-        return;
-    };
-    const cqa_phys = paging.physFromPtr(ctrl.cq[0].entries.ptr) catch |err| {
-        log.err("Failed to get physical address of admin completion queue: {}", .{err});
-        return;
-    };
-
-    log.debug("ASQ: virt: {*}, phys:0x{x}; ACQ: virt:{*}, phys:0x{x}", .{ ctrl.sq[0].entries, sqa_phys, ctrl.cq[0].entries, cqa_phys });
-
-    var asq = regs.readRegister(regs.ASQEntry, ctrl.bar, .asq);
-    log.info("ASQ Register pre-modification: 0x{x}", .{@shlExact(asq.asqb, 12)});
-    asq.asqb = @intCast(@shrExact(sqa_phys, 12)); // 4kB aligned
-    regs.writeRegister(regs.ASQEntry, ctrl.bar, .asq, asq);
-    asq = regs.readRegister(regs.ASQEntry, ctrl.bar, .asq);
-    log.info("ASQ Register post-modification: 0x{x}", .{@shlExact(asq.asqb, 12)});
-
-    var acq = regs.readRegister(regs.ACQEntry, ctrl.bar, .acq);
-    log.info("ACQ Register pre-modification: 0x{x}", .{@shlExact(acq.acqb, 12)});
-    acq.acqb = @intCast(@shrExact(cqa_phys, 12)); // 4kB aligned
-    regs.writeRegister(regs.ACQEntry, ctrl.bar, .acq, acq);
-    acq = regs.readRegister(regs.ACQEntry, ctrl.bar, .acq);
-    log.info("ACQ Register post-modification: 0x{x}", .{@shlExact(acq.acqb, 12)});
-
-    var cc = regs.readRegister(regs.CCRegister, ctrl.bar, .cc);
-    log.info("CC register pre-modification: {}", .{cc});
-    //CC.css settings
-    if (cap.css.acs == 1) cc.css = 0b111;
-    if (cap.css.iocs == 1) cc.css = 0b110 else if (cap.css.nvmcs == 0) cc.css = 0b000;
-    // Set page size as the host's memory page size
-    cc.mps = sys_mps;
-    // Set the arbitration mechanism to round-robin
-    cc.ams = .round_robin;
-    cc.iosqes = 6; // 64 bytes - set to recommened value
-    cc.iocqes = 4; // 16 bytes - set to
-    regs.writeRegister(regs.CCRegister, ctrl.bar, .cc, cc);
-    log.info("CC register post-modification: {}", .{regs.readRegister(regs.CCRegister, ctrl.bar, .cc)});
+    try preConfigureController(ctrl, doorbell_base, doorbell_size);
 
     ctrl.enableController();
-
-    const doorbell_base: usize = virt + 0x1000;
-    const doorbell_size = math.pow(u32, 2, 2 + cap.dstrd);
-    ctrl.sq[0].tail_dbl = @ptrFromInt(doorbell_base + doorbell_size * 0);
-    ctrl.cq[0].head_dbl = @ptrFromInt(doorbell_base + doorbell_size * 1);
     // for (&dev.iosq, 1..) |*sq, sq_dbl_idx| {
     //     sq.tail_dbl = @ptrFromInt(doorbell_base + doorbell_size * (2 * sq_dbl_idx));
     // }
@@ -343,7 +251,8 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
     //    log.err("Unsupported NVMe controller type: {}", .{id_ctrl.cntrltype});
     //    return;
     //}
-    ctrl.mdts_bytes = math.pow(u32, 2, 12 + cc.mps + id_ctrl.mdts);
+    const cc = regs.readRegister(regs.CCRegister, ctrl.bar, .cc);
+    ctrl.mdts_bytes = math.pow(u32, 2, 12 + cc.mps + identify_info.mdts);
     log.info("MDTS in kbytes: {}", .{ctrl.mdts_bytes / 1024});
 
     // I/O Command Set specific initialization
@@ -463,6 +372,7 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
 
                 try ctrl.ns_info_map.put(nsid, ns_info.*);
 
+                const vs = regs.readRegister(regs.VSRegister, ctrl.bar, .vs); //TODO added to compile the code
                 log.debug("vs: {}", .{vs});
                 if (vs.mjn == 2) {
                     // TODO: see section 8.b in the 3.5.1 Memory-based Transport Controller Initialization chapter
@@ -870,37 +780,96 @@ fn validatePcieVersion(addr: Pcie.PcieAddress) !void {
     }
 }
 
-/// Idenfity Controller and returns only needed fields;
-/// allocator: page allocator is recommended
-/// ctrl: NVMe controller
-fn identifyController(allocator: std.mem.Allocator, ctrl: *NvmeController) !struct {
-    cntrltype: NvmeController.ControllerType,
-    mdts: u8, //Maximum Data Transfer Size
-} {
-    const prp1 = try allocator.alloc(u8, pmm.page_size);
-    @memset(prp1, 0);
-    defer heap.page_allocator.free(prp1);
-    const prp1_phys = try paging.physFromPtr(prp1.ptr);
+/// verifyController checks if the controller is supported by the driver
+fn verifyController(ctrl: *NvmeController) !void {
+    // Check the controller version
+    const vs = regs.readRegister(regs.VSRegister, ctrl.bar, .vs);
+    log.info("NVMe controller version: {}.{}.{}", .{ vs.mjn, vs.mnr, vs.tet });
 
-    _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
-        .cdw0 = .{
-            .opc = .identify,
-            .cid = 0x01, //our id
-        },
-        .dptr = .{
-            .prp = .{
-                .prp1 = prp1_phys,
-                .prp2 = 0, //we need only one page
-            },
-        },
-        .cns = 0x01,
-    })) catch |err| {
-        log.err("Failed to execute Identify Command(cns:0x01): {}", .{err});
-        return e.NvmeError.AdminCommandFailed;
-    };
+    // support only NVMe 1.4 and 2.0
+    if (vs.mjn == 1 and vs.mnr < 4) {
+        log.err("Unsupported NVMe controller major version:  {}.{}.{}", .{ vs.mjn, vs.mnr, vs.tet });
+        return e.NvmeError.UnsupportedControllerVersion;
+    }
 
-    const id_info: *const id.ControllerInfo = @ptrCast(@alignCast(prp1));
-    log.info("Identify Controller Data Structure(cns: 0x01): {}", .{id_info.*});
+    // Check if the controller supports NVM Command Set and Admin Command Set
+    const cap = regs.readRegister(regs.CAPRegister, ctrl.bar, .cap);
+    log.info("NVME CAP Register: {}", .{cap});
+    if (cap.css.nvmcs == 0) {
+        log.err("NVMe controller does not support NVM Command Set", .{});
+        return e.NvmeError.ControllerDoesNotSupportNvmCommandSet;
+    }
 
-    return .{ .cntrltype = @enumFromInt(id_info.cntrltype), .mdts = id_info.mdts };
+    if (cap.css.acs == 0) {
+        log.err("NVMe controller does not support Admin Command Set", .{});
+        return e.NvmeError.ControllerDoesNotSupportAdminCommandSet;
+    }
+
+    const cc = regs.readRegister(regs.CCRegister, ctrl.bar, .cc);
+    log.info("NVMe controller supports min/max memory page size: 2^(12 + cap.mpdmin:{d}) -> 2^(12 + cap.mpdmssx: {d}), 2^(12 + cc.mps: {d})", .{ cap.mpsmin, cap.mpsmax, cc.mps });
+    const sys_mps: u4 = @intCast(math.log2(pmm.page_size) - 12);
+    if (cap.mpsmin < sys_mps or sys_mps > cap.mpsmax) {
+        log.err("NVMe controller does not support the host's memory page size", .{});
+        return e.NvmeError.ControllerDoesNotSupportHostPageSize;
+    }
+}
+
+// preConfigureController sets up the controller before the controller is enabled
+// ctrl: the controller to configure
+fn preConfigureController(ctrl: *NvmeController, doorbell_base: usize, doorbell_size: u32) !void {
+    // The host configures the Admin Queue by setting the Admin Queue Attributes (AQA), Admin Submission Queue Base Address (ASQ), and Admin Completion Queue Base Address (ACQ) the appropriate values;
+    //set AQA queue sizes
+    var aqa = regs.readRegister(regs.AQARegister, ctrl.bar, .aqa);
+    log.info("NVMe AQA Register pre-modification: {}", .{aqa});
+    aqa.asqs = nvme_ioasqs;
+    aqa.acqs = nvme_ioacqs;
+    regs.writeRegister(regs.AQARegister, ctrl.bar, .aqa, aqa);
+    aqa = regs.readRegister(regs.AQARegister, ctrl.bar, .aqa);
+    log.info("NVMe AQA Register post-modification: {}", .{aqa});
+
+    // ASQ and ACQ setup
+    ctrl.sq[0].entries = try heap.page_allocator.alloc(com.SQEntry, nvme_ioasqs);
+    defer heap.page_allocator.free(@volatileCast(ctrl.sq[0].entries));
+    @memset(ctrl.sq[0].entries, 0);
+
+    ctrl.cq[0].entries = try heap.page_allocator.alloc(com.CQEntry, nvme_ioacqs);
+    defer heap.page_allocator.free(@volatileCast(ctrl.cq[0].entries));
+    @memset(ctrl.cq[0].entries, .{});
+
+    const sqa_phys = try paging.physFromPtr(ctrl.sq[0].entries.ptr);
+    const cqa_phys = try paging.physFromPtr(ctrl.cq[0].entries.ptr);
+
+    log.debug("ASQ: virt: {*}, phys:0x{x}; ACQ: virt:{*}, phys:0x{x}", .{ ctrl.sq[0].entries, sqa_phys, ctrl.cq[0].entries, cqa_phys });
+
+    var asq = regs.readRegister(regs.ASQEntry, ctrl.bar, .asq);
+    log.info("ASQ Register pre-modification: 0x{x}", .{@shlExact(asq.asqb, 12)});
+    asq.asqb = @intCast(@shrExact(sqa_phys, 12)); // 4kB aligned
+    regs.writeRegister(regs.ASQEntry, ctrl.bar, .asq, asq);
+    asq = regs.readRegister(regs.ASQEntry, ctrl.bar, .asq);
+    log.info("ASQ Register post-modification: 0x{x}", .{@shlExact(asq.asqb, 12)});
+
+    var acq = regs.readRegister(regs.ACQEntry, ctrl.bar, .acq);
+    log.info("ACQ Register pre-modification: 0x{x}", .{@shlExact(acq.acqb, 12)});
+    acq.acqb = @intCast(@shrExact(cqa_phys, 12)); // 4kB aligned
+    regs.writeRegister(regs.ACQEntry, ctrl.bar, .acq, acq);
+    acq = regs.readRegister(regs.ACQEntry, ctrl.bar, .acq);
+    log.info("ACQ Register post-modification: 0x{x}", .{@shlExact(acq.acqb, 12)});
+
+    const cap = regs.readRegister(regs.CAPRegister, ctrl.bar, .cap);
+    var cc = regs.readRegister(regs.CCRegister, ctrl.bar, .cc);
+    log.info("CC register pre-modification: {}", .{cc});
+    //CC.css settings
+    if (cap.css.acs == 1) cc.css = 0b111;
+    if (cap.css.iocs == 1) cc.css = 0b110 else if (cap.css.nvmcs == 0) cc.css = 0b000;
+    // Set page size as the host's memory page size
+    cc.mps = @intCast(math.log2(pmm.page_size) - 12);
+    // Set the arbitration mechanism to round-robin
+    cc.ams = .round_robin;
+    cc.iosqes = 6; // 64 bytes - set to recommened value
+    cc.iocqes = 4; // 16 bytes - set to
+    regs.writeRegister(regs.CCRegister, ctrl.bar, .cc, cc);
+    log.info("CC register post-modification: {}", .{regs.readRegister(regs.CCRegister, ctrl.bar, .cc)});
+
+    ctrl.sq[0].tail_dbl = @ptrFromInt(doorbell_base + doorbell_size * 0);
+    ctrl.cq[0].head_dbl = @ptrFromInt(doorbell_base + doorbell_size * 1);
 }
