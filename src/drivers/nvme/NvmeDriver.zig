@@ -220,7 +220,7 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
     // Reset the controllerg
     ctrl.disableController();
 
-    // The host configures the Admin gQueue by setting the Admin Queue Attributes (AQA), Admin Submission Queue Base Address (ASQ), and Admin Completion Queue Base Address (ACQ) the appropriate values;
+    // The host configures the Admin Queue by setting the Admin Queue Attributes (AQA), Admin Submission Queue Base Address (ASQ), and Admin Completion Queue Base Address (ACQ) the appropriate values;
     //set AQA queue sizes
     var aqa = regs.readRegister(regs.AQARegister, ctrl.bar, .aqa);
     log.info("NVMe AQA Register pre-modification: {}", .{aqa});
@@ -315,35 +315,34 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
         return;
     };
 
-    // _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
-    //     .cdw0 = .{
-    //         .opc = .identify,
-    //         .cid = 0x01, //our id
-    //     },
-    //     .dptr = .{
-    //         .prp = .{
-    //             .prp1 = prp1_phys,
-    //             .prp2 = 0, //we need only one page
-    //         },
-    //     },
-    //     .cns = 0x01,
-    // })) catch |err| {
-    //     log.err("Failed to execute Identify Command(cns:0x01): {}", .{err});
-    //     return;
-    // };
-    //
-    // const identify_info: *const id.ControllerInfo = @ptrCast(@alignCast(prp1));
-    // log.info("Identify Controller Data Structure(cns: 0x01): {}", .{identify_info.*});
-    // if (identify_info.cntrltype != @intFromEnum(NvmeController.ControllerType.io_controller)) {
-    //     log.err("Unsupported NVMe controller type: {}", .{identify_info.cntrltype});
-    //     return;
-    // }
-    const id_ctrl = try identifyController(heap.page_allocator, ctrl);
+    _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
+        .cdw0 = .{
+            .opc = .identify,
+            .cid = 0x01, //our id
+        },
+        .dptr = .{
+            .prp = .{
+                .prp1 = prp1_phys,
+                .prp2 = 0, //we need only one page
+            },
+        },
+        .cns = 0x01,
+    })) catch |err| {
+        log.err("Failed to execute Identify Command(cns:0x01): {}", .{err});
+        return;
+    };
 
-    if (id_ctrl.cntrltype != NvmeController.ControllerType.io_controller) {
-        log.err("Unsupported NVMe controller type: {}", .{id_ctrl.cntrltype});
+    const identify_info: *const id.ControllerInfo = @ptrCast(@alignCast(prp1));
+    log.info("Identify Controller Data Structure(cns: 0x01): {}", .{identify_info.*});
+    if (identify_info.cntrltype != @intFromEnum(NvmeController.ControllerType.io_controller)) {
+        log.err("Unsupported NVMe controller type: {}", .{identify_info.cntrltype});
         return;
     }
+    // const id_ctrl = try identifyController(heap.page_allocator, ctrl);
+    //if (id_ctrl.cntrltype != NvmeController.ControllerType.io_controller) {
+    //    log.err("Unsupported NVMe controller type: {}", .{id_ctrl.cntrltype});
+    //    return;
+    //}
     ctrl.mdts_bytes = math.pow(u32, 2, 12 + cc.mps + id_ctrl.mdts);
     log.info("MDTS in kbytes: {}", .{ctrl.mdts_bytes / 1024});
 

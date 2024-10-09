@@ -68,7 +68,6 @@ pub const PcieProbeContext = struct {
 var allctr: std.mem.Allocator = undefined;
 
 //Fields
-//drivers: DriverList,
 base: *Bus,
 
 // Inner Types
