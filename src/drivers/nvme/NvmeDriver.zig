@@ -256,201 +256,7 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
     log.info("MDTS in kbytes: {}", .{ctrl.mdts_bytes / 1024});
 
     // I/O Command Set specific initialization
-
-    //Reusing prp1
-    @memset(prp1, 0);
-    _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
-        .cdw0 = .{
-            .opc = .identify,
-            .cid = 0x02, //our id
-        },
-        .dptr = .{
-            .prp = .{
-                .prp1 = prp1_phys,
-            },
-        },
-        .cns = 0x1c,
-    })) catch |err| {
-        log.err("Failed to execute Identify Command(cns:0x1c): {}", .{err});
-        return;
-    };
-
-    const io_command_set_combination_lst: *const [512]id.IoCommandSet = @ptrCast(@alignCast(prp1));
-    //TODO: find only one command set vector combination (comman set with specific ), that's not true cause there could be more than one
-    var cmd_set_cmb: id.IoCommandSet = undefined; //we choose the first combination
-    const cs_idx: u9 = blk: {
-        for (io_command_set_combination_lst, 0..) |cs, i| {
-            //stop on first non-zero command set
-            log.info("Identify I/O Command Set Combination(0x1c): idx:{d}: val:{}", .{ i, cs });
-            if (cs.nvmcs != 0 and (cs.kvcs != 0 or cs.zncs != 0)) {
-                cmd_set_cmb = cs;
-                break :blk @intCast(i);
-            }
-        } else {
-            log.err("No valid Identify I/O Command Set Combination(0x1c) found", .{});
-            return;
-        }
-    };
-
-    // Set I/O Command Set Profile with Command Set Combination index
-    @memset(prp1, 0);
-    _ = acmd.executeAdminCommand(ctrl, @bitCast(feat.GetSetFeaturesCommand{
-        .set_io_command_profile = .{
-            .cdw0 = .{
-                .opc = .set_features,
-                .cid = 0x03, //our id
-            },
-            .dptr = .{
-                .prp = .{
-                    .prp1 = prp1_phys,
-                },
-            },
-            .sv = 0, //do not save
-            .iosci = cs_idx,
-        },
-    })) catch |err| {
-        log.err("Failed to execute Set Features Command(fid: 0x19): {}", .{err});
-        return;
-    };
-
-    // const fields = @typeInfo(Identify0x1cCommandSetVector).Struct.fields;
-    // inline for (fields, 0..) |field, i| {
-    //     log.info("Identify I/O Command Set Combination(0x1c): name:{s} idx:{d}, value:{}", .{ field.name, i, @field(cmd_set_cmb, field.name) });
-    // }
-
-    // I/O Command Set specific Active Namespace ID list (CNS 07h)
-    // Each Command Set may have a list of active Namespace IDs
-    for ([_]u1{ cmd_set_cmb.nvmcs, cmd_set_cmb.kvcs, cmd_set_cmb.zncs }, 0..) |csi, i| {
-        if (csi == 0) continue;
-        log.info("I/O Command Set specific Active Namespace ID list(0x07): command set idx:{d} -> csi:{d}", .{ i, csi });
-        @memset(prp1, 0);
-        _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
-            .cdw0 = .{
-                .opc = .identify,
-                .cid = 0x04, //our id
-            },
-            .dptr = .{
-                .prp = .{
-                    .prp1 = prp1_phys,
-                },
-            },
-            .cns = 0x07,
-            .csi = @intCast(i),
-        })) catch |err| {
-            log.err("Failed to execute Identify Command(cns:0x07): {}", .{err});
-            return;
-        };
-
-        const io_command_set_active_nsid_lst: *const [1024]com.NsId = @ptrCast(@alignCast(prp1));
-        for (io_command_set_active_nsid_lst, 0..) |nsid, j| {
-            //stop on first non-zero nsid
-            //log.info("Identify I/O Command Set Active Namespace ID List(0x07): command set idx:{d} nsid idx:{d}, nsid:{d}", .{ i, j, nsid });
-            if (nsid != 0) {
-                log.info("Identify I/O Command Set Active Namespace ID List(0x07): command set idx:{d} nsid idx:{d}, nsid:{d}", .{ i, j, nsid });
-
-                // Identify Namespace Data Structure (CNS 0x00)
-                @memset(prp1, 0);
-                _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
-                    .cdw0 = .{
-                        .opc = .identify,
-                        .cid = 0x05, //our id
-                    },
-                    .nsid = nsid,
-                    .dptr = .{
-                        .prp = .{
-                            .prp1 = prp1_phys,
-                        },
-                    },
-                    .cns = 0x00,
-                })) catch |err| {
-                    log.warn("Identify Command(cns:0x00) failed with error: {}", .{err});
-                    continue; // we do not return as we want to continue with other namespaces
-                };
-
-                const ns_info: *const id.Identify0x00Info = @ptrCast(@alignCast(prp1));
-                log.info("Identify Namespace Data Structure(cns: 0x00): nsid:{d}, info:{}", .{ nsid, ns_info.* });
-
-                try ctrl.ns_info_map.put(nsid, ns_info.*);
-
-                const vs = regs.readRegister(regs.VSRegister, ctrl.bar, .vs); //TODO added to compile the code
-                log.debug("vs: {}", .{vs});
-                if (vs.mjn == 2) {
-                    // TODO: see section 8.b in the 3.5.1 Memory-based Transport Controller Initialization chapter
-                    // TODO: implement it when qemu is ready to handle with NVMe v2.0
-
-                    log.debug("vs2: {}", .{vs});
-                    // CNS 05h: I/O Command Set specific Identify Namespace data structure
-                    @memset(prp1, 0);
-                    _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
-                        .cdw0 = .{
-                            .opc = .identify,
-                            .cid = 0x06, //our id
-                        },
-                        .nsid = nsid,
-                        .dptr = .{
-                            .prp = .{
-                                .prp1 = prp1_phys,
-                            },
-                        },
-                        .cns = 0x05,
-                        .csi = 0x00, //see NVMe NVM Command Set Specification
-                    })) catch |err| {
-                        log.err("Failed to execute Identify Command(cns:0x05): {}", .{err});
-                        return;
-                    };
-
-                    const ns_io_info: *const id.Identify0x05Info = @ptrCast(@alignCast(prp1));
-                    log.info("Identify I/O Command Set specific Identify Namespace data structure for the specified NSID (cns: 0x05): nsid:{d}, info:{}", .{ nsid, ns_io_info.* });
-
-                    // CNS 06h: I/O Command Set specific Identify Controller data structure
-                    @memset(prp1, 0);
-                    _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
-                        .cdw0 = .{
-                            .opc = .identify,
-                            .cid = 0x07, //our id
-                        },
-                        .nsid = nsid,
-                        .dptr = .{
-                            .prp = .{
-                                .prp1 = prp1_phys,
-                            },
-                        },
-                        .cns = 0x06,
-                        .csi = 0x00, //see NVMe NVM Command Set Specification
-                    })) catch |err| {
-                        log.err("Failed to execute Identify Command(cns:0x06): {}", .{err});
-                        return;
-                    };
-
-                    const ns_ctrl_info: *const id.Identify0x06Info = @ptrCast(@alignCast(prp1));
-                    log.info("Identify I/O Command Set specific Identify Controller data structure for the specified NSID (cns: 0x06): nsid:{d}, info:{}", .{ nsid, ns_ctrl_info.* });
-
-                    // CNS 08h: I/O Command Set independent Identify Namespace data structure
-                    @memset(prp1, 0);
-                    _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
-                        .cdw0 = .{
-                            .opc = .identify,
-                            .cid = 0x08, //our id
-                        },
-                        .nsid = nsid,
-                        //.nsid = 0xffffffff, //0xffffffff means all namespaces
-                        .dptr = .{
-                            .prp = .{
-                                .prp1 = prp1_phys,
-                            },
-                        },
-                        .cns = 0x08,
-                    })) catch |err| {
-                        log.err("Failed to execute Identify Command(cns:0x08): {}", .{err});
-                        return;
-                    };
-
-                    const ns_indep_info: *const id.Identify0x08Info = @ptrCast(@alignCast(prp1));
-                    log.info("Identify I/O Command Set Independent Identify Namespace data structure for the specified NSID (cns: 0x08): nsid:{d}, info:{}", .{ nsid, ns_indep_info.* });
-                } //vs.mjr==2
-            }
-        } // nsids
-    }
+    try discoverNamespacesByIoCommandSet(ctrl);
 
     // Get current I/O number of completion/submission queues
     const get_current_number_of_queues_res = acmd.executeAdminCommand(ctrl, @bitCast(feat.GetSetFeaturesCommand{
@@ -751,4 +557,200 @@ fn preConfigureController(ctrl: *NvmeController, doorbell_base: usize, doorbell_
 
     ctrl.sq[0].tail_dbl = @ptrFromInt(doorbell_base + doorbell_size * 0);
     ctrl.cq[0].head_dbl = @ptrFromInt(doorbell_base + doorbell_size * 1);
+}
+
+fn discoverNamespacesByIoCommandSet(ctrl: *NvmeController) !void {
+    const prp1 = try heap.page_allocator.alloc(u8, pmm.page_size);
+    @memset(prp1, 0);
+    defer heap.page_allocator.free(prp1);
+
+    const prp1_phys = try paging.physFromPtr(prp1.ptr);
+
+    _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
+        .cdw0 = .{
+            .opc = .identify,
+            .cid = 0x02, //our id
+        },
+        .dptr = .{
+            .prp = .{
+                .prp1 = prp1_phys,
+            },
+        },
+        .cns = 0x1c,
+    })) catch |err| {
+        log.err("Failed to execute Identify Command(cns:0x1c): {}", .{err});
+        return e.NvmeError.FailedToExecuteIdentifyCommand;
+    };
+
+    const io_command_set_combination_lst: *const [512]id.IoCommandSet = @ptrCast(@alignCast(prp1));
+    //TODO: find only one command set vector combination (comman set with specific ), that's not true cause there could be more than one
+    var cmd_set_cmb: id.IoCommandSet = undefined; //we choose the first combination
+    const cs_idx: u9 = blk: {
+        for (io_command_set_combination_lst, 0..) |cs, i| {
+            //stop on first non-zero command set
+            log.info("Identify I/O Command Set Combination(0x1c): idx:{d}: val:{}", .{ i, cs });
+            if (cs.nvmcs != 0 and (cs.kvcs != 0 or cs.zncs != 0)) {
+                cmd_set_cmb = cs;
+                break :blk @intCast(i);
+            }
+        } else {
+            log.err("No valid Identify I/O Command Set Combination(0x1c) found", .{});
+            return e.NvmeError.NoValidIoCommandSetCombination;
+        }
+    };
+
+    // Set I/O Command Set Profile with Command Set Combination index
+    @memset(prp1, 0);
+    _ = acmd.executeAdminCommand(ctrl, @bitCast(feat.GetSetFeaturesCommand{
+        .set_io_command_profile = .{
+            .cdw0 = .{
+                .opc = .set_features,
+                .cid = 0x03, //our id
+            },
+            .dptr = .{
+                .prp = .{
+                    .prp1 = prp1_phys,
+                },
+            },
+            .sv = 0, //do not save
+            .iosci = cs_idx,
+        },
+    })) catch |err| {
+        log.err("Failed to execute Set Features Command(fid: 0x19): {}", .{err});
+        return e.NvmeError.FailedToExecuteSetFeaturesCommand;
+    };
+
+    // I/O Command Set specific Active Namespace ID list (CNS 07h)
+    // Each Command Set may have a list of active Namespace IDs
+    for ([_]u1{ cmd_set_cmb.nvmcs, cmd_set_cmb.kvcs, cmd_set_cmb.zncs }, 0..) |csi, i| {
+        if (csi == 0) continue;
+        log.info("I/O Command Set specific Active Namespace ID list(0x07): command set idx:{d} -> csi:{d}", .{ i, csi });
+        @memset(prp1, 0);
+        _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
+            .cdw0 = .{
+                .opc = .identify,
+                .cid = 0x04, //our id
+            },
+            .dptr = .{
+                .prp = .{
+                    .prp1 = prp1_phys,
+                },
+            },
+            .cns = 0x07,
+            .csi = @intCast(i),
+        })) catch |err| {
+            log.err("Failed to execute Identify Command(cns:0x07): {}", .{err});
+            return e.NvmeError.FailedToExecuteIdentifyCommand;
+        };
+
+        const io_command_set_active_nsid_lst: *const [1024]com.NsId = @ptrCast(@alignCast(prp1));
+        for (io_command_set_active_nsid_lst, 0..) |nsid, j| {
+            //stop on first non-zero nsid
+            //log.info("Identify I/O Command Set Active Namespace ID List(0x07): command set idx:{d} nsid idx:{d}, nsid:{d}", .{ i, j, nsid });
+            if (nsid != 0) {
+                log.info("Identify I/O Command Set Active Namespace ID List(0x07): command set idx:{d} nsid idx:{d}, nsid:{d}", .{ i, j, nsid });
+
+                // Identify Namespace Data Structure (CNS 0x00)
+                @memset(prp1, 0);
+                _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
+                    .cdw0 = .{
+                        .opc = .identify,
+                        .cid = 0x05, //our id
+                    },
+                    .nsid = nsid,
+                    .dptr = .{
+                        .prp = .{
+                            .prp1 = prp1_phys,
+                        },
+                    },
+                    .cns = 0x00,
+                })) catch |err| {
+                    log.warn("Identify Command(cns:0x00) failed with error: {}", .{err});
+                    continue; // we do not return as we want to continue with other namespaces
+                };
+
+                const ns_info: *const id.Identify0x00Info = @ptrCast(@alignCast(prp1));
+                log.info("Identify Namespace Data Structure(cns: 0x00): nsid:{d}, info:{}", .{ nsid, ns_info.* });
+
+                try ctrl.ns_info_map.put(nsid, ns_info.*);
+
+                const vs = regs.readRegister(regs.VSRegister, ctrl.bar, .vs); //TODO added to compile the code
+                log.debug("vs: {}", .{vs});
+                if (vs.mjn == 2) {
+                    // TODO: see section 8.b in the 3.5.1 Memory-based Transport Controller Initialization chapter
+                    // TODO: implement it when qemu is ready to handle with NVMe v2.0
+
+                    log.debug("vs2: {}", .{vs});
+                    // CNS 05h: I/O Command Set specific Identify Namespace data structure
+                    @memset(prp1, 0);
+                    _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
+                        .cdw0 = .{
+                            .opc = .identify,
+                            .cid = 0x06, //our id
+                        },
+                        .nsid = nsid,
+                        .dptr = .{
+                            .prp = .{
+                                .prp1 = prp1_phys,
+                            },
+                        },
+                        .cns = 0x05,
+                        .csi = 0x00, //see NVMe NVM Command Set Specification
+                    })) catch |err| {
+                        log.err("Failed to execute Identify Command(cns:0x05): {}", .{err});
+                        return e.NvmeError.FailedToExecuteIdentifyCommand;
+                    };
+
+                    const ns_io_info: *const id.Identify0x05Info = @ptrCast(@alignCast(prp1));
+                    log.info("Identify I/O Command Set specific Identify Namespace data structure for the specified NSID (cns: 0x05): nsid:{d}, info:{}", .{ nsid, ns_io_info.* });
+
+                    // CNS 06h: I/O Command Set specific Identify Controller data structure
+                    @memset(prp1, 0);
+                    _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
+                        .cdw0 = .{
+                            .opc = .identify,
+                            .cid = 0x07, //our id
+                        },
+                        .nsid = nsid,
+                        .dptr = .{
+                            .prp = .{
+                                .prp1 = prp1_phys,
+                            },
+                        },
+                        .cns = 0x06,
+                        .csi = 0x00, //see NVMe NVM Command Set Specification
+                    })) catch |err| {
+                        log.err("Failed to execute Identify Command(cns:0x06): {}", .{err});
+                        return e.NvmeError.FailedToExecuteIdentifyCommand;
+                    };
+
+                    const ns_ctrl_info: *const id.Identify0x06Info = @ptrCast(@alignCast(prp1));
+                    log.info("Identify I/O Command Set specific Identify Controller data structure for the specified NSID (cns: 0x06): nsid:{d}, info:{}", .{ nsid, ns_ctrl_info.* });
+
+                    // CNS 08h: I/O Command Set independent Identify Namespace data structure
+                    @memset(prp1, 0);
+                    _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
+                        .cdw0 = .{
+                            .opc = .identify,
+                            .cid = 0x08, //our id
+                        },
+                        .nsid = nsid,
+                        //.nsid = 0xffffffff, //0xffffffff means all namespaces
+                        .dptr = .{
+                            .prp = .{
+                                .prp1 = prp1_phys,
+                            },
+                        },
+                        .cns = 0x08,
+                    })) catch |err| {
+                        log.err("Failed to execute Identify Command(cns:0x08): {}", .{err});
+                        return e.NvmeError.FailedToExecuteIdentifyCommand;
+                    };
+
+                    const ns_indep_info: *const id.Identify0x08Info = @ptrCast(@alignCast(prp1));
+                    log.info("Identify I/O Command Set Independent Identify Namespace data structure for the specified NSID (cns: 0x08): nsid:{d}, info:{}", .{ nsid, ns_indep_info.* });
+                } //vs.mjr==2
+            }
+        } // nsids
+    }
 }
