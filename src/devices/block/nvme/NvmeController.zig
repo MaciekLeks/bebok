@@ -7,10 +7,10 @@ const heap = @import("deps.zig").heap;
 const Pcie = @import("deps.zig").Pcie;
 const NvmeDriver = @import("deps.zig").NvmeDriver;
 
-const io = @import("deps.zig").nvme_io;
+const io = @import("io/io.zig");
+const iocmd = @import("io/command.zig");
 const id = @import("deps.zig").nvme_id;
 const e = @import("deps.zig").nvme_e;
-const iocmd = @import("deps.zig").nvme_iocmd;
 const regs = @import("deps.zig").regs;
 
 const BlockDevice = @import("../BlockDevice.zig");
