@@ -136,18 +136,6 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
         inline else => |phys| paging.virtFromMME(phys),
     };
 
-    const cap_reg_ptr: *volatile u64 = @ptrFromInt(virt);
-    const vs_reg_ptr: *volatile u32 = @ptrFromInt(virt + 0x08);
-    const intmc_reg_ptr: *volatile u32 = @ptrFromInt(virt + 0x04);
-    const intms_reg_ptr: *volatile u32 = @ptrFromInt(virt + 0x0c);
-    const cc_reg_ptr: *volatile u32 = @ptrFromInt(virt + 0x14);
-    const csts_reg_ptr: *volatile u32 = @ptrFromInt(virt + 0x1c);
-    const aqa_reg_ptr: *volatile u32 = @ptrFromInt(virt + 0x24);
-    const asq_reg_ptr: *volatile u64 = @ptrFromInt(virt + 0x28);
-    const acq_reg_ptr: *volatile u64 = @ptrFromInt(virt + 0x30);
-
-    const register_set_ptr: *volatile regs.RegisterSet = @ptrFromInt(virt);
-
     // Adjust if needed page PAT to write-through
     const size: usize = switch (ctrl.bar.size) {
         .as32 => ctrl.bar.size.as32,
@@ -163,28 +151,7 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
     paging.debugLowestEntryFromVirt(virt); //to be commented out
     // End of adjustment
 
-    //log register_set_ptr content
-    log.debug("NVMe register set at address {}:", .{register_set_ptr.*});
-
-    log.debug(
-        \\bar:{}, addr:0x{x},
-        \\cap: 0b{b:0>64}, vs: 0b{b:0>32}
-        \\intms: 0b{b:0>32}, intmc: 0b{b:0>32}
-        \\cc: 0b{b:0>32}, csts: 0b{b:0>32}
-        \\aqa: 0b{b:0>32}, asq: 0b{b:0>64}, acq: 0b{b:0>64}
-    , .{
-        ctrl.bar,
-        virt,
-        cap_reg_ptr.*,
-        vs_reg_ptr.*,
-        intms_reg_ptr.*,
-        intmc_reg_ptr.*,
-        cc_reg_ptr.*,
-        csts_reg_ptr.*,
-        aqa_reg_ptr.*,
-        asq_reg_ptr.*,
-        acq_reg_ptr.*,
-    });
+    // dumpRegisters(ctrl); //TODO: Uncomment this if needed
 
     try verifyController(ctrl);
 
@@ -753,4 +720,48 @@ fn discoverNamespacesByIoCommandSet(ctrl: *NvmeController) !void {
             }
         } // nsids
     }
+}
+
+//fn createIoQueues(ctrl: *NvmeController) !void {}
+
+/// logRegisters logs the content of the NVMe register set directly using the pointer to the register set
+fn dumpRegisters(ctrl: *const NvmeController) void {
+    const virt = switch (ctrl.bar.address) {
+        inline else => |phys| paging.virtFromMME(phys),
+    };
+
+    const cap_reg_ptr: *volatile u64 = @ptrFromInt(virt);
+    const vs_reg_ptr: *volatile u32 = @ptrFromInt(virt + 0x08);
+    const intmc_reg_ptr: *volatile u32 = @ptrFromInt(virt + 0x04);
+    const intms_reg_ptr: *volatile u32 = @ptrFromInt(virt + 0x0c);
+    const cc_reg_ptr: *volatile u32 = @ptrFromInt(virt + 0x14);
+    const csts_reg_ptr: *volatile u32 = @ptrFromInt(virt + 0x1c);
+    const aqa_reg_ptr: *volatile u32 = @ptrFromInt(virt + 0x24);
+    const asq_reg_ptr: *volatile u64 = @ptrFromInt(virt + 0x28);
+    const acq_reg_ptr: *volatile u64 = @ptrFromInt(virt + 0x30);
+
+    const register_set_ptr: *volatile regs.RegisterSet = @ptrFromInt(virt);
+
+    //log register_set_ptr content
+    log.debug("NVMe register set at address {}:", .{register_set_ptr.*});
+
+    log.debug(
+        \\bar:{}, addr:0x{x},
+        \\cap: 0b{b:0>64}, vs: 0b{b:0>32}
+        \\intms: 0b{b:0>32}, intmc: 0b{b:0>32}
+        \\cc: 0b{b:0>32}, csts: 0b{b:0>32}
+        \\aqa: 0b{b:0>32}, asq: 0b{b:0>64}, acq: 0b{b:0>64}
+    , .{
+        ctrl.bar,
+        virt,
+        cap_reg_ptr.*,
+        vs_reg_ptr.*,
+        intms_reg_ptr.*,
+        intmc_reg_ptr.*,
+        cc_reg_ptr.*,
+        csts_reg_ptr.*,
+        aqa_reg_ptr.*,
+        asq_reg_ptr.*,
+        acq_reg_ptr.*,
+    });
 }
