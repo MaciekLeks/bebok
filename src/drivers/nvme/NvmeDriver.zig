@@ -17,7 +17,7 @@ const Pcie = @import("deps.zig").Pcie;
 
 const msix = @import("msix.zig");
 //const ctrl = @import("controller.zig");
-const regs = @import("registers.zig");
+const regs = @import("deps.zig").regs;
 const feat = @import("admin/features.zig");
 const acmd = @import("admin/command.zig");
 const iocmd = @import("io/command.zig");

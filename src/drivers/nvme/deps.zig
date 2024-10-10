@@ -9,3 +9,5 @@ pub const pmm = @import("../../mem/pmm.zig");
 pub const heap = @import("../../mem/heap.zig").heap;
 
 pub const Driver = @import("../Driver.zig");
+
+pub const regs = @import("../../commons/nvme/mod.zig").regs;

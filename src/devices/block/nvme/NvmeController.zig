@@ -11,7 +11,7 @@ const io = @import("deps.zig").nvme_io;
 const id = @import("deps.zig").nvme_id;
 const e = @import("deps.zig").nvme_e;
 const iocmd = @import("deps.zig").nvme_iocmd;
-const regs = @import("deps.zig").nvme_regs;
+const regs = @import("deps.zig").regs;
 
 const BlockDevice = @import("../BlockDevice.zig");
 const Device = @import("../../Device.zig");
