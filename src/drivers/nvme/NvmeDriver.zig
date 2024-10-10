@@ -142,7 +142,6 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
         .as64 => ctrl.bar.size.as64,
     };
 
-    //TODO uncomment this
     log.debug("Adjusting page area for NVMe BAR: {} size: {}", .{ virt, size });
     paging.adjustPageAreaPAT(virt, size, .write_through) catch |err| {
         log.err("Failed to adjust page area PAT for NVMe BAR: {}", .{err});
@@ -165,22 +164,11 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
     try preConfigureController(ctrl, doorbell_base, doorbell_size);
 
     ctrl.enableController();
-    // for (&dev.iosq, 1..) |*sq, sq_dbl_idx| {
-    //     sq.tail_dbl = @ptrFromInt(doorbell_base + doorbell_size * (2 * sq_dbl_idx));
-    // }
-    // for (&dev.iocq, 1..) |*cq, cq_dbl_idx| {
-    //     cq.head_dbl = @ptrFromInt(doorbell_base + doorbell_size * (2 * cq_dbl_idx + 1));
-    // }
-    //
-    //-log.info("NVMe interrupt line: {x}, vector number: 0x{x}", .{ interrupt_line, VEC_NO });
-    //-const unique_id = pci.uniqueId(bus, slot, function);
-    // int.addISR(@intCast(VEC_NO), .{ .unique_id = unique_id, .func = handleInterrupt }) catch |err| {
-    //     log.err("Failed to add NVMe interrupt handler: {}", .{err});
-    // };
 
     // I/O Command Set specific initialization
     try discoverNamespacesByIoCommandSet(ctrl);
 
+    // Create I/O queues
     try createIoQueues(ctrl, doorbell_base, doorbell_size);
 
     log.info("Configuration is done", .{});
