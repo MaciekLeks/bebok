@@ -1,12 +1,12 @@
 const std = @import("std");
 
-const NvmeController = @import("../NvmeController.zig");
 const cpu = @import("../deps.zig").cpu;
 const Pcie = @import("../deps.zig").Pcie;
 
-const e = @import("../deps.zig").nvme_e;
-const regs = @import("../deps.zig").regs;
-const com = @import("../deps.zig").com;
+const NvmeController = @import("../NvmeController.zig");
+const e = @import("../errors.zig");
+const regs = @import("../registers.zig");
+const com = @import("../commons.zig");
 const log = std.log.scoped(.drivers_nvme);
 
 const IoNvmOpcode = enum(u8) {

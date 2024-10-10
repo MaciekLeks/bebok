@@ -12,12 +12,12 @@ const heap = @import("deps.zig").heap;
 const Device = @import("deps.zig").Device;
 const Driver = @import("deps.zig").Driver;
 const BlockDevice = @import("deps.zig").BlockDevice;
-const NvmeController = @import("deps.zig").NvmeController;
 const Pcie = @import("deps.zig").Pcie;
 
+const NvmeController = @import("NvmeController.zig");
 const msix = @import("msix.zig");
 //const ctrl = @import("controller.zig");
-const regs = @import("deps.zig").regs;
+const regs = @import("registers.zig");
 const feat = @import("admin/features.zig");
 const acmd = @import("admin/command.zig");
 //const iocmd = @import("io/command.zig");

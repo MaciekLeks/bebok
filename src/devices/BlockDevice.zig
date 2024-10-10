@@ -1,6 +1,6 @@
 const std = @import("std");
-const NvmeController = @import("nvme/NvmeController.zig");
-const Device = @import("../Device.zig");
+const NvmeController = @import("deps.zig").NvmeController;
+const Device = @import("Device.zig");
 
 const BlockDevice = @This();
 

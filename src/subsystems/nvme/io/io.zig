@@ -1,5 +1,5 @@
 const cmnd = @import("command.zig");
-const com = @import("../deps.zig").com;
+const com = @import("../commons.zig");
 
 pub const IoNvmCommandSetCommand = packed union {
     const DatasetManagement = packed struct(u8) { access_frequency: u4, access_latency: u2, sequential_request: u1, incompressible: u1 };

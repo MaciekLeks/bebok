@@ -5,16 +5,17 @@ const pmm = @import("deps.zig").pmm;
 const paging = @import("deps.zig").paging;
 const heap = @import("deps.zig").heap;
 const Pcie = @import("deps.zig").Pcie;
-const NvmeDriver = @import("deps.zig").NvmeDriver;
+
+const NvmeDriver = @import("NvmeDriver.zig");
 
 const io = @import("io/io.zig");
 const iocmd = @import("io/command.zig");
-const id = @import("deps.zig").nvme_id;
-const e = @import("deps.zig").nvme_e;
-const regs = @import("deps.zig").regs;
+const id = @import("admin/identify.zig");
+const e = @import("errors.zig");
+const regs = @import("registers.zig");
 
-const BlockDevice = @import("../BlockDevice.zig");
-const Device = @import("../../Device.zig");
+const BlockDevice = @import("deps.zig").BlockDevice;
+const Device = @import("deps.zig").Device;
 
 const NvmeController = @This();
 

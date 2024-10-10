@@ -1,6 +1,6 @@
 const std = @import("std");
 const log = std.log.scoped(.driver);
-const BlockDevice = @import("block/BlockDevice.zig");
+const BlockDevice = @import("BlockDevice.zig");
 
 const BusDeviceAddress = @import("deps.zig").BusDeviceAddress;
 const Bus = @import("deps.zig").Bus;

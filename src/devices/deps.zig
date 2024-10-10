@@ -1,7 +1,8 @@
 pub const BusDeviceAddress = @import("../bus/bus.zig").BusDeviceAddress;
 const Bus = @import("../bus/mod.zig").Bus;
 pub const Pcie = @import("../bus/mod.zig").Pcie;
-pub const NvmeDriver = @import("../drivers/mod.zig").NvmeDriver;
+pub const NvmeDriver = @import("../subsystems/nvme/mod.zig").NvmeDriver;
+pub const NvmeController = @import("../subsystems/nvme/mod.zig").NvmeController;
 pub const Driver = @import("../drivers/Driver.zig");
 pub const heap = @import("../mem/heap.zig");
 pub const pmm = @import("../mem/pmm.zig");

@@ -1,9 +1,9 @@
 const std = @import("std");
 
-const NvmeController = @import("../deps.zig").NvmeController;
+const NvmeController = @import("../NvmeController.zig");
 
 const e = @import("../errors.zig");
-const regs = @import("../deps.zig").regs;
+const regs = @import("../registers.zig");
 const com = @import("../commons.zig");
 
 const log = std.log.scoped(.drivers_nvme);
