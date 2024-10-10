@@ -225,172 +225,7 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
     // I/O Command Set specific initialization
     try discoverNamespacesByIoCommandSet(ctrl);
 
-    // Get current I/O number of completion/submission queues
-    const get_current_number_of_queues_res = acmd.executeAdminCommand(ctrl, @bitCast(feat.GetSetFeaturesCommand{
-        .get_number_of_queues = .{
-            .cdw0 = .{
-                .opc = .get_features,
-                .cid = 0x09, //our id
-            },
-            .sel = .current,
-        },
-    })) catch |err| {
-        log.err("Failed to execute Get Features Command(fid: 0x07): {}", .{err});
-        return;
-    };
-
-    const current_ncqr: u16 = @truncate((get_current_number_of_queues_res.cmd_res0 >> 16) + 1); //0-based value, so 0 means 1
-    const current_nsqr: u16 = @truncate(get_current_number_of_queues_res.cmd_res0 + 1); //0-based value
-    log.debug("Get Number of Queues: Current Number Of Completion/Submission Queues: {d}/{d}", .{ current_ncqr, current_nsqr });
-
-    // Get default I/O number of completion/submission queues
-    const get_default_number_of_queues_res = acmd.executeAdminCommand(ctrl, @bitCast(feat.GetSetFeaturesCommand{
-        .get_number_of_queues = .{
-            .cdw0 = .{
-                .opc = .get_features,
-                .cid = 0x10, //our id
-            },
-            .sel = .default,
-        },
-    })) catch |err| {
-        log.err("Failed to execute Get Features Command(fid: 0x07): {}", .{err});
-        return;
-    };
-
-    const supported_ncqr: u16 = @truncate((get_default_number_of_queues_res.cmd_res0 >> 16) + 1); //0-based value, so 0 means 1
-    const supported_nsqr: u16 = @truncate(get_default_number_of_queues_res.cmd_res0 + 1); //0-based value
-    log.debug("Get Number of Queues Command: Default Number Of Completion/Submission Queues: {d}/{d}", .{ supported_ncqr, supported_nsqr });
-
-    if (ctrl.ncqr > supported_ncqr or ctrl.nsqr > supported_nsqr) {
-        log.err("Requested number of completion/submission queues is not supported", .{});
-    }
-
-    // Set Interrupt Coalescing
-    _ = acmd.executeAdminCommand(ctrl, @bitCast(feat.GetSetFeaturesCommand{
-        .SetInterruptCoalescing = .{
-            .cdw0 = .{
-                .opc = .set_features,
-                .cid = 0x0a, //our id
-            },
-            .thr = 0, //0-based value
-            .time = 0, //0-based
-        },
-    })) catch |err| {
-        log.err("Failed to execute Set Interrupt Coalescing: {}. Back to the defaults.", .{err});
-    };
-
-    // Get Interrupt Coalescing
-    const get_interrupt_coalescing_res = acmd.executeAdminCommand(ctrl, @bitCast(feat.GetSetFeaturesCommand{
-        .get_interrupt_coalescing = .{
-            .cdw0 = .{
-                .opc = .get_features,
-                .cid = 0x0b, //our id
-            },
-            .sel = .current,
-        },
-    })) catch |err| {
-        log.err("Failed to execute Get Features Command(fid: 0x0b): {}", .{err});
-        return;
-    };
-    const current_aggeration_time: u16 = @truncate((get_interrupt_coalescing_res.cmd_res0 >> 16) + 1); //0-based value, so 0 means 1
-    const current_aggregation_threshold: u16 = @truncate(get_interrupt_coalescing_res.cmd_res0 + 1); //0-based value
-
-    log.debug("Get Interrupt Coalescing: Current Aggregation Time/Threshold: {d}/{d}", .{ current_aggeration_time, current_aggregation_threshold });
-
-    log.info("Create I/O Completion Queues", .{});
-    // for (&dev.cq, 1..) |*cq, cq_id| {
-    for (1..ctrl.cq.len) |cq_id| {
-        var cq = &ctrl.cq[cq_id];
-        cq.* = .{};
-
-        cq.entries = heap.page_allocator.alloc(com.CQEntry, nvme_iocqs) catch |err| {
-            log.err("Failed to allocate memory for completion queue entries: {}", .{err});
-            return;
-        };
-
-        const cq_phys = paging.physFromPtr(ctrl.cq[cq_id].entries.ptr) catch |err| {
-            log.err("Failed to get physical address of I/O Completion Queue: {}", .{err});
-            return;
-        };
-        @memset(cq.entries, .{});
-
-        const create_iocq_res = acmd.executeAdminCommand(ctrl, @bitCast(aq.IoQueueCommand{
-            .create_completion_queue = .{
-                .cdw0 = .{
-                    .opc = .create_io_cq,
-                    .cid = @intCast(0x300 + cq_id), //our id
-                },
-                .dptr = .{
-                    .prp = .{
-                        .prp1 = cq_phys,
-                    },
-                },
-                .qid = @intCast(cq_id), // we use only one queue
-                .qsize = nvme_iocqs,
-                .pc = true, // physically contiguous - the buddy allocator allocs memory in physically contiguous blocks
-                .ien = true, // interrupt enabled
-                .iv = tmp_msix_table_idx, //TODO: msi_x - message table entry index
-            },
-        })) catch |err| {
-            log.err("Failed to execute Create CQ Command: {}", .{err});
-            return;
-        };
-
-        cq.head_dbl = @ptrFromInt(doorbell_base + doorbell_size * (2 * cq_id + 1));
-
-        _ = create_iocq_res; //TODO
-    }
-
-    log.info("Create I/O Submission Queues", .{});
-    //for (&dev.sq[1..], 1..) |*sq, sq_id| {
-    for (1..ctrl.sq.len) |sq_id| {
-        var sq = &ctrl.sq[sq_id];
-        sq.* = .{};
-
-        sq.entries = heap.page_allocator.alloc(com.SQEntry, nvme_iosqs) catch |err| {
-            log.err("Failed to allocate memory for submission queue entries: {}", .{err});
-            return;
-        };
-
-        const sq_phys = paging.physFromPtr(ctrl.sq[sq_id].entries.ptr) catch |err| {
-            log.err("Failed to get physical address of I/O Submission Queue: {}", .{err});
-            return;
-        };
-        @memset(sq.entries, 0);
-
-        const create_iosq_res = acmd.executeAdminCommand(ctrl, @bitCast(aq.IoQueueCommand{
-            .create_submission_queue = .{
-                .cdw0 = .{
-                    .opc = .create_io_sq,
-                    .cid = @intCast(0x300 + sq_id), //our id
-                },
-                .dptr = .{
-                    .prp = .{
-                        .prp1 = sq_phys,
-                    },
-                },
-                .qid = @intCast(sq_id), // we use only one queue
-                .qsize = nvme_iosqs,
-                .pc = true,
-                .qprio = .medium,
-                .cqid = @intCast(sq_id), // we use only one pair of queues
-                .nvmsetid = 0, //TODO ?
-            },
-        })) catch |err| {
-            log.err("Failed to execute Create SQ Command: {}", .{err});
-            return;
-        };
-
-        // (sc==0 and sct=1) means no success (see. 5.5.1 in the NVME 2.0 spec)
-        if (create_iosq_res.status.sct != 0) {
-            log.err("Create I/O SQ failed qid:{0d} invalid cqid:{0d}", .{sq_id});
-            return;
-        }
-
-        sq.tail_dbl = @ptrFromInt(doorbell_base + doorbell_size * (2 * sq_id));
-
-        log.info("I/O Submission Queue created: qid:{d}, tail_dbl:0x{x}", .{ sq_id, sq.tail_dbl });
-    }
+    try createIoQueues(ctrl, doorbell_base, doorbell_size);
 
     log.info("Configuration is done", .{});
 }
@@ -722,7 +557,174 @@ fn discoverNamespacesByIoCommandSet(ctrl: *NvmeController) !void {
     }
 }
 
-//fn createIoQueues(ctrl: *NvmeController) !void {}
+fn createIoQueues(ctrl: *NvmeController, doorbell_base: usize, doorbell_size: u32) !void {
+    // Get current I/O number of completion/submission queues
+    const get_current_number_of_queues_res = acmd.executeAdminCommand(ctrl, @bitCast(feat.GetSetFeaturesCommand{
+        .get_number_of_queues = .{
+            .cdw0 = .{
+                .opc = .get_features,
+                .cid = 0x09, //our id
+            },
+            .sel = .current,
+        },
+    })) catch |err| {
+        log.err("Failed to execute Get Features Command(fid: 0x07): {}", .{err});
+        return;
+    };
+
+    const current_ncqr: u16 = @truncate((get_current_number_of_queues_res.cmd_res0 >> 16) + 1); //0-based value, so 0 means 1
+    const current_nsqr: u16 = @truncate(get_current_number_of_queues_res.cmd_res0 + 1); //0-based value
+    log.debug("Get Number of Queues: Current Number Of Completion/Submission Queues: {d}/{d}", .{ current_ncqr, current_nsqr });
+
+    // Get default I/O number of completion/submission queues
+    const get_default_number_of_queues_res = acmd.executeAdminCommand(ctrl, @bitCast(feat.GetSetFeaturesCommand{
+        .get_number_of_queues = .{
+            .cdw0 = .{
+                .opc = .get_features,
+                .cid = 0x10, //our id
+            },
+            .sel = .default,
+        },
+    })) catch |err| {
+        log.err("Failed to execute Get Features Command(fid: 0x07): {}", .{err});
+        return;
+    };
+
+    const supported_ncqr: u16 = @truncate((get_default_number_of_queues_res.cmd_res0 >> 16) + 1); //0-based value, so 0 means 1
+    const supported_nsqr: u16 = @truncate(get_default_number_of_queues_res.cmd_res0 + 1); //0-based value
+    log.debug("Get Number of Queues Command: Default Number Of Completion/Submission Queues: {d}/{d}", .{ supported_ncqr, supported_nsqr });
+
+    if (ctrl.ncqr > supported_ncqr or ctrl.nsqr > supported_nsqr) {
+        log.err("Requested number of completion/submission queues is not supported", .{});
+    }
+
+    // Set Interrupt Coalescing
+    _ = acmd.executeAdminCommand(ctrl, @bitCast(feat.GetSetFeaturesCommand{
+        .SetInterruptCoalescing = .{
+            .cdw0 = .{
+                .opc = .set_features,
+                .cid = 0x0a, //our id
+            },
+            .thr = 0, //0-based value
+            .time = 0, //0-based
+        },
+    })) catch |err| {
+        log.err("Failed to execute Set Interrupt Coalescing: {}. Back to the defaults.", .{err});
+    };
+
+    // Get Interrupt Coalescing
+    const get_interrupt_coalescing_res = acmd.executeAdminCommand(ctrl, @bitCast(feat.GetSetFeaturesCommand{
+        .get_interrupt_coalescing = .{
+            .cdw0 = .{
+                .opc = .get_features,
+                .cid = 0x0b, //our id
+            },
+            .sel = .current,
+        },
+    })) catch |err| {
+        log.err("Failed to execute Get Features Command(fid: 0x0b): {}", .{err});
+        return;
+    };
+    const current_aggeration_time: u16 = @truncate((get_interrupt_coalescing_res.cmd_res0 >> 16) + 1); //0-based value, so 0 means 1
+    const current_aggregation_threshold: u16 = @truncate(get_interrupt_coalescing_res.cmd_res0 + 1); //0-based value
+
+    log.debug("Get Interrupt Coalescing: Current Aggregation Time/Threshold: {d}/{d}", .{ current_aggeration_time, current_aggregation_threshold });
+
+    log.info("Create I/O Completion Queues", .{});
+    // for (&dev.cq, 1..) |*cq, cq_id| {
+    for (1..ctrl.cq.len) |cq_id| {
+        var cq = &ctrl.cq[cq_id];
+        cq.* = .{};
+
+        cq.entries = heap.page_allocator.alloc(com.CQEntry, nvme_iocqs) catch |err| {
+            log.err("Failed to allocate memory for completion queue entries: {}", .{err});
+            return;
+        };
+
+        const cq_phys = paging.physFromPtr(ctrl.cq[cq_id].entries.ptr) catch |err| {
+            log.err("Failed to get physical address of I/O Completion Queue: {}", .{err});
+            return;
+        };
+        @memset(cq.entries, .{});
+
+        const create_iocq_res = acmd.executeAdminCommand(ctrl, @bitCast(aq.IoQueueCommand{
+            .create_completion_queue = .{
+                .cdw0 = .{
+                    .opc = .create_io_cq,
+                    .cid = @intCast(0x300 + cq_id), //our id
+                },
+                .dptr = .{
+                    .prp = .{
+                        .prp1 = cq_phys,
+                    },
+                },
+                .qid = @intCast(cq_id), // we use only one queue
+                .qsize = nvme_iocqs,
+                .pc = true, // physically contiguous - the buddy allocator allocs memory in physically contiguous blocks
+                .ien = true, // interrupt enabled
+                .iv = tmp_msix_table_idx, //TODO: msi_x - message table entry index
+            },
+        })) catch |err| {
+            log.err("Failed to execute Create CQ Command: {}", .{err});
+            return;
+        };
+
+        cq.head_dbl = @ptrFromInt(doorbell_base + doorbell_size * (2 * cq_id + 1));
+
+        _ = create_iocq_res; //TODO
+    }
+
+    log.info("Create I/O Submission Queues", .{});
+    //for (&dev.sq[1..], 1..) |*sq, sq_id| {
+    for (1..ctrl.sq.len) |sq_id| {
+        var sq = &ctrl.sq[sq_id];
+        sq.* = .{};
+
+        sq.entries = heap.page_allocator.alloc(com.SQEntry, nvme_iosqs) catch |err| {
+            log.err("Failed to allocate memory for submission queue entries: {}", .{err});
+            return;
+        };
+
+        const sq_phys = paging.physFromPtr(ctrl.sq[sq_id].entries.ptr) catch |err| {
+            log.err("Failed to get physical address of I/O Submission Queue: {}", .{err});
+            return;
+        };
+        @memset(sq.entries, 0);
+
+        const create_iosq_res = acmd.executeAdminCommand(ctrl, @bitCast(aq.IoQueueCommand{
+            .create_submission_queue = .{
+                .cdw0 = .{
+                    .opc = .create_io_sq,
+                    .cid = @intCast(0x300 + sq_id), //our id
+                },
+                .dptr = .{
+                    .prp = .{
+                        .prp1 = sq_phys,
+                    },
+                },
+                .qid = @intCast(sq_id), // we use only one queue
+                .qsize = nvme_iosqs,
+                .pc = true,
+                .qprio = .medium,
+                .cqid = @intCast(sq_id), // we use only one pair of queues
+                .nvmsetid = 0, //TODO ?
+            },
+        })) catch |err| {
+            log.err("Failed to execute Create SQ Command: {}", .{err});
+            return;
+        };
+
+        // (sc==0 and sct=1) means no success (see. 5.5.1 in the NVME 2.0 spec)
+        if (create_iosq_res.status.sct != 0) {
+            log.err("Create I/O SQ failed qid:{0d} invalid cqid:{0d}", .{sq_id});
+            return;
+        }
+
+        sq.tail_dbl = @ptrFromInt(doorbell_base + doorbell_size * (2 * sq_id));
+
+        log.info("I/O Submission Queue created: qid:{d}, tail_dbl:0x{x}", .{ sq_id, sq.tail_dbl });
+    }
+}
 
 /// logRegisters logs the content of the NVMe register set directly using the pointer to the register set
 fn dumpRegisters(ctrl: *const NvmeController) void {
