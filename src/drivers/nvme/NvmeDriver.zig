@@ -502,6 +502,8 @@ fn discoverNamespacesByIoCommandSet(ctrl: *NvmeController) !void {
 }
 
 fn createIoQueues(ctrl: *NvmeController, doorbell_base: usize, doorbell_size: u32) !void {
+    //we use page allocator cause we need to be aligned to the page size
+    const pg_alloctr = heap.page_allocator;
     // Get current I/O number of completion/submission queues
     const get_current_number_of_queues_res = acmd.executeAdminCommand(ctrl, @bitCast(feat.GetSetFeaturesCommand{
         .get_number_of_queues = .{
@@ -580,15 +582,8 @@ fn createIoQueues(ctrl: *NvmeController, doorbell_base: usize, doorbell_size: u3
         var cq = &ctrl.cq[cq_id];
         cq.* = .{};
 
-        cq.entries = heap.page_allocator.alloc(com.CQEntry, nvme_iocqs) catch |err| {
-            log.err("Failed to allocate memory for completion queue entries: {}", .{err});
-            return;
-        };
-
-        const cq_phys = paging.physFromPtr(ctrl.cq[cq_id].entries.ptr) catch |err| {
-            log.err("Failed to get physical address of I/O Completion Queue: {}", .{err});
-            return;
-        };
+        cq.entries = try pg_alloctr.alloc(com.CQEntry, nvme_iocqs);
+        const cq_phys = try paging.physFromPtr(ctrl.cq[cq_id].entries.ptr);
         @memset(cq.entries, .{});
 
         const create_iocq_res = acmd.executeAdminCommand(ctrl, @bitCast(aq.IoQueueCommand{
@@ -610,7 +605,7 @@ fn createIoQueues(ctrl: *NvmeController, doorbell_base: usize, doorbell_size: u3
             },
         })) catch |err| {
             log.err("Failed to execute Create CQ Command: {}", .{err});
-            return;
+            return e.NvmeError.FailedToExecuteCreateCQCommand;
         };
 
         cq.head_dbl = @ptrFromInt(doorbell_base + doorbell_size * (2 * cq_id + 1));
@@ -624,15 +619,8 @@ fn createIoQueues(ctrl: *NvmeController, doorbell_base: usize, doorbell_size: u3
         var sq = &ctrl.sq[sq_id];
         sq.* = .{};
 
-        sq.entries = heap.page_allocator.alloc(com.SQEntry, nvme_iosqs) catch |err| {
-            log.err("Failed to allocate memory for submission queue entries: {}", .{err});
-            return;
-        };
-
-        const sq_phys = paging.physFromPtr(ctrl.sq[sq_id].entries.ptr) catch |err| {
-            log.err("Failed to get physical address of I/O Submission Queue: {}", .{err});
-            return;
-        };
+        sq.entries = try heap.page_allocator.alloc(com.SQEntry, nvme_iosqs);
+        const sq_phys = try paging.physFromPtr(ctrl.sq[sq_id].entries.ptr);
         @memset(sq.entries, 0);
 
         const create_iosq_res = acmd.executeAdminCommand(ctrl, @bitCast(aq.IoQueueCommand{
@@ -655,13 +643,13 @@ fn createIoQueues(ctrl: *NvmeController, doorbell_base: usize, doorbell_size: u3
             },
         })) catch |err| {
             log.err("Failed to execute Create SQ Command: {}", .{err});
-            return;
+            return e.NvmeError.FailedToExecuteCreateSQCommand;
         };
 
         // (sc==0 and sct=1) means no success (see. 5.5.1 in the NVME 2.0 spec)
         if (create_iosq_res.status.sct != 0) {
             log.err("Create I/O SQ failed qid:{0d} invalid cqid:{0d}", .{sq_id});
-            return;
+            return e.NvmeError.FailedToCreateIOSQ;
         }
 
         sq.tail_dbl = @ptrFromInt(doorbell_base + doorbell_size * (2 * sq_id));

@@ -4,6 +4,8 @@ const math = std.math;
 const pmm = @import("../../../mem/pmm.zig");
 const paging = @import("../../../paging.zig");
 
+const heap = @import("deps.zig").heap;
+
 const Pcie = @import("../../deps.zig").Pcie;
 const NvmeDriver = @import("../../deps.zig").NvmeDriver;
 
@@ -62,6 +64,9 @@ pub fn init(allocator: std.mem.Allocator, base: *Device) !*NvmeController {
 pub fn deinit(self: *NvmeController) void {
     defer self.alloctr.destroy(self.base);
     self.ns_info_map.deinit();
+    const pg_alloctr = heap.page_allocator;
+    for (self.cq) |cq| pg_alloctr.free(cq.entries);
+    for (self.sq) |sq| pg_alloctr.free(sq.entries);
 }
 
 /// Read from the NVMe drive
