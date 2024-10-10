@@ -178,50 +178,6 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
     //     log.err("Failed to add NVMe interrupt handler: {}", .{err});
     // };
 
-    // Allocate one prp1 for all commands
-    const prp1 = heap.page_allocator.alloc(u8, pmm.page_size) catch |err| {
-        log.err("Failed to allocate memory for identify command: {}", .{err});
-        return;
-    };
-    @memset(prp1, 0);
-    defer heap.page_allocator.free(prp1);
-    const prp1_phys = paging.physFromPtr(prp1.ptr) catch |err| {
-        log.err("Failed to get physical address of identify command: {}", .{err});
-        return;
-    };
-
-    _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
-        .cdw0 = .{
-            .opc = .identify,
-            .cid = 0x01, //our id
-        },
-        .dptr = .{
-            .prp = .{
-                .prp1 = prp1_phys,
-                .prp2 = 0, //we need only one page
-            },
-        },
-        .cns = 0x01,
-    })) catch |err| {
-        log.err("Failed to execute Identify Command(cns:0x01): {}", .{err});
-        return;
-    };
-
-    const identify_info: *const id.ControllerInfo = @ptrCast(@alignCast(prp1));
-    log.info("Identify Controller Data Structure(cns: 0x01): {}", .{identify_info.*});
-    if (identify_info.cntrltype != @intFromEnum(NvmeController.ControllerType.io_controller)) {
-        log.err("Unsupported NVMe controller type: {}", .{identify_info.cntrltype});
-        return;
-    }
-    // const id_ctrl = try identifyController(heap.page_allocator, ctrl);
-    //if (id_ctrl.cntrltype != NvmeController.ControllerType.io_controller) {
-    //    log.err("Unsupported NVMe controller type: {}", .{id_ctrl.cntrltype});
-    //    return;
-    //}
-    const cc = regs.readRegister(regs.CCRegister, ctrl.bar, .cc);
-    ctrl.mdts_bytes = math.pow(u32, 2, 12 + cc.mps + identify_info.mdts);
-    log.info("MDTS in kbytes: {}", .{ctrl.mdts_bytes / 1024});
-
     // I/O Command Set specific initialization
     try discoverNamespacesByIoCommandSet(ctrl);
 
@@ -724,6 +680,45 @@ fn createIoQueues(ctrl: *NvmeController, doorbell_base: usize, doorbell_size: u3
 
         log.info("I/O Submission Queue created: qid:{d}, tail_dbl:0x{x}", .{ sq_id, sq.tail_dbl });
     }
+}
+
+fn identifyController(ctrl: *NvmeController) !void {
+    // Allocate one prp1 for all commands
+    const prp1 = try heap.page_allocator.alloc(u8, pmm.page_size);
+    @memset(prp1, 0);
+    defer heap.page_allocator.free(prp1);
+    const prp1_phys = try paging.physFromPtr(prp1.ptr);
+
+    _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
+        .cdw0 = .{
+            .opc = .identify,
+            .cid = 0x01, //our id
+        },
+        .dptr = .{
+            .prp = .{
+                .prp1 = prp1_phys,
+                .prp2 = 0, //we need only one page
+            },
+        },
+        .cns = 0x01,
+    })) catch |err| {
+        log.err("Failed to execute Identify Command(cns:0x01): {}", .{err});
+        return e.NvmeError.FailedToExecuteIdentifyCommand;
+    };
+
+    const identify_info: *const id.ControllerInfo = @ptrCast(@alignCast(prp1));
+    log.info("Identify Controller Data Structure(cns: 0x01): {}", .{identify_info.*});
+
+    const ctrl_type: NvmeController.ControllerType = @enumFromInt(identify_info.cntrl);
+    if (ctrl_type != NvmeController.ControllerType.io_controller) {
+        log.err("Unsupported NVMe controller type: {}", .{identify_info.cntrltype});
+        return e.NvmeError.UnsupportedControllerType;
+    }
+    ctrl.type = ctrl_type;
+
+    const cc = regs.readRegister(regs.CCRegister, ctrl.bar, .cc);
+    ctrl.mdts_bytes = math.pow(u32, 2, 12 + cc.mps + identify_info.mdts);
+    log.info("MDTS in kbytes: {}", .{ctrl.mdts_bytes / 1024});
 }
 
 /// logRegisters logs the content of the NVMe register set directly using the pointer to the register set
