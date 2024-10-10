@@ -10,3 +10,5 @@ pub const Pcie = @import("../../deps.zig").Pcie;
 pub const NvmeDriver = @import("../../deps.zig").NvmeDriver;
 pub const Driver = @import("../../deps.zig");
 pub const heap = @import("../../deps.zig").heap;
+pub const pmm = @import("../../deps.zig").pmm;
+pub const paging = @import("../../deps.zig").paging;

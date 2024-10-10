@@ -1,13 +1,11 @@
 const std = @import("std");
 const math = std.math;
 
-const pmm = @import("../../../mem/pmm.zig");
-const paging = @import("../../../paging.zig");
-
+const pmm = @import("deps.zig").pmm;
+const paging = @import("deps.zig").paging;
 const heap = @import("deps.zig").heap;
-
-const Pcie = @import("../../deps.zig").Pcie;
-const NvmeDriver = @import("../../deps.zig").NvmeDriver;
+const Pcie = @import("deps.zig").Pcie;
+const NvmeDriver = @import("deps.zig").NvmeDriver;
 
 const io = @import("deps.zig").nvme_io;
 const id = @import("deps.zig").nvme_id;
