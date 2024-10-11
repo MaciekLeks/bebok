@@ -95,6 +95,10 @@ fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.bu
     //const utils_module = b.addModule("utils", .{ .root_source_file = .{ .path = "lib/utils/mod.zig" } });
     const utils_module = b.addModule("utils", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "lib/utils/mod.zig" } } });
     compile_kernel_action.root_module.addImport("utils", utils_module);
+
+    const nvme_module = b.addModule("nvme", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/nvme/mod.zig" } } });
+    //nvme_module.addImport("kernel", &compile_kernel_action.root_module); //we need limine there
+    compile_kernel_action.root_module.addImport("nvme", nvme_module);
     //}Modules
 
     return compile_kernel_action;

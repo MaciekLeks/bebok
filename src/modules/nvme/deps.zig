@@ -1,13 +1,14 @@
-pub const BusDeviceAddress = @import("../../bus/mod.zig").BusDeviceAddress;
-const Bus = @import("../../bus/mod.zig").Bus;
-pub const Pcie = @import("../../bus/mod.zig").Pcie;
+pub const BusDeviceAddress = @import("root").bus.BusDeviceAddress;
+pub const Bus = @import("root").bus.Bus;
+pub const Pcie = @import("root").bus.Pcie;
 
-pub const Driver = @import("../../drivers/mod.zig").Driver;
-pub const Device = @import("../../devices/mod.zig").Device;
-pub const BlockDevice = @import("../../devices/mod.zig").BlockDevice;
+//pub const Driver = @import("../../drivers/mod.zig").Driver;
+pub const Driver = @import("root").Driver;
+pub const Device = @import("root").Device;
+pub const BlockDevice = @import("root").BlockDevice;
 
-pub const heap = @import("../../mem/heap.zig").heap;
-pub const pmm = @import("../../mem/pmm.zig");
-pub const paging = @import("../../paging.zig");
-pub const cpu = @import("../../cpu.zig");
-pub const int = @import("../../int.zig");
+pub const heap = @import("root").heap;
+pub const pmm = @import("root").pmm;
+pub const paging = @import("root").paging;
+pub const cpu = @import("root").cpu;
+pub const int = @import("root").int;

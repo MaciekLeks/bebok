@@ -2,21 +2,23 @@ const std = @import("std");
 const builtin = @import("builtin");
 const limine = @import("limine");
 const config = @import("config");
-const cpu = @import("cpu.zig");
 //const start = @import("start.zig");
 const segmentation = @import("segmentation.zig");
-const paging = @import("paging.zig");
-const pmm = @import("mem/pmm.zig");
-const heap = @import("mem/heap.zig").heap;
+pub const paging = @import("paging.zig");
+pub const pmm = @import("mem/pmm.zig");
+pub const heap = @import("mem/heap.zig").heap;
 const term = @import("terminal");
-const Bus = @import("bus/bus.zig").Bus;
-const Pcie = @import("bus/Pcie.zig");
-const Driver = @import("drivers/Driver.zig");
+pub const Driver = @import("drivers/Driver.zig");
+pub const Device = @import("devices/Device.zig");
+pub const BlockDevice = @import("devices/BlockDevice.zig");
 const Registry = @import("drivers/Registry.zig");
-const NvmeDriver = @import("modules/nvme/mod.zig").NvmeDriver;
-const int = @import("int.zig");
+const NvmeDriver = @import("nvme").NvmeDriver;
 const smp = @import("smp.zig");
 const acpi = @import("acpi.zig");
+pub const cpu = @import("cpu.zig");
+pub const int = @import("int.zig");
+
+pub const bus = @import("bus/mod.zig");
 
 const apic_test = @import("arch/x86_64/apic.zig");
 
@@ -131,7 +133,7 @@ export fn _start() callconv(.C) noreturn {
         @panic("Nvme driver registration error");
     };
 
-    const pcie_bus = Bus.init(arena_allocator.allocator(), .pcie, registry) catch |err| {
+    const pcie_bus = bus.Bus.init(arena_allocator.allocator(), .pcie, registry) catch |err| {
         log.err("PCIe bus creation error: {}", .{err});
         @panic("PCIe bus creation error");
     };
