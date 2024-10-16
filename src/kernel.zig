@@ -4,9 +4,6 @@ const limine = @import("limine");
 const config = @import("config");
 //const start = @import("start.zig");
 const segmentation = @import("segmentation.zig");
-pub const paging = @import("paging.zig");
-pub const pmm = @import("mem/pmm.zig");
-pub const heap = @import("mem/heap.zig").heap;
 const term = @import("terminal");
 pub const Driver = @import("drivers/Driver.zig");
 pub const Device = @import("devices/Device.zig");
@@ -15,10 +12,13 @@ const Registry = @import("drivers/Registry.zig");
 const NvmeDriver = @import("nvme").NvmeDriver;
 const smp = @import("smp.zig");
 const acpi = @import("acpi.zig");
-pub const cpu = @import("cpu.zig");
-pub const int = @import("int.zig");
 
 pub const bus = @import("bus/mod.zig");
+pub const cpu = @import("cpu.zig");
+pub const int = @import("int.zig");
+pub const paging = @import("paging.zig");
+pub const pmm = @import("mem/pmm.zig");
+pub const heap = @import("mem/heap.zig").heap;
 
 const apic_test = @import("arch/x86_64/apic.zig");
 

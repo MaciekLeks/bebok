@@ -88,12 +88,12 @@ fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.bu
 
     //{Modules
     //const terminal_module = b.addModule("terminal", .{ .root_source_file = .{ .path = "lib/terminal/mod.zig" } });
-    const terminal_module = b.addModule("terminal", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "lib/terminal/mod.zig" } } });
+    const terminal_module = b.addModule("terminal", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/terminal/mod.zig" } } });
     terminal_module.addImport("limine", limine_zig_mod); //we need limine there
     compile_kernel_action.root_module.addImport("terminal", terminal_module);
 
     //const utils_module = b.addModule("utils", .{ .root_source_file = .{ .path = "lib/utils/mod.zig" } });
-    const utils_module = b.addModule("utils", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "lib/utils/mod.zig" } } });
+    const utils_module = b.addModule("utils", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/utils/mod.zig" } } });
     compile_kernel_action.root_module.addImport("utils", utils_module);
 
     const nvme_module = b.addModule("nvme", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/nvme/mod.zig" } } });
