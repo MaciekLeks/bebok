@@ -297,6 +297,7 @@ pub fn init(comptime isr_handle_loop_fn: ISRHandleLoopFn) void {
     //         else => {},
     //     }
     // }
+    /
     inline for (et, 0..) |e, idx| {
         setDefaultExceptionEntry(idx, if (e.type == Exception.Type.fault) IdtEntry.GateType.interrupt_gate else IdtEntry.GateType.trap_gate);
 
@@ -333,6 +334,7 @@ pub fn init(comptime isr_handle_loop_fn: ISRHandleLoopFn) void {
     //     //TODO: add
     //
     // }
+
 
     // counts from 0x30, do not tuch disabled PIC remapped vectors - see Intel Programming Guide
     inline for (0x30..0xFF) |int| {
