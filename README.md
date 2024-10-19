@@ -19,6 +19,7 @@ In Silesian language, a creature from our (Upper Silesians) demonology.
 
 # In progress
 - [ ] NVMe driver (I/O operations - read, write)
+- [ ] Block operations for NVMe
 
 # How to run
 zig build iso-qemu 
