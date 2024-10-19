@@ -63,17 +63,18 @@ const PAT = struct {
     }
 
     fn pageFlagsFromPat(self: Self, req_pat: PATType) struct { page_pat: u1, page_pcd: bool, page_pwt: bool } {
-        var pat_idx: u3 = undefined;
+        var pat_idx: ?u3 = null;
         for (self.pat, 0..) |pt, idx| {
             if (pt == req_pat) {
                 pat_idx = @intCast(idx);
                 break;
             }
         }
-        if (pat_idx == undefined) {
-            @panic("Invalid PAT type");
-        }
-        return .{ .page_pat = @truncate(pat_idx >> 2), .page_pcd = (pat_idx & 0b010) >> 1 == 1, .page_pwt = pat_idx & 0b001 == 1 };
+        if (pat_idx) |pi| {
+            return .{ .page_pat = @truncate(pi >> 2), .page_pcd = (pi & 0b010) >> 1 == 1, .page_pwt = pi & 0b001 == 1 };
+        } 
+        
+        @panic("PAT type not found");
     }
 };
 

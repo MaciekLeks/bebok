@@ -15,7 +15,7 @@ In Silesian language, a creature from our (Upper Silesians) demonology.
 - Basic terminal support in graphical mode with the PC Screen Fonts (version 1 and 2)
 - PCI Express (Peripheral Component Interconnect Express) driver  
 - MSI-X (Message Signaled Interrupts - Extended) support
-- NVMe (Non-Volatile Memory Express) driver in progress (75% ready)
+- NVMe (Non-Volatile Memory Express) driver in progress (95% ready)
 
 # In progress
 - [ ] NVMe driver (I/O operations - read, write)
