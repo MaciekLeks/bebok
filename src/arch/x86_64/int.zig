@@ -282,20 +282,21 @@ pub fn init(comptime isr_handle_loop_fn: ISRHandleLoopFn) void {
     //}
 
     // Update the IDT with the exceptions: 0x0->0x1F
-    inline for (0..total_exceptions) |i| {
-        switch (i) {
-            0x02, 0x09, 0x15, 0x16...0x1B, 0x1F => |ei| { //TODO: unmask 0x16 FPU
-                setDefaultPicInterruptEntry(ei, isr_handle_loop_fn, true);
-                // idt[ei].setOffset(@intFromPtr(&interruptFnBind(ei)));
-                // idt[ei].segment_selector = gdt.segment_selectors.kernel_code_x64;
-                // idt[ei].interrupt_stack_table = 0;
-                // idt[ei].gate_type = IdtEntry.GateType.interrupt_gate;
-                // idt[ei].privilege = dpl.PrivilegeLevel.ring0;
-                // idt[ei].present = true;
-            },
-            else => {},
-        }
-    }
+    // PIC no longer in use
+    // inline for (0..total_exceptions) |i| {
+    //     switch (i) {
+    //         0x02, 0x09, 0x15, 0x16...0x1B, 0x1F => |ei| { //TODO: unmask 0x16 FPU
+    //             setDefaultPicInterruptEntry(ei, isr_handle_loop_fn, true);
+    //             // idt[ei].setOffset(@intFromPtr(&interruptFnBind(ei)));
+    //             // idt[ei].segment_selector = gdt.segment_selectors.kernel_code_x64;
+    //             // idt[ei].interrupt_stack_table = 0;
+    //             // idt[ei].gate_type = IdtEntry.GateType.interrupt_gate;
+    //             // idt[ei].privilege = dpl.PrivilegeLevel.ring0;
+    //             // idt[ei].present = true;
+    //         },
+    //         else => {},
+    //     }
+    // }
     inline for (et, 0..) |e, idx| {
         setDefaultExceptionEntry(idx, if (e.type == Exception.Type.fault) IdtEntry.GateType.interrupt_gate else IdtEntry.GateType.trap_gate);
 
