@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const InterruptPool = @import("commons/int.zig").InterruptPool;
 
 const log = std.log.scoped(.int);
 const Int = @This();
@@ -8,6 +9,8 @@ pub usingnamespace switch (builtin.cpu.arch) {
     .x86_64 => @import("arch/x86_64/int.zig"),
     else => |other| @compileError("Unimplemented for " ++ @tagName(other)),
 };
+
+var pool: InterruptPool = .{};
 
 pub fn processISRList(vec_no: Int.VectorIndex) !void {
     if (isr_map) |map| {
@@ -69,4 +72,8 @@ pub fn bindSampleISR(comptime vec_no: Int.VectorIndex) ISR {
             log.warn("ISR Handler called for vector_no: 0x{x}", .{vec_no});
         }
     }.handle;
+}
+
+pub fn defaultPool() *InterruptPool {
+    return &pool;
 }

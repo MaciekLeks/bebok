@@ -103,8 +103,11 @@ export fn _start() callconv(.C) noreturn {
     allocator.free(memory);
 
     //{  init handler list
-    int.init(int.processISRList);
     var arena_allocator = std.heap.ArenaAllocator.init(heap.page_allocator);
+    int.init(int.processISRList, int.defaultPool()) catch |err| {
+        log.err("Interrupt initialization error: {}", .{err});
+        @panic("Interrupt initialization error");
+    };
     int.initISRMap(arena_allocator.allocator());
     defer int.deinitISRMap();
 
