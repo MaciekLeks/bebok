@@ -10,7 +10,7 @@ pub usingnamespace switch (builtin.cpu.arch) {
     else => |other| @compileError("Unimplemented for " ++ @tagName(other)),
 };
 
-var pool: InterruptPool = undefined;
+var pool: InterruptPool = .{};
 
 pub fn processISRList(vec_no: Int.VectorIndex) !void {
     if (isr_map) |map| {
@@ -74,6 +74,7 @@ pub fn bindSampleISR(comptime vec_no: Int.VectorIndex) ISR {
     }.handle;
 }
 
+// Default Interrupt Pool used by arch specific code (init function)
 pub fn defaultPool() *InterruptPool {
     return &pool;
 }

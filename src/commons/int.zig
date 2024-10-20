@@ -96,13 +96,4 @@ pub const InterruptPool = struct {
     pub fn release(self: *InterruptPool, interrupt: u8) void {
         self.used &= ~(@as(u256, 1) << interrupt);
     }
-
-    pub fn init(comptime start: u8, end: u8) InterruptPool {
-        var pool = .{};
-        const result = pool.markRangeAsUsed(start, end);
-        if (result != void) {
-            @compileError("Failed to initialize interrupt pool");
-        }
-        return pool;
-    }
 };
