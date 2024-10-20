@@ -10,7 +10,7 @@ pub usingnamespace switch (builtin.cpu.arch) {
     else => |other| @compileError("Unimplemented for " ++ @tagName(other)),
 };
 
-var pool: InterruptPool = .{};
+var pool: InterruptPool = InterruptPool.init();
 
 pub fn processISRList(vec_no: Int.VectorIndex) !void {
     if (isr_map) |map| {
