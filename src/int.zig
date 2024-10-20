@@ -78,3 +78,16 @@ pub fn bindSampleISR(comptime vec_no: Int.VectorIndex) ISR {
 pub fn defaultPool() *InterruptPool {
     return &pool;
 }
+
+pub fn acquireAnyInterrupt() !u8 {
+    return try pool.acquireAny();
+}
+
+pub fn acquireInterrupt(interrupt: u8) !u8 {
+    return try pool.acquire(interrupt);
+}
+
+
+pub fn releaseInterrupt(interrupt: u8) void {
+    pool.release(interrupt);
+}

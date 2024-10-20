@@ -43,7 +43,7 @@ const nvme_ioasqs = 0x2; //admin submission queue size
 
 //TODO: refactor this
 const tmp_msix_table_idx = 0x01;
-const tmp_irq = 0x33;
+//@@@const tmp_irq = 0x33;
 
 const NvmeDriver = @This();
 
@@ -103,24 +103,15 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
 
     //MSI-X
     // TODO: refactor me:
-    msix.configureMsix(ctrl, tmp_msix_table_idx, tmp_irq) catch |err| {
+    //Get free interrupt vector
+    const interrupt = int.acquireAnyInterrupt() catch |err| {
+        log.err("Failed to acquire free interrupt: {}", .{err});
+        return;
+    };
+    log.info("Acquired interrupt vector: 0x{0x}, dec:{0d}", .{interrupt});
+    msix.configureMsix(ctrl, tmp_msix_table_idx, interrupt) catch |err| {
         log.err("Failed to configure MSI-X: {}", .{err});
     };
-    // const unique_id = Pcie.uniqueId(bus, slot, function);
-    // int.addISR(@intCast(0x33), .{ .unique_id = unique_id, .func = handleInterrupt }) catch |err| {
-    //     log.err("Failed to add NVMe interrupt handler: {}", .{err});
-    // };
-    // Pcie.addMsixMessageTableEntry(dev.msix_cap, dev.bar, 0x9, 0x33); //add 0x31 at 0x01 offset
-    //
-    // inline for (0x0.., 0..64) |vec_no, ivt_idx| {
-    //     Pcie.addMsixMessageTableEntry(dev.msix_cap, dev.bar, @intCast(ivt_idx), @intCast(vec_no)); //add 0x31 at 0x01 offset
-    //     int.addISR(
-    //         @intCast(vec_no),
-    //         .{ .unique_id = @intCast(ivt_idx + 100), .func = int.bindSampleISR(@intCast(vec_no)) },
-    //     ) catch |err| {
-    //         log.err("Failed to add NVMe interrupt handler: {}", .{err});
-    //     };
-    // }
 
     //log pending bit in MSI-X
     const pending_bit = Pcie.readMsixPendingBitArrayBit(ctrl.msix_cap, ctrl.bar, 0x0);

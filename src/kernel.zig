@@ -111,7 +111,7 @@ export fn _start() callconv(.C) noreturn {
     int.initISRMap(arena_allocator.allocator());
     defer int.deinitISRMap();
 
-    int.addISR(0x30, &.{ .unique_id = 0x01, .ctx = null, .func = &testISR0 }) catch |err| {
+    int.addISR(try int.acquireAnyInterrupt(), &.{ .unique_id = 0x01, .ctx = null, .func = &testISR0 }) catch |err| {
         log.err("Failed to add Timer interrupt handler: {}", .{err});
     };
     //int.addISR(0x31, .{ .unique_id = 0x02, .func = &testISR1 }) catch |err| {

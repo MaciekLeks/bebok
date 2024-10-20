@@ -56,7 +56,7 @@ pub const InterruptPool = struct {
         return .{};
     }
 
-    pub fn acquireAny(self: *InterruptPool) ?u8 {
+    pub fn acquireAny(self: *InterruptPool) !u8 {
         var i: u8 = 0;
         while (i < 256) : (i += 1) {
             if ((self.used & (@as(u256, 1) << i)) == 0) {
@@ -64,7 +64,7 @@ pub const InterruptPool = struct {
                 return i;
             }
         }
-        return null;
+        return error.NoInterruptAvailable;
     }
 
     pub fn acquire(self: *InterruptPool, interrupt: u8) !u8 {

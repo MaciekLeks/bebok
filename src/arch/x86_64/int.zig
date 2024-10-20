@@ -339,7 +339,8 @@ pub fn init(comptime isr_handle_loop_fn: ISRHandleLoopFn, pool: *InterruptPool) 
     // }
 
     // counts from 0x30, do not tuch disabled PIC remapped vectors - see Intel Programming Guide
-    inline for (0x30..0xFF) |int| {
+    
+    inline for ((total_exceptions + 1)..0xFF) |int| {
         setDefaultLapicInterruptEntry(int, isr_handle_loop_fn, false);
     }
 
