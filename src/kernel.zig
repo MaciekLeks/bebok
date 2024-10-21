@@ -158,26 +158,25 @@ export fn _start() callconv(.C) noreturn {
         log.warn("Device: {}", .{dev});
     }
 
-    const my_ctrl = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl;
-
-    {
+    const my_ns = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl.namespaces.get(1);
+    if (my_ns) |ns| {
         log.info("Writing to NVMe starts.", .{});
         defer log.info("Writing to NVMe ends.", .{});
 
         const mlk_data: []const u8 = &.{ 'M', 'a', 'c', 'i', 'e', 'k', ' ', 'L', 'e', 'k', 's', ' ', 'x' };
-        my_ctrl.write(u8, heap.page_allocator, 1, 0, mlk_data) catch |err| {
+        ns.write(u8, heap.page_allocator, 0, mlk_data) catch |err| {
             log.err("Nvme write error: {}", .{err});
         };
-    }
 
-    const data = my_ctrl.readToOwnedSlice(u8, heap.page_allocator, 1, 0, 1) catch |err| blk: {
-        log.err("Nvme read error: {}", .{err});
-        break :blk null;
-    };
-    for (data.?) |d| {
-        log.warn("Nvme data: {x}", .{d});
+        const data = ns.readToOwnedSlice(u8, heap.page_allocator, 0, 1) catch |err| blk: {
+            log.err("Nvme read error: {}", .{err});
+            break :blk null;
+        };
+        for (data.?) |d| {
+            log.warn("Nvme data: {x}", .{d});
+        }
+        if (data) |block| heap.page_allocator.free(block);
     }
-    if (data) |block| heap.page_allocator.free(block);
     //
     //
     // const data2 = Nvme.readToOwnedSlice(u8, heap.page_allocator, &Nvme.drive, 1, 1, 1) catch |err| blk: {

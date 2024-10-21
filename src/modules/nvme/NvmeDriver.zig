@@ -26,6 +26,7 @@ const aq = @import("admin/queue.zig");
 const e = @import("errors.zig");
 const id = @import("admin/identify.zig");
 pub const com = @import("commons.zig");
+const NvmeNamespace = @import("NvmeNamespace.zig");
 
 const nvme_class_code = 0x01;
 const nvme_subclass = 0x08;
@@ -57,7 +58,7 @@ alloctr: std.mem.Allocator,
 //    //...
 // };
 
-pub const NsInfoMap = std.AutoHashMap(u32, id.NsInfo);
+//pub const NsInfoMap = std.AutoHashMap(u32, id.NsInfo);
 
 /// Devicer interface function to match the driver with the device
 pub fn probe(_: *anyopaque, probe_ctx: *const anyopaque) bool {
@@ -88,7 +89,8 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
     //-Pcie.writeRegisterWithArgs(u16, .command, function, slot, bus, pci_cmd_reg);
     // const VEC_NO: u16 = 0x20 + interrupt_line; //TODO: we need MSI/MSI-X support first - PIC does not work here
 
-    ctrl.ns_info_map = NsInfoMap.init(base.alloctr);
+    //@@@ctrl.ns_info_map = NsInfoMap.init(base.alloctr);
+    ctrl.namespaces = NvmeController.NamespaceMap.init(base.alloctr);
     ctrl.bar = Pcie.readBarWithArgs(.bar0, addr);
 
     // Initialize queues to the default values
@@ -409,7 +411,8 @@ fn discoverNamespacesByIoCommandSet(ctrl: *NvmeController) !void {
                 const ns_info: *const id.IdentifyNamespaceInfo = @ptrCast(@alignCast(prp1));
                 log.info("Identify Namespace Data Structure(cns: 0x00): nsid:{d}, info:{}", .{ nsid, ns_info.* });
 
-                try ctrl.ns_info_map.put(nsid, ns_info.*);
+                //@@@try ctrl.ns_info_map.put(nsid, ns_info.*);
+                try ctrl.namespaces.put(nsid, try NvmeNamespace.init(ctrl.alloctr, ctrl, nsid, ns_info.*));
 
                 const vs = regs.readRegister(regs.VSRegister, ctrl.bar, .vs); //TODO added to compile the code
                 log.debug("vs: {}", .{vs});
