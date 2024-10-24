@@ -31,8 +31,8 @@ pub const IdentifyNamespaceInfo = extern struct {
         rsvd: u6, //9-11
     };
 
-    nsize: u64, //8bytes - Namespace Size - host can't base on this value
-    ncap: u64, //8bytes - Namespace Capacity - host can you this value
+    nsze: u64, //8bytes - Namespace Size in logical blocks
+    ncap: u64, //8bytes - Namespace Capacity
     nuse: u64, //8bytes - Namespace Utilization
     nsfeat: packed struct(u8) {
         thinp: u1, //0 - Thin Provisioning

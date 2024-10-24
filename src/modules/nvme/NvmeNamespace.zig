@@ -33,8 +33,22 @@ pub fn deinit(self: *NvmeNamespace) void {
     self.alloctr.deinit(self);
 }
 
+pub fn read(T: type, ctx: *anyopaque, allocator: std.mem.Allocator, offset: usize, total: usize) anyerror![]T {
+    const self: *NvmeNamespace = @ptrCast(@alignCast(ctx));
+
+    const lbads_bytes = math.pow(u32, 2, self.info.lbaf[self.info.flbas].lbads);
+    const slba = offset / lbads_bytes;
+    const nlba = total / lbads_bytes;
+    const slba_offset = offset % lbads_bytes;
+
+    log.debug("Reading from namespace {d} at offset {d}, total: {d}, slba: {d}, nlba: {d}, slba_offset: {d}", .{ self.nsid, offset, total, slba, nlba, slba_offset });
+
+    const data = try self.readToOwnedSlice(T, allocator, slba, nlba);
+    return data[slba_offset..(slba_offset + total)];
+}
+
 /// Read from the NVMe drive
-/// @param allocator : Allocator
+/// @param allocator : User allocator
 /// @param slba : Start Logical Block Address
 /// @param nlb : Number of Logical Blocks
 pub fn readToOwnedSlice(self: *const NvmeNamespace, T: type, allocator: std.mem.Allocator, slba: u64, nlba: u16) ![]T {
@@ -45,7 +59,7 @@ pub fn readToOwnedSlice(self: *const NvmeNamespace, T: type, allocator: std.mem.
 
     log.debug("Namespace {d} info: {}", .{ self.nsid, self.info });
 
-    if (slba > self.info.nsize) return e.NvmeError.InvalidLBA;
+    if (slba > self.info.nsze) return e.NvmeError.InvalidLBA;
 
     const flbaf = self.info.lbaf[self.info.flbas];
     log.debug("LBA Format Index: {d}, LBA Format: {}", .{ self.info.flbas, flbaf });
@@ -179,7 +193,7 @@ pub fn write(self: *const NvmeNamespace, T: type, allocator: std.mem.Allocator, 
 
     log.debug("Namespace {d} info: {}", .{ self.nsid, self.info });
 
-    if (slba > self.info.nsize) return e.NvmeError.InvalidLBA;
+    if (slba > self.info.nsze) return e.NvmeError.InvalidLBA;
 
     const flbaf = self.info.lbaf[self.info.flbas];
     log.debug("LBA Format Index: {d}, LBA Format: {}", .{ self.info.flbas, flbaf });

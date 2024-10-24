@@ -29,7 +29,7 @@ pub export var base_revision: limine.BaseRevision = .{ .revision = 1 };
 pub const std_options = .{
     .logFn = logFn,
     .log_scope_levels = &[_]std.log.ScopeLevel{
-        .{ .scope = .bbtree, .level = .info },
+        .{ .scope = .bbtree, .level = .debug },
     },
 };
 
@@ -190,6 +190,17 @@ export fn _start() callconv(.C) noreturn {
     //
     var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");
     pty.printf("Bebok version: {any}\n", .{config.kernel_version});
+
+    {
+        log.debug("TEST:Start", .{});
+        const mem_test = heap.page_allocator.alloc(u8, 0x1000) catch |err| {
+            log.err("OOM: {}", .{err});
+            @panic("OOM");
+        };
+        log.debug("TEST:Allocated memory at {*}", .{mem_test});
+        heap.page_allocator.free(mem_test);
+        log.debug("TEST:End", .{});
+    }
 
     //start.done(); //only now we can hlt - do not use defer after start.init();
     cpu.halt();

@@ -24,8 +24,22 @@ const KeyVaddrSize = struct {
 };
 
 // a_key is the key in the get() routine and b_key is the key in the tree
+// fn vaddrSizeCmp(a_key: KeyVaddrSize, b_key: KeyVaddrSize) math.Order {
+//     // check if b_key is in the range of a_key
+//     // if (a_key.vaddr >= b_key.vaddr and a_key.vaddr + a_key.size < b_key.vaddr + b_key.size) return math.Order.eq else if (a_key.vaddr <= b_key.vaddr and a_key.vaddr + a_key.size < b_key.vaddr + b_key.size) return math.Order.lt else return math.Order.gt;
+//     // const res = if (a_key.vaddr >= b_key.vaddr and a_key.vaddr + a_key.size < b_key.vaddr + b_key.size) math.Order.eq
+//     //     else
+//     //         if (a_key.vaddr <= b_key.vaddr and a_key.vaddr + a_key.size < b_key.vaddr + b_key.size) math.Order.lt
+//     //         else math.Order.gt;
+//     const a_start_gt_b_end = a_key.vaddr >= b_key.vaddr + b_key.size;
+//     const a_end_lt_b_end = a_key.vaddr + a_key.size <= b_key.vaddr + b_key.size;
+//     const res = if (a_start_gt_b_end and a_end_lt_b_end) math.Order.eq else if (a_key.vaddr + a_key.size <= b_key.vaddr) math.Order.lt else math.Order.gt;
+//
+//     log.debug("vaddrSizeCmp(): Comparing a_key: 0x{x} -> 0x{x} with b_key: 0x{x} -> 0x{x} => {}, a_start_gt_b_end:{}, a_end_lt_b_end: {}", .{ a_key.vaddr, a_key.vaddr + a_key.size, b_key.vaddr, b_key.vaddr + b_key.size, res, a_start_gt_b_end, a_end_lt_b_end });
+//     return res;
+// }
+
 fn vaddrSizeCmp(a_key: KeyVaddrSize, b_key: KeyVaddrSize) math.Order {
-    // check if b_key is in the range of a_key
     if (a_key.vaddr >= b_key.vaddr and a_key.vaddr + a_key.size < b_key.vaddr + b_key.size) return math.Order.eq else if (a_key.vaddr <= b_key.vaddr and a_key.vaddr + a_key.size < b_key.vaddr + b_key.size) return math.Order.lt else return math.Order.gt;
 }
 
@@ -65,7 +79,7 @@ pub fn init() !void {
             });
 
             var main_buddy_allocator = try BuddyAllocatorPreconfigured.init(v_region);
-            log.debug("init(): Initialized buddy allocator: unallocated memory size:: 0x{x}, free to use memory size: 0x{x}", .{ main_buddy_allocator.unmanaged_mem_size, main_buddy_allocator.free_mem_size });
+            log.debug("init(): Initialized buddy allocator: unallocated memory sizex: 0x{x}, free to use memory size: 0x{x}", .{ main_buddy_allocator.unmanaged_mem_size, main_buddy_allocator.free_mem_size });
             arena = std.heap.ArenaAllocator.init(main_buddy_allocator.allocator());
 
             const arena_allocator = arena.allocator();
@@ -91,7 +105,7 @@ pub fn init() !void {
                 const size_gb = e.v.*.free_mem_size / 1024 / 1024 / 1024;
                 const size_mb = e.v.*.free_mem_size / 1024 / 1024;
                 const size_kb = e.v.*.free_mem_size / 1024;
-                log.debug("Free memory size: {d}GB ({d}MB, {d}kB, 0x{x} bytes) at 0x{x}", .{ size_gb, size_mb, size_kb, e.v.*.free_mem_size, e.v.*.mem_vaddr });
+                log.debug("Free memory size: {d}GB ({d}MB, {d}kB, 0x{x} bytes) at 0x{x} -> 0x{x}", .{ size_gb, size_mb, size_kb, e.v.*.free_mem_size, e.v.*.mem_vaddr, e.v.*.mem_vaddr + e.v.*.max_mem_size_pow2 });
                 //it.next();
                 it.prev();
             }
@@ -102,7 +116,7 @@ pub fn init() !void {
                 const size_gb = e.v.*.free_mem_size / 1024 / 1024 / 1024;
                 const size_mb = e.v.*.free_mem_size / 1024 / 1024;
                 const size_kb = e.v.*.free_mem_size / 1024;
-                log.debug("init(): Free memory size: {d}GB ({d}MB, {d}kB, 0x{x} bytes) at 0x{x}", .{ size_gb, size_mb, size_kb, e.v.*.free_mem_size, e.v.*.mem_vaddr });
+                log.debug("init(): Free memory size: {d}GB ({d}MB, {d}kB, 0x{x} bytes) at 0x{x} -> 0x{x}", .{ size_gb, size_mb, size_kb, e.v.*.free_mem_size, e.v.*.mem_vaddr, e.v.*.mem_vaddr + e.v.*.max_mem_size_pow2 });
                 it_vadr.next();
             }
         } else return error.NoUsableMemory;
@@ -149,12 +163,14 @@ fn alloc(_: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
 }
 
 fn free(_: *anyopaque, buf: []u8, _: u8, _: usize) void {
-    defer log.debug("free(): freed memory at 0x{x}", .{@intFromPtr(buf.ptr)});
+    log.debug("free(): Freeing memory at 0x{x}", .{@intFromPtr(buf.ptr)});
+    defer log.debug("free(): Freed memory at 0x{x}", .{@intFromPtr(buf.ptr)});
     const key = .{ .vaddr = @intFromPtr(buf.ptr), .size = buf.len };
     const it = avl_tree_by_vaddr.get(key);
     if (it) |v| {
         const ba = v.*;
-        log.debug("free(): Memory free size before freeing: 0x{x} bytes at 0x{x}", .{ ba.free_mem_size, @intFromPtr(buf.ptr) });
+        //log.debug("free(): Memory free size before freeing: 0x{x} bytes at 0x{x}", .{ ba.free_mem_size, @intFromPtr(buf.ptr) });
+        log.debug("free(): Memory free size before freeing: 0x{x} bytes at 0x{x} in the region at 0x{x}", .{ ba.free_mem_size, @intFromPtr(buf.ptr), v.*.mem_vaddr });
         v.*.allocator().free(buf);
         log.debug("free(): Memory free size now: 0x{x} bytes", .{ba.free_mem_size});
     } else {

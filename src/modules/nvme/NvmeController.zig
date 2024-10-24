@@ -55,7 +55,7 @@ sq: [nvme_nsqr]NvmeDriver.com.Queue(NvmeDriver.com.SQEntry) = undefined, //+1 fo
 //ns_info_map: NvmeDriver.NsInfoMap = undefined,
 namespaces: NamespaceMap = undefined,
 
-mutex: bool = false,
+mutex: bool = false, //TODO: implement real mutex
 
 pub fn init(allocator: std.mem.Allocator, base: *Device) !*NvmeController {
     var self = try allocator.create(NvmeController);
