@@ -19,7 +19,7 @@ fn usizeCmp(a_size: usize, b_size: usize) math.Order {
     return math.order(a_size, b_size);
 }
 const KeyVaddrSize = struct {
-    vaddr: usize,
+    virt: usize,
     size: usize,
 };
 
@@ -40,7 +40,7 @@ const KeyVaddrSize = struct {
 // }
 
 fn vaddrSizeCmp(a_key: KeyVaddrSize, b_key: KeyVaddrSize) math.Order {
-    if (a_key.vaddr >= b_key.vaddr and a_key.vaddr + a_key.size < b_key.vaddr + b_key.size) return math.Order.eq else if (a_key.vaddr <= b_key.vaddr and a_key.vaddr + a_key.size < b_key.vaddr + b_key.size) return math.Order.lt else return math.Order.gt;
+    if (a_key.virt >= b_key.virt and a_key.virt + a_key.size < b_key.virt + b_key.size) return math.Order.eq else if (a_key.virt <= b_key.virt and a_key.virt + a_key.size < b_key.virt + b_key.size) return math.Order.lt else return math.Order.gt;
 }
 
 /// Tree based on free region memory size
@@ -88,7 +88,7 @@ pub fn init() !void {
 
             // we register the best region first and then we register it's unallocated memory
             _ = try avl_tree_by_size.insert(main_buddy_allocator.free_mem_size, main_buddy_allocator);
-            _ = try avl_tree_by_vaddr.insert(.{ .vaddr = main_buddy_allocator.mem_vaddr, .size = main_buddy_allocator.max_mem_size_pow2 }, main_buddy_allocator);
+            _ = try avl_tree_by_vaddr.insert(.{ .virt = main_buddy_allocator.mem_virt, .size = main_buddy_allocator.max_mem_size_pow2 }, main_buddy_allocator);
             try registerRegionZone(@intFromPtr(p_region.ptr) + main_buddy_allocator.free_mem_size, main_buddy_allocator.unmanaged_mem_size);
 
             // iterate over all regions other than the best one again
@@ -105,7 +105,7 @@ pub fn init() !void {
                 const size_gb = e.v.*.free_mem_size / 1024 / 1024 / 1024;
                 const size_mb = e.v.*.free_mem_size / 1024 / 1024;
                 const size_kb = e.v.*.free_mem_size / 1024;
-                log.debug("Free memory size: {d}GB ({d}MB, {d}kB, 0x{x} bytes) at 0x{x} -> 0x{x}", .{ size_gb, size_mb, size_kb, e.v.*.free_mem_size, e.v.*.mem_vaddr, e.v.*.mem_vaddr + e.v.*.max_mem_size_pow2 });
+                log.debug("Free memory size: {d}GB ({d}MB, {d}kB, 0x{x} bytes) at 0x{x} -> 0x{x}", .{ size_gb, size_mb, size_kb, e.v.*.free_mem_size, e.v.*.mem_virt, e.v.*.mem_virt + e.v.*.max_mem_size_pow2 });
                 //it.next();
                 it.prev();
             }
@@ -116,7 +116,7 @@ pub fn init() !void {
                 const size_gb = e.v.*.free_mem_size / 1024 / 1024 / 1024;
                 const size_mb = e.v.*.free_mem_size / 1024 / 1024;
                 const size_kb = e.v.*.free_mem_size / 1024;
-                log.debug("init(): Free memory size: {d}GB ({d}MB, {d}kB, 0x{x} bytes) at 0x{x} -> 0x{x}", .{ size_gb, size_mb, size_kb, e.v.*.free_mem_size, e.v.*.mem_vaddr, e.v.*.mem_vaddr + e.v.*.max_mem_size_pow2 });
+                log.debug("init(): Free memory size: {d}GB ({d}MB, {d}kB, 0x{x} bytes) at 0x{x} -> 0x{x}", .{ size_gb, size_mb, size_kb, e.v.*.free_mem_size, e.v.*.mem_virt, e.v.*.mem_virt + e.v.*.max_mem_size_pow2 });
                 it_vadr.next();
             }
         } else return error.NoUsableMemory;
@@ -130,7 +130,7 @@ fn registerRegionZone(base: usize, len: usize) !void {
     log.debug("registerRegionZone(): Inserting region zone: 0x{x} -> 0x{x}", .{ @intFromPtr(v_region.ptr), @intFromPtr(v_region.ptr) + v_region.len });
     const zone_buddy_allocator = try BuddyAllocatorPreconfigured.init(v_region);
     _ = try avl_tree_by_size.insert(len, zone_buddy_allocator);
-    _ = try avl_tree_by_vaddr.insert(.{ .vaddr = zone_buddy_allocator.mem_vaddr, .size = zone_buddy_allocator.max_mem_size_pow2 }, zone_buddy_allocator);
+    _ = try avl_tree_by_vaddr.insert(.{ .virt = zone_buddy_allocator.mem_virt, .size = zone_buddy_allocator.max_mem_size_pow2 }, zone_buddy_allocator);
     try registerRegionZone(base + zone_buddy_allocator.free_mem_size, zone_buddy_allocator.unmanaged_mem_size);
 }
 
@@ -147,9 +147,9 @@ fn alloc(_: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
         return null;
     };
     while (it.value()) |e| {
-        log.debug("alloc(): Checking free memory at 0x{x} of total size: 0x{x} bytes, free size: 0x{x} to allocate: 0x{x}, pow2: 0x{x}  ", .{ e.v.*.mem_vaddr, e.v.*.max_mem_size_pow2, e.v.*.free_mem_size, len, size_pow2 });
+        log.debug("alloc(): Checking free memory at 0x{x} of total size: 0x{x} bytes, free size: 0x{x} to allocate: 0x{x}, pow2: 0x{x}  ", .{ e.v.*.mem_virt, e.v.*.max_mem_size_pow2, e.v.*.free_mem_size, len, size_pow2 });
         if (e.v.*.free_mem_size >= size_pow2) {
-            log.debug("alloc(): Found free memory size: 0x{x} bytes in buddy allocator at 0x{x} of total size: 0x{x} )", .{ e.v.*.free_mem_size, e.v.*.mem_vaddr, e.v.*.max_mem_size_pow2 });
+            log.debug("alloc(): Found free memory size: 0x{x} bytes in buddy allocator at 0x{x} of total size: 0x{x} )", .{ e.v.*.free_mem_size, e.v.*.mem_virt, e.v.*.max_mem_size_pow2 });
             const ptr = e.v.*.allocator().rawAlloc(size_pow2, ptr_align, ret_addr); //len is also OK
             if (ptr) |p| {
                 defer log.debug("alloc(): Allocated 0x{x} bytes of total allocation 0x{x} bytes at 0x{x}", .{ len, size_pow2, @intFromPtr(p) });
@@ -165,12 +165,12 @@ fn alloc(_: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
 fn free(_: *anyopaque, buf: []u8, _: u8, _: usize) void {
     log.debug("free(): Freeing memory at 0x{x}", .{@intFromPtr(buf.ptr)});
     defer log.debug("free(): Freed memory at 0x{x}", .{@intFromPtr(buf.ptr)});
-    const key = .{ .vaddr = @intFromPtr(buf.ptr), .size = buf.len };
+    const key = .{ .virt = @intFromPtr(buf.ptr), .size = buf.len };
     const it = avl_tree_by_vaddr.get(key);
     if (it) |v| {
         const ba = v.*;
         //log.debug("free(): Memory free size before freeing: 0x{x} bytes at 0x{x}", .{ ba.free_mem_size, @intFromPtr(buf.ptr) });
-        log.debug("free(): Memory free size before freeing: 0x{x} bytes at 0x{x} in the region at 0x{x}", .{ ba.free_mem_size, @intFromPtr(buf.ptr), v.*.mem_vaddr });
+        log.debug("free(): Memory free size before freeing: 0x{x} bytes at 0x{x} in the region at 0x{x}", .{ ba.free_mem_size, @intFromPtr(buf.ptr), v.*.mem_virt });
         v.*.allocator().free(buf);
         log.debug("free(): Memory free size now: 0x{x} bytes", .{ba.free_mem_size});
     } else {
@@ -180,7 +180,7 @@ fn free(_: *anyopaque, buf: []u8, _: u8, _: usize) void {
 
 fn resize(_: *anyopaque, buf: []u8, buf_align: u8, new_len: usize, ret_addr: usize) bool {
     defer log.debug("resize(): Resized memory at 0x{x} from {d} to {d} bytes", .{ @intFromPtr(buf.ptr), buf.len, new_len });
-    const key = .{ .vaddr = @intFromPtr(buf.ptr), .size = buf.len };
+    const key = .{ .virt = @intFromPtr(buf.ptr), .size = buf.len };
     const it = avl_tree_by_vaddr.get(key);
     if (it) |v| {
         const new_buf = v.*.allocator().rawResize(buf, buf_align, new_len, ret_addr);

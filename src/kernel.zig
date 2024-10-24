@@ -193,7 +193,7 @@ export fn _start() callconv(.C) noreturn {
 
     {
         log.debug("TEST:Start", .{});
-        const mem_test = heap.page_allocator.alloc(u8, 0x1000) catch |err| {
+        const mem_test = heap.page_allocator.alloc(u8, 0x2000) catch |err| {
             log.err("OOM: {}", .{err});
             @panic("OOM");
         };

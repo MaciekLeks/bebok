@@ -25,7 +25,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
         unmanaged_mem_size: usize = undefined,
         max_mem_size_pow2: usize = undefined,
         free_mem_size: usize = undefined,
-        mem_vaddr: usize = undefined, //start of the memory to be managed the allocator
+        mem_virt: usize = undefined, //start of the memory to be managed the allocator
 
         // Initialize the allocator with the given memory by allocating the buffer for the tree and self object in that memory.
         pub fn init(mem: []u8) !*Self {
@@ -73,7 +73,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
                 .max_mem_size_pow2 = mem_max_size_pow2,
                 .free_mem_size = mem_max_size_pow2,
                 .tree = tree,
-                .mem_vaddr = virt,
+                .mem_virt = virt,
             };
 
             self.tree.setChunk(self_index);
@@ -90,14 +90,14 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
             const level_meta = try self.tree.levelMetaFromIndex(idx);
 
             //return self.mem_vaddr + level_meta.size * (idx - level_meta.offset);
-            return absVaddrFromIndex(self.mem_vaddr, idx, level_meta);
+            return absVaddrFromIndex(self.mem_virt, idx, level_meta);
         }
 
         inline fn indexFromSlice(self: *Self, old_mem: []u8) !usize {
             const virt_start = @intFromPtr(old_mem.ptr);
             const virt_end = virt_start + old_mem.len;
 
-            if (virt_start < self.mem_vaddr or virt_end > self.mem_vaddr + self.max_mem_size_pow2) return error.OutOfMemory;
+            if (virt_start < self.mem_virt or virt_end > self.mem_virt + self.max_mem_size_pow2) return error.OutOfMemory;
 
             log.debug("indexFromSlice(): virt_start: 0x{x}, virt_end: 0x{x}, len: 0x{x}", .{ virt_start, virt_end, virt_end - virt_start });
 
@@ -112,7 +112,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
 
             log.debug("indexFromSlice(): virt_down_aligned: 0x{x}", .{virt_down_aligned});
 
-            const idx = (virt_down_aligned - self.mem_vaddr + level_meta.bit_offset * level_meta.size) / level_meta.size;
+            const idx = (virt_down_aligned - self.mem_virt + level_meta.bit_offset * level_meta.size) / level_meta.size;
 
             log.debug("indexFromSlice(): idx: {d}", .{idx});
 
