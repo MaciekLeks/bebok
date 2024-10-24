@@ -83,23 +83,16 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
             return self;
         }
 
-        inline fn absVaddrFromIndex(vaddr: usize, idx: usize, level_meta: BBTree.LevelMetadata) !usize {
-            //++
-            return vaddr + level_meta.size * (idx - level_meta.offset);
-            //return vaddr + BBTree.page_size * idx;
+        inline fn absVaddrFromIndex(virt: usize, idx: usize, level_meta: BBTree.LevelMetadata) !usize {
+            return virt + level_meta.size * (idx - level_meta.offset);
         }
 
         inline fn virtFromIndex(self: Self, idx: usize) !usize {
             const level_meta = try self.tree.levelMetaFromIndex(idx);
 
-            return self.mem_vaddr + level_meta.size * (idx - level_meta.offset);
-            //return absVaddrFromIndex(self.mem_vaddr, idx, level_meta);
+            //return self.mem_vaddr + level_meta.size * (idx - level_meta.offset);
+            return absVaddrFromIndex(self.mem_vaddr, idx, level_meta);
         }
-
-        // inline fn indexFromVaddr(self: *Self, vaddr: usize) !usize {
-        //     assert(vaddr >= self.mem_vaddr);
-        //     return (vaddr - self.mem_vaddr) / BBTree.page_size;
-        // }
 
         inline fn indexFromSlice(self: *Self, old_mem: []u8) !usize {
             const virt_start = @intFromPtr(old_mem.ptr);
@@ -185,7 +178,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
         }
 
         fn free(ctx: *anyopaque, old_mem: []u8, _: u8, _: usize) void {
-            log.debug("free(): Freeing slice {*} of 0x{x} len", .{ old_mem.ptr, old_mem.len });
+            log.debug("free(): Freeing slice  {*} of 0x{x} len", .{ old_mem.ptr, old_mem.len });
             defer log.debug("free(): Freed at 0x{x}", .{&old_mem[0]});
             const self: *Self = @ptrCast(@alignCast(ctx));
             //const vaddr = @intFromPtr(old_mem.ptr);
