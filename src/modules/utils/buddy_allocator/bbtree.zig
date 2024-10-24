@@ -101,13 +101,6 @@ pub fn BuddyBitmapTree(comptime max_levels: u8, comptime min_chunk_size: usize) 
             return self;
         }
 
-        // Set the buffer to store the bits
-        // pub fn setBuffer(self: *Self, buffer: []u8) void {
-        //     log.debug("metadata: init: {d} levels, {d} bits, {d} bytes", .{ self.meta.level_count, self.meta.bit_count, self.meta.len });
-        //
-        //     self.buffer = buffer;
-        // }
-
         // indx: 0..bits
         pub fn isSet(self: *const Self, idx: usize) bool {
             assert(idx < self.meta.bit_count);
