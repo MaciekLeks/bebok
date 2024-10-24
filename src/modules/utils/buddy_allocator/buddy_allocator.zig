@@ -15,7 +15,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
 
     const AllocInfo = struct {
         size_pow2: usize, //allocated memory
-        vaddr: usize, //virtual address
+        virt: usize, //virtual address
     };
 
     return struct {
@@ -54,9 +54,9 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
             const level_meta = config.levelMetaFromSize(size_needed_pow2) catch return error.OutOfMemory;
             //std.debug.print("\nLevel meta: {} for size needed pow2: {d}\n", .{ level_meta, size_needed_pow2 });
 
-            const self_index = level_meta.offset;
-            const vaddr = @intFromPtr(mem.ptr);
-            const start_vaddr = try absVaddrFromIndex(vaddr, level_meta.offset, level_meta); //we do not have self yet
+            const self_index = level_meta.bit_offset;
+            const virt = @intFromPtr(mem.ptr);
+            const start_vaddr = try absVaddrFromIndex(virt, level_meta.bit_offset, level_meta); //we do not have self yet
             const self_mem: []u8 = @as([*]u8, @ptrFromInt(start_vaddr))[0..size_needed_pow2];
 
             var fba = std.heap.FixedBufferAllocator.init(self_mem);
@@ -73,7 +73,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
                 .max_mem_size_pow2 = mem_max_size_pow2,
                 .free_mem_size = mem_max_size_pow2,
                 .tree = tree,
-                .mem_vaddr = vaddr,
+                .mem_vaddr = virt,
             };
 
             self.tree.setChunk(self_index);
@@ -83,7 +83,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
         }
 
         inline fn absVaddrFromIndex(virt: usize, idx: usize, level_meta: BBTree.LevelMetadata) !usize {
-            return virt + level_meta.size * (idx - level_meta.offset);
+            return virt + level_meta.size * (idx - level_meta.bit_offset);
         }
 
         inline fn virtFromIndex(self: Self, idx: usize) !usize {
@@ -112,7 +112,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
 
             log.debug("indexFromSlice(): virt_down_aligned: 0x{x}", .{virt_down_aligned});
 
-            const idx = (virt_down_aligned - self.mem_vaddr + level_meta.offset * level_meta.size) / level_meta.size;
+            const idx = (virt_down_aligned - self.mem_vaddr + level_meta.bit_offset * level_meta.size) / level_meta.size;
 
             log.debug("indexFromSlice(): idx: {d}", .{idx});
 
@@ -136,7 +136,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
 
             return .{
                 .size_pow2 = size_pow2,
-                .vaddr = try self.virtFromIndex(idx),
+                .virt = try self.virtFromIndex(idx),
             };
         }
 
@@ -153,9 +153,9 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
             if (!self.isAllocationAllowed(len_pow2)) return null;
 
             const alloc_info = self.allocInner(len_pow2) catch return null;
-            defer log.debug("alloc(): requested 0x{x} allocated: 0x{x}, free: 0x{x} at: 0x{x}", .{ len, alloc_info.size_pow2, self.free_mem_size, alloc_info.vaddr });
+            defer log.debug("alloc(): requested 0x{x} allocated: 0x{x}, free: 0x{x} at: 0x{x}", .{ len, alloc_info.size_pow2, self.free_mem_size, alloc_info.virt });
 
-            return @as([*]u8, @ptrFromInt(alloc_info.vaddr));
+            return @as([*]u8, @ptrFromInt(alloc_info.virt));
         }
 
         fn freeInner(self: *Self, old_mem: []u8) void {

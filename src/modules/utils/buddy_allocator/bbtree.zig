@@ -19,9 +19,9 @@ pub fn BuddyBitmapTree(comptime max_levels: u8, comptime min_chunk_size: usize) 
 
         /// Holds metadata for a level
         pub const LevelMetadata = struct {
-            offset: usize, // offset of the level in the bitmap
+            bit_offset: usize, // offset of the level in the bitmap
             size: usize, // size of the chunk at the level
-            bits: usize, // number of bits in the level
+            bit_count: usize, // number of bits in the level
         };
 
         /// Holds metadata for the bitmap
@@ -33,7 +33,7 @@ pub fn BuddyBitmapTree(comptime max_levels: u8, comptime min_chunk_size: usize) 
 
             fn buildLevelMeta(level_count: u8) ![]LevelMetadata {
                 for (0..level_count) |lvl| {
-                    level_meta[lvl] = .{ .offset = (math.powi(usize, 2, lvl) catch return error.InvalidLevel) - 1, .size = page_size * (math.powi(usize, 2, level_count - lvl - 1) catch return error.InvalidSize), .bits = math.powi(usize, 2, lvl) catch return error.BitOverflow };
+                    level_meta[lvl] = .{ .bit_offset = (math.powi(usize, 2, lvl) catch return error.InvalidLevel) - 1, .size = page_size * (math.powi(usize, 2, level_count - lvl - 1) catch return error.InvalidSize), .bit_count = math.powi(usize, 2, lvl) catch return error.BitOverflow };
                 }
                 return level_meta[0..level_count];
             }
@@ -188,8 +188,8 @@ pub fn BuddyBitmapTree(comptime max_levels: u8, comptime min_chunk_size: usize) 
             //std.debug.print("freeIndexFromSize(): {d} self: {}\n", .{ size_pow2, self.meta });
             log.debug("freeIndexFromSize(): {d} self: {}", .{ size_pow2, self.meta });
             const level = try self.levelFromSize(size_pow2);
-            const start_offset = self.meta.level_meta[level].offset;
-            const end_offset = start_offset + self.meta.level_meta[level].bits;
+            const start_offset = self.meta.level_meta[level].bit_offset;
+            const end_offset = start_offset + self.meta.level_meta[level].bit_count;
 
             log.debug("freeIndexFromSize(): size: {d} level: {d} start: {d} end: {d}", .{ size_pow2, level, start_offset, end_offset });
             //std.debug.print("freeIndexFromSize(): size: {d} level: {d} start: {d} end: {d}\n", .{ size_pow2, level, start_offset, end_offset });
