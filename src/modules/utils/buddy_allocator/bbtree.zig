@@ -265,5 +265,40 @@ pub fn BuddyBitmapTree(comptime max_levels: u8, comptime min_chunk_size: usize) 
             self.setParent(idx);
             self.setChildren(idx);
         }
+
+        // Index occupies the chunk if it's children are set
+        // inline fn isOccupingIndex(self: *const Self, idx: usize) bool {
+        //     if (!self.isSet(idx)) {
+        //         return false;
+        //     }
+        //
+        //     const level = levelFromIndex(idx);
+        //     if (level + 1 >= self.meta.level_count) return true;
+        //
+        //     const left_child = leftChildIndex(idx);
+        //     const right_child = rightChildIndex(idx);
+        //
+        //     return self.isSet(left_child) and self.isSet(right_child);
+        // }
+        //
+        // // Find real occupied index in the bitmap by the index of the chunk
+        // // It works only up to the root
+        // pub fn findOccupyingIndexByChunkIndex(self: *const Self, idx: usize) !usize {
+        //     const is_occupant_idx = self.isOccupingIndex(idx);
+        //
+        //     log.debug("findOccupyingIndexByChunkIndex: {d} is_occupant_idx: {}", .{ idx, is_occupant_idx });
+        //
+        //     if (idx == 0) {
+        //         return idx;
+        //     }
+        //
+        //     // check if parent is occupant too, if yes go up, otherwise return the current index
+        //     const parent_idx = parentIndex(idx);
+        //     if (is_occupant_idx) {
+        //         return self.findOccupyingIndexByChunkIndex(parent_idx);
+        //     } else {
+        //         return idx;
+        //     }
+        // }
     };
 }

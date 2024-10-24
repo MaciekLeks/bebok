@@ -198,7 +198,7 @@ export fn _start() callconv(.C) noreturn {
             @panic("OOM");
         };
         log.debug("TEST:Allocated memory at {*}", .{mem_test});
-        heap.page_allocator.free(mem_test);
+        heap.page_allocator.free(mem_test[2..]); //it's ok, but if we narrow down the slice to the next level (e.g. page leve) than we can have a problem
         log.debug("TEST:End", .{});
     }
 

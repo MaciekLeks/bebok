@@ -114,6 +114,8 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
 
             const idx = (virt_down_aligned - self.mem_virt + level_meta.bit_offset * level_meta.size) / level_meta.size;
 
+            //can't use this cause we can free memory allocated by someone else
+            //const occupator_idx = try self.tree.findOccupyingIndexByChunkIndex(idx);
             log.debug("indexFromSlice(): idx: {d}", .{idx});
 
             return idx;
