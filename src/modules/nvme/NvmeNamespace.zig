@@ -4,6 +4,8 @@ const math = std.math;
 const pmm = @import("deps.zig").pmm;
 const paging = @import("deps.zig").paging;
 
+const Streamer = @import("deps.zig").BlockDevice.Streamer;
+
 const id = @import("admin/identify.zig");
 const e = @import("errors.zig");
 const io = @import("io/io.zig");
@@ -15,7 +17,7 @@ const NvmeNamespace = @This();
 const log = std.log.scoped(.nvme_namespace);
 
 //Fields
-alloctr: std.mem.Allocator,
+alloctr: std.mem.Allocator, //we use page allocator internally cause LBA size is at least 512 bytes
 nsid: u32,
 info: id.NsInfo,
 ctrl: *NvmeController,
@@ -33,25 +35,65 @@ pub fn deinit(self: *NvmeNamespace) void {
     self.alloctr.deinit(self);
 }
 
-pub fn read(T: type, ctx: *anyopaque, allocator: std.mem.Allocator, offset: usize, total: usize) anyerror![]T {
+// Yields istels as a Streamer interface
+// @return Streamer interface
+pub fn streamer(self: *NvmeNamespace, comptime T: type) Streamer(T) {
+    const vtable = Streamer(T).VTable{
+        .read = read,
+        .write = write,
+    };
+    return Streamer(T).init(self, vtable);
+}
+
+// pub fn new_streamer(comptime D: type, comptime T: type) Streamer(T) {
+//     return Streamer(T).init(Streamer(T).VTable{
+//         .read = D.read,
+//         .write = D.write,
+//     });
+// }
+
+/// Read from the NVMe to owned slice and then copy the data to the user buffer.
+/// @param ctx : pointer to NvmeNamespace
+/// @param allocator : User allocator to allocate memory for the data buffer
+/// @param offset : Offset to read from
+/// @param total : Total bytes to read
+pub fn read(comptime T: type, ctx: *anyopaque, allocator: std.mem.Allocator, offset: usize, total: usize) anyerror![]void {
     const self: *NvmeNamespace = @ptrCast(@alignCast(ctx));
 
     const lbads_bytes = math.pow(u32, 2, self.info.lbaf[self.info.flbas].lbads);
     const slba = offset / lbads_bytes;
-    const nlba = total / lbads_bytes;
+    const nlba: u16 = @intCast(try std.math.divCeil(usize, total, lbads_bytes));
     const slba_offset = offset % lbads_bytes;
 
     log.debug("Reading from namespace {d} at offset {d}, total: {d}, slba: {d}, nlba: {d}, slba_offset: {d}", .{ self.nsid, offset, total, slba, nlba, slba_offset });
 
-    const data = try self.readToOwnedSlice(T, allocator, slba, nlba);
-    return data[slba_offset..(slba_offset + total)];
+    const data = try self.readInternal(T, self.alloctr, slba, nlba);
+    defer self.alloctr.free(data);
+
+    const buf = allocator.alloc(T, total / @sizeOf(T)) catch |err| {
+        log.err("Failed to allocate memory for data buffer: {}", .{err});
+        return error.OutOfMemory;
+    };
+
+    @memcpy(buf, data[slba_offset .. slba_offset + total]);
+
+    return buf;
+}
+
+pub fn write(comptime T: type, ctx: *anyopaque, buf: []T, offset: usize) anyerror!void {
+    _ = ctx;
+    _ = buf;
+    _ = offset;
+    return error.NotImplemented;
+
+    //self: *const NvmeNamespace, T: type, slba: u64, data: []const T
 }
 
 /// Read from the NVMe drive
 /// @param allocator : User allocator
 /// @param slba : Start Logical Block Address
 /// @param nlb : Number of Logical Blocks
-pub fn readToOwnedSlice(self: *const NvmeNamespace, T: type, allocator: std.mem.Allocator, slba: u64, nlba: u16) ![]T {
+fn readInternal(self: *const NvmeNamespace, T: type, allocator: std.mem.Allocator, slba: u64, nlba: u16) ![]T {
     // const ns: id.NsInfo = self.ns_info_map.get(nsid) orelse {
     //     log.err("Namespace {d} not found", .{nsid});
     //     return e.NvmeError.InvalidNsid;
@@ -185,7 +227,7 @@ pub fn readToOwnedSlice(self: *const NvmeNamespace, T: type, allocator: std.mem.
 /// @param nsid : Namespace ID
 /// @param slba : Start Logical Block Address
 /// @param data : Data to write
-pub fn write(self: *const NvmeNamespace, T: type, allocator: std.mem.Allocator, slba: u64, data: []const T) !void {
+fn writeInternal(self: *const NvmeNamespace, T: type, slba: u64, data: []const T) !void {
     // const ns: id.NsInfo = self.ns_info_map.get(nsid) orelse {
     //     log.err("Namespace {d} not found", .{nsid});
     //     return e.NvmeError.InvalidNsid;
@@ -232,7 +274,7 @@ pub fn write(self: *const NvmeNamespace, T: type, allocator: std.mem.Allocator, 
                 return error.NotImplemented;
             }
 
-            prp_list = allocator.alloc(usize, entry_count) catch |err| {
+            prp_list = self.alloctr.alloc(usize, entry_count) catch |err| {
                 log.err("Failed to allocate memory for PRP list: {}", .{err});
                 return error.OutOfMemory;
             };
@@ -249,15 +291,15 @@ pub fn write(self: *const NvmeNamespace, T: type, allocator: std.mem.Allocator, 
             break :blk try paging.physFromPtr(&prp_list.?[0]);
         },
     };
-    defer if (prp_list) |pl| allocator.free(pl);
+    defer if (prp_list) |pl| self.alloctr.free(pl);
     log.debug("PRP1: 0x{x}, PRP2: 0x{x}", .{ prp1_phys, prp2_phys });
 
     // allotate memory for Metadata buffer
-    const metadata = allocator.alloc(u8, nlba * flbaf.ms) catch |err| {
+    const metadata = self.alloctr.alloc(u8, nlba * flbaf.ms) catch |err| {
         log.err("Failed to allocate memory for metadata buffer: {}", .{err});
         return error.OutOfMemory;
     };
-    defer allocator.free(metadata);
+    defer self.alloctr.free(metadata);
     @memset(metadata, 0);
 
     const mptr_phys = paging.physFromPtr(metadata.ptr) catch |err| {

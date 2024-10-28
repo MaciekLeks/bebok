@@ -10,6 +10,7 @@ pub const Device = @import("devices/Device.zig");
 pub const BlockDevice = @import("devices/BlockDevice.zig");
 const Registry = @import("drivers/Registry.zig");
 const NvmeDriver = @import("nvme").NvmeDriver;
+const NvmeNamespace = @import("nvme").NvmeNamespace;
 const smp = @import("smp.zig");
 const acpi = @import("acpi.zig");
 
@@ -158,36 +159,39 @@ export fn _start() callconv(.C) noreturn {
         log.warn("Device: {}", .{dev});
     }
 
-    const my_ns = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl.namespaces.get(1);
-    if (my_ns) |ns| {
-        log.info("Writing to NVMe starts.", .{});
-        defer log.info("Writing to NVMe ends.", .{});
+    const tst_ns = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl.namespaces.get(1);
+    if (tst_ns) |ns| {
+        //const stream = BlockDevice.Stream(u8).init(ns.streamer(u8));
+        const ByteStream = BlockDevice.Stream(u8);
+        // //const stream = ByteStream.init(ns.streamer(u8));
+        //const streamer: BlockDevice.Streamer = ns.streamer();
+        //const U8Streamer = BlockDevice.Streamer(u8);
+        const streamer = ns.streamer(u8);
 
-        const mlk_data: []const u8 = &.{ 'M', 'a', 'c', 'i', 'e', 'k', ' ', 'L', 'e', 'k', 's', ' ', 'x' };
-        ns.write(u8, heap.page_allocator, 0, mlk_data) catch |err| {
-            log.err("Nvme write error: {}", .{err});
-        };
+        _ = ByteStream.init(streamer);
+        // log.info("Writing to NVMe starts.", .{});
+        // defer log.info("Writing to NVMe ends.", .{});
+        //
+        // const mlk_data: []const u8 = &.{ 'M', 'a', 'c', 'i', 'e', 'k', ' ', 'L', 'e', 'k', 's', ' ', 'x' };
+        // ns.write(u8, heap.page_allocator, 0, mlk_data) catch |err| {
+        //     log.err("Nvme write error: {}", .{err});
+        // };
 
-        const data = ns.readToOwnedSlice(u8, heap.page_allocator, 0, 1) catch |err| blk: {
-            log.err("Nvme read error: {}", .{err});
-            break :blk null;
-        };
-        for (data.?) |d| {
-            log.warn("Nvme data: {x}", .{d});
-        }
-        if (data) |block| heap.page_allocator.free(block);
+        // const data = ns.readToOwnedSlice(u8, heap.page_allocator, 0, 1) catch |err| blk: {
+        //     log.err("Nvme read error: {}", .{err});
+        //     break :blk null;
+        // };
+        // const data = stream.read(heap.page_allocator, 1) catch |err| blk: {
+        //     log.err("Nvme read error: {}", .{err});
+        //     break :blk null;
+        // };
+        //
+        // for (data.?) |d| {
+        //     log.warn("Nvme data: {x}", .{d});
+        // }
+        // if (data) |block| heap.page_allocator.free(block);
     }
-    //
-    //
-    // const data2 = Nvme.readToOwnedSlice(u8, heap.page_allocator, &Nvme.drive, 1, 1, 1) catch |err| blk: {
-    //     log.err("Nvme read error 2: {}", .{err});
-    //     break :blk null;
-    // };
-    // if (data2) |block| heap.page_allocator.free(block);
-    // for (data2.?) |d| {
-    //     log.warn("Nvme data2: {x}", .{d});
-    // }
-    //
+
     var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");
     pty.printf("Bebok version: {any}\n", .{config.kernel_version});
 
@@ -198,7 +202,7 @@ export fn _start() callconv(.C) noreturn {
             @panic("OOM");
         };
         log.debug("TEST:Allocated memory at {*}", .{mem_test});
-        heap.page_allocator.free(mem_test[2..]); //it's ok, but if we narrow down the slice to the next level (e.g. page leve) than we can have a problem
+        heap.page_allocator.free(mem_test[2..]); //it's ok, but if we narrow down the slice to the next level (e.g. page leve) than we can
         log.debug("TEST:End", .{});
     }
 

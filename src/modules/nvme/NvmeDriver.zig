@@ -412,7 +412,7 @@ fn discoverNamespacesByIoCommandSet(ctrl: *NvmeController) !void {
                 log.info("Identify Namespace Data Structure(cns: 0x00): nsid:{d}, info:{}", .{ nsid, ns_info.* });
 
                 //@@@try ctrl.ns_info_map.put(nsid, ns_info.*);
-                try ctrl.namespaces.put(nsid, try NvmeNamespace.init(ctrl.alloctr, ctrl, nsid, ns_info.*));
+                try ctrl.namespaces.put(nsid, try NvmeNamespace.init(heap.page_allocator, ctrl, nsid, ns_info.*));
 
                 const vs = regs.readRegister(regs.VSRegister, ctrl.bar, .vs); //TODO added to compile the code
                 log.debug("vs: {}", .{vs});
