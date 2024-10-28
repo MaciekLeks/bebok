@@ -93,7 +93,7 @@ pub fn write(comptime T: type, ctx: *anyopaque, buf: []T, offset: usize) anyerro
 /// @param allocator : User allocator
 /// @param slba : Start Logical Block Address
 /// @param nlb : Number of Logical Blocks
-fn readInternal(self: *const NvmeNamespace, T: type, allocator: std.mem.Allocator, slba: u64, nlba: u16) ![]T {
+fn readInternal(self: *const NvmeNamespace, comptime T: type, allocator: std.mem.Allocator, slba: u64, nlba: u16) ![]T {
     // const ns: id.NsInfo = self.ns_info_map.get(nsid) orelse {
     //     log.err("Namespace {d} not found", .{nsid});
     //     return e.NvmeError.InvalidNsid;
