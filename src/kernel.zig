@@ -167,7 +167,11 @@ export fn _start() callconv(.C) noreturn {
         //const streamer: BlockDevice.Streamer = ns.streamer();
         //const U8Streamer = BlockDevice.Streamer(u8);
         const streamer = ns.streamer(u8);
-
+        // const streamer = BlockDevice.Streamer(u8).init(ns, .{
+        //     .read = ns.read,
+        //     .write = ns.write,
+        // });
+        //
         _ = ByteStream.init(streamer);
         // log.info("Writing to NVMe starts.", .{});
         // defer log.info("Writing to NVMe ends.", .{});

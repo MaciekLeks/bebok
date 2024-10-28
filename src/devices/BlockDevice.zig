@@ -29,8 +29,8 @@ pub fn Streamer(comptime T: type) type {
     return struct {
         const Self = @This();
         pub const VTable = struct {
-            read: *const fn (comptime T: type, ctx: *anyopaque, allocator: std.mem.Allocator, offset: usize, total: usize) anyerror![]void,
-            write: *const fn (comptime T: type, ctx: *anyopaque, offset: usize, buf: []u8) anyerror!void,
+            read: *const fn (comptime T: type, ctx: *anyopaque, allocator: std.mem.Allocator, offset: usize, total: usize) anyerror![]T,
+            write: *const fn (comptime T: type, ctx: *anyopaque, offset: usize, buf: []T) anyerror!void,
         };
 
         ptr: *anyopaque,

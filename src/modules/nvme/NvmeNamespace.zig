@@ -57,7 +57,7 @@ pub fn streamer(self: *NvmeNamespace, comptime T: type) Streamer(T) {
 /// @param allocator : User allocator to allocate memory for the data buffer
 /// @param offset : Offset to read from
 /// @param total : Total bytes to read
-pub fn read(comptime T: type, ctx: *anyopaque, allocator: std.mem.Allocator, offset: usize, total: usize) anyerror![]void {
+pub fn read(comptime T: type, ctx: *anyopaque, allocator: std.mem.Allocator, offset: usize, total: usize) anyerror![]T {
     const self: *NvmeNamespace = @ptrCast(@alignCast(ctx));
 
     const lbads_bytes = math.pow(u32, 2, self.info.lbaf[self.info.flbas].lbads);
@@ -89,7 +89,7 @@ pub fn write(comptime T: type, ctx: *anyopaque, buf: []T, offset: usize) anyerro
     //self: *const NvmeNamespace, T: type, slba: u64, data: []const T
 }
 
-/// Read from the NVMe drive
+/// Read from the NVMe namespace
 /// @param allocator : User allocator
 /// @param slba : Start Logical Block Address
 /// @param nlb : Number of Logical Blocks
