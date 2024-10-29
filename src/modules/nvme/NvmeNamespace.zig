@@ -37,27 +37,20 @@ pub fn deinit(self: *NvmeNamespace) void {
 
 // Yields istels as a Streamer interface
 // @return Streamer interface
-pub fn streamer(self: *NvmeNamespace, comptime T: type) Streamer(T) {
-    const vtable = Streamer(T).VTable{
+pub fn streamer(self: *NvmeNamespace) Streamer {
+    const vtable = Streamer.VTable{
         .read = read,
         .write = write,
     };
-    return Streamer(T).init(self, vtable);
+    return Streamer.init(self, vtable);
 }
-
-// pub fn new_streamer(comptime D: type, comptime T: type) Streamer(T) {
-//     return Streamer(T).init(Streamer(T).VTable{
-//         .read = D.read,
-//         .write = D.write,
-//     });
-// }
 
 /// Read from the NVMe to owned slice and then copy the data to the user buffer.
 /// @param ctx : pointer to NvmeNamespace
 /// @param allocator : User allocator to allocate memory for the data buffer
 /// @param offset : Offset to read from
 /// @param total : Total bytes to read
-pub fn read(comptime T: type, ctx: *anyopaque, allocator: std.mem.Allocator, offset: usize, total: usize) anyerror![]T {
+pub fn read(ctx: *anyopaque, allocator: std.mem.Allocator, offset: usize, total: usize) anyerror![]u8 {
     const self: *NvmeNamespace = @ptrCast(@alignCast(ctx));
 
     const lbads_bytes = math.pow(u32, 2, self.info.lbaf[self.info.flbas].lbads);
@@ -67,10 +60,10 @@ pub fn read(comptime T: type, ctx: *anyopaque, allocator: std.mem.Allocator, off
 
     log.debug("Reading from namespace {d} at offset {d}, total: {d}, slba: {d}, nlba: {d}, slba_offset: {d}", .{ self.nsid, offset, total, slba, nlba, slba_offset });
 
-    const data = try self.readInternal(T, self.alloctr, slba, nlba);
+    const data = try self.readInternal(u8, slba, nlba);
     defer self.alloctr.free(data);
 
-    const buf = allocator.alloc(T, total / @sizeOf(T)) catch |err| {
+    const buf = allocator.alloc(u8, total) catch |err| {
         log.err("Failed to allocate memory for data buffer: {}", .{err});
         return error.OutOfMemory;
     };
@@ -80,7 +73,7 @@ pub fn read(comptime T: type, ctx: *anyopaque, allocator: std.mem.Allocator, off
     return buf;
 }
 
-pub fn write(comptime T: type, ctx: *anyopaque, buf: []T, offset: usize) anyerror!void {
+pub fn write(ctx: *anyopaque, offset: usize, buf: []u8) anyerror!void {
     _ = ctx;
     _ = buf;
     _ = offset;
@@ -93,7 +86,7 @@ pub fn write(comptime T: type, ctx: *anyopaque, buf: []T, offset: usize) anyerro
 /// @param allocator : User allocator
 /// @param slba : Start Logical Block Address
 /// @param nlb : Number of Logical Blocks
-fn readInternal(self: *const NvmeNamespace, comptime T: type, allocator: std.mem.Allocator, slba: u64, nlba: u16) ![]T {
+fn readInternal(self: *const NvmeNamespace, comptime T: type, slba: u64, nlba: u16) ![]T {
     // const ns: id.NsInfo = self.ns_info_map.get(nsid) orelse {
     //     log.err("Namespace {d} not found", .{nsid});
     //     return e.NvmeError.InvalidNsid;
@@ -112,19 +105,30 @@ fn readInternal(self: *const NvmeNamespace, comptime T: type, allocator: std.mem
     //calculate number of pages to allocate
     const total_bytes = nlba * lbads_bytes;
     const page_count = try std.math.divCeil(usize, total_bytes, pmm.page_size);
-    log.debug("Number of pages to allocate: {d} to load: {d} bytes", .{ page_count, nlba * lbads_bytes });
+    log.debug("Number of pages to allocate: {d} to load: {d} bytes", .{ page_count, total_bytes });
+
+    log.debug("///1", .{});
+    log.debug("///1 {d}/{d}", .{ total_bytes, @sizeOf(T) });
+    log.debug("///1 ={d}", .{total_bytes / @sizeOf(T)});
 
     // calculate the physical address of the data buffer
-    const data = allocator.alloc(T, total_bytes / @sizeOf(T)) catch |err| {
+    const data = self.alloctr.alloc(T, total_bytes / @sizeOf(T)) catch |err| {
         log.err("Failed to allocate memory for data buffer: {}", .{err});
         return error.OutOfMemory;
     };
+
+    log.debug("///2", .{});
     @memset(data, 1); //TODO promote to an option
+    //
+    //
+    log.debug("///3", .{});
 
     const prp1_phys = paging.physFromPtr(data.ptr) catch |err| {
         log.err("Failed to get physical address: {}", .{err});
         return error.PageToPhysFailed;
     };
+
+    log.debug("///5", .{});
 
     var prp_list: ?[]usize = null;
     const prp2_phys: usize = switch (page_count) {
@@ -143,7 +147,7 @@ fn readInternal(self: *const NvmeNamespace, comptime T: type, allocator: std.mem
                 return error.NotImplemented;
             }
 
-            prp_list = allocator.alloc(usize, entry_count) catch |err| {
+            prp_list = self.alloctr.alloc(usize, entry_count) catch |err| {
                 log.err("Failed to allocate memory for PRP list: {}", .{err});
                 return error.OutOfMemory;
             };
@@ -160,15 +164,15 @@ fn readInternal(self: *const NvmeNamespace, comptime T: type, allocator: std.mem
             break :blk try paging.physFromPtr(&prp_list.?[0]);
         },
     };
-    defer if (prp_list) |pl| allocator.free(pl);
+    defer if (prp_list) |pl| self.alloctr.free(pl);
     log.debug("PRP1: 0x{x}, PRP2: 0x{x}", .{ prp1_phys, prp2_phys });
 
     // allotate memory for Metadata buffer
-    const metadata = allocator.alloc(u8, nlba * flbaf.ms) catch |err| {
+    const metadata = self.alloctr.alloc(u8, nlba * flbaf.ms) catch |err| {
         log.err("Failed to allocate memory for metadata buffer: {}", .{err});
         return error.OutOfMemory;
     };
-    defer allocator.free(metadata);
+    defer self.alloctr.free(metadata);
     @memset(metadata, 0);
 
     const mptr_phys = paging.physFromPtr(metadata.ptr) catch |err| {

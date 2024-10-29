@@ -161,18 +161,8 @@ export fn _start() callconv(.C) noreturn {
 
     const tst_ns = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl.namespaces.get(1);
     if (tst_ns) |ns| {
-        //const stream = BlockDevice.Stream(u8).init(ns.streamer(u8));
-        const ByteStream = BlockDevice.Stream(u8);
-        // //const stream = ByteStream.init(ns.streamer(u8));
-        //const streamer: BlockDevice.Streamer = ns.streamer();
-        //const U8Streamer = BlockDevice.Streamer(u8);
-        const streamer = ns.streamer(u8);
-        // const streamer = BlockDevice.Streamer(u8).init(ns, .{
-        //     .read = ns.read,
-        //     .write = ns.write,
-        // });
-        //
-        _ = ByteStream.init(streamer);
+        const streamer = ns.streamer();
+        var stream = BlockDevice.Stream(u8).init(streamer);
         // log.info("Writing to NVMe starts.", .{});
         // defer log.info("Writing to NVMe ends.", .{});
         //
@@ -181,19 +171,15 @@ export fn _start() callconv(.C) noreturn {
         //     log.err("Nvme write error: {}", .{err});
         // };
 
-        // const data = ns.readToOwnedSlice(u8, heap.page_allocator, 0, 1) catch |err| blk: {
-        //     log.err("Nvme read error: {}", .{err});
-        //     break :blk null;
-        // };
-        // const data = stream.read(heap.page_allocator, 1) catch |err| blk: {
-        //     log.err("Nvme read error: {}", .{err});
-        //     break :blk null;
-        // };
-        //
-        // for (data.?) |d| {
-        //     log.warn("Nvme data: {x}", .{d});
-        // }
-        // if (data) |block| heap.page_allocator.free(block);
+        log.info("Reading from NVMe starts.", .{});
+        const data = stream.read(heap.page_allocator, 10) catch |err| blk: {
+            log.err("Nvme read error: {}", .{err});
+            break :blk null;
+        };
+        for (data.?) |d| {
+            log.warn("Nvme data: {x}", .{d});
+        }
+        if (data) |block| heap.page_allocator.free(block);
     }
 
     var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");

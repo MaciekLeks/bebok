@@ -142,10 +142,14 @@ pub fn deinit() void {
 // TODO: implement a more efficient way to find the buddy allocator and updating the tree if free_mem_size changes radically
 fn alloc(_: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
     //var it = avl_tree_by_size.ascendFromStart();
+    log.debug("///a", .{});
     var it = avl_tree_by_size.descendFromEnd(); //large size to small size
+    log.debug("///b", .{});
     const size_pow2 = BuddyAllocatorPreconfigured.minAllocSize(len) catch {
         return null;
     };
+
+    log.debug("///c", .{});
     while (it.value()) |e| {
         log.debug("alloc(): Checking free memory at 0x{x} of total size: 0x{x} bytes, free size: 0x{x} to allocate: 0x{x}, pow2: 0x{x}  ", .{ e.v.*.mem_virt, e.v.*.max_mem_size_pow2, e.v.*.free_mem_size, len, size_pow2 });
         if (e.v.*.free_mem_size >= size_pow2) {
