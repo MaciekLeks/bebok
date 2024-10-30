@@ -161,9 +161,6 @@ export fn _start() callconv(.C) noreturn {
 
     const tst_ns = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl.namespaces.get(1);
     if (tst_ns) |ns| {
-        const addr: [*]const u8 = @ptrCast(ns);
-        log.debug("        ///663 {*}: {}", .{ ns, std.fmt.fmtSliceHexLower(addr[0..32]) });
-
         const streamer = ns.streamer();
         var stream = BlockDevice.Stream(u8).init(streamer);
         // log.info("Writing to NVMe starts.", .{});
@@ -173,10 +170,6 @@ export fn _start() callconv(.C) noreturn {
         // ns.write(u8, heap.pe_allocator, 0, mlk_data) catch |err| {
         //     log.err("Nvme w dcrite error: {}", .{err});
         // };
-
-        test_page_allocator(heap.page_allocator) catch |err| {
-            log.err("Page allocator test error: {}", .{err});
-        };
 
         log.info("Reading from NVMe starts.", .{});
         const data = stream.read(heap.page_allocator, 10) catch |err| blk: {
@@ -215,21 +208,3 @@ fn testISR0(_: ?*anyopaque) !void {
 //     log.warn("apic: 1----->>>>!!!!", .{});
 // }
 //
-
-fn test_page_allocator(alloctr: std.mem.Allocator) !void {
-    const Holder = struct {
-        alloctr: std.mem.Allocator,
-    };
-    const holder = try alloctr.create(Holder);
-    holder.alloctr = alloctr;
-
-    log.debug("///001", .{});
-    //const data_tst: ?[]u8 = heap.page_allocator.alloc(u8, 512) catch |err| blk: {
-    const data_tst: ?[]u8 = holder.alloctr.alloc(u8, 512) catch |err| blk: {
-        log.err("Failed to allocate memory for data buffer: {}", .{err});
-        break :blk null;
-    };
-    //defer if (data_tst) |to_free| heap.page_allocator.free(to_free);
-    defer if (data_tst) |to_free| holder.alloctr.free(to_free);
-    log.debug("///002", .{});
-}

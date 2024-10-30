@@ -419,20 +419,7 @@ fn discoverNamespacesByIoCommandSet(ctrl: *NvmeController) !void {
                 const ns_info: *const id.IdentifyNamespaceInfo = @ptrCast(@alignCast(prp1));
                 log.info("Identify Namespace Data Structure(cns: 0x00): nsid:{d}, info:{}", .{ nsid, ns_info.* });
 
-                //@@@try ctrl.ns_info_map.put(nsid, ns_info.*);
-                const ns = try NvmeNamespace.init(heap.page_allocator, ctrl, nsid, ns_info.*);
-                const addr: [*]const u8 = @ptrCast(ns);
-                log.debug("   ///661 {*}: {}", .{ ns, std.fmt.fmtSliceHexLower(addr[0..32]) });
-
-                try ctrl.namespaces.put(nsid, ns);
-
-                { //tbd
-                    const ns_test = ctrl.namespaces.get(nsid);
-                    if (ns_test) |nst| {
-                        const addrt: [*]const u8 = @ptrCast(nst);
-                        log.debug("   ///661_ {*}: {}", .{ ns, std.fmt.fmtSliceHexLower(addrt[0..32]) });
-                    }
-                }
+                try ctrl.namespaces.put(nsid, try NvmeNamespace.init(heap.page_allocator, ctrl, nsid, ns_info.*));
 
                 const vs = regs.readRegister(regs.VSRegister, ctrl.bar, .vs); //TODO added to compile the code
                 log.debug("vs: {}", .{vs});

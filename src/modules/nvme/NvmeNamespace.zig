@@ -31,15 +31,10 @@ pub fn init(allocator: std.mem.Allocator, ctrl: *NvmeController, nsid: u32, info
     self.nsid = nsid;
     self.info = info;
     self.ctrl = ctrl;
-
-    const addr: [*]const u8 = @ptrCast(self);
-    log.debug("///660 {*}: {}", .{ self, std.fmt.fmtSliceHexLower(addr[0..tmp_len]) });
-
     return self;
 }
 
 pub fn deinit(self: *NvmeNamespace) void {
-    log.debug("///661 - deinit", {});
     self.alloctr.deinit(self);
 }
 
@@ -60,9 +55,6 @@ pub fn streamer(self: *NvmeNamespace) Streamer {
 /// @param total : Total bytes to read
 pub fn read(ctx: *anyopaque, allocator: std.mem.Allocator, offset: usize, total: usize) anyerror![]u8 {
     const self: *const NvmeNamespace = @ptrCast(@alignCast(ctx));
-
-    const addr: [*]const u8 = @ptrCast(self);
-    log.debug("///664 {*}: {}", .{ self, std.fmt.fmtSliceHexLower(addr[0..tmp_len]) });
 
     const lbads_bytes = math.pow(u32, 2, self.info.lbaf[self.info.flbas].lbads);
     const slba = offset / lbads_bytes;
@@ -99,13 +91,6 @@ pub fn write(ctx: *anyopaque, offset: usize, buf: []u8) anyerror!void {
 /// @param slba : Start Logical Block Address
 /// @param nlb : Number of Logical Blocks
 fn readInternal(self: *const NvmeNamespace, comptime T: type, slba: u64, nlba: u16) ![]T {
-    // const ns: id.NsInfo = self.ns_info_map.get(nsid) orelse {
-    //     log.err("Namespace {d} not found", .{nsid});
-    //     return e.NvmeError.InvalidNsid;
-    // };
-    const addr: [*]const u8 = @ptrCast(self);
-    log.debug("///665 {*}: {}", .{ self, std.fmt.fmtSliceHexLower(addr[0..tmp_len]) });
-
     log.debug("Namespace {d} info: {}", .{ self.nsid, self.info });
 
     if (slba > self.info.nsze) return e.NvmeError.InvalidLBA;
@@ -121,16 +106,6 @@ fn readInternal(self: *const NvmeNamespace, comptime T: type, slba: u64, nlba: u
     const page_count = try std.math.divCeil(usize, total_bytes, pmm.page_size);
     log.debug("Number of pages to allocate: {d} to load: {d} bytes", .{ page_count, total_bytes });
 
-    log.debug("///1", .{});
-    log.debug("///1 {d}/{d}", .{ total_bytes, @sizeOf(T) });
-    log.debug("///1 ={d}", .{total_bytes / @sizeOf(T)});
-
-    //log my alloctr
-    //log.debug("///1 self: {any}", .{&self.alloctr});
-    //log.debug("///1 self: {any}", .{heap.page_allocator});
-    log.debug("///1 alloctr: {any}", .{self.alloctr});
-    log.debug("///1 alloctr done", .{});
-
     // calculate the physical address of the data buffer
     const data = self.alloctr.alloc(T, total_bytes / @sizeOf(T)) catch |err| {
         //const data = heap.page_allocator.alloc(T, total_bytes / @sizeOf(T)) catch |err| {
@@ -138,18 +113,11 @@ fn readInternal(self: *const NvmeNamespace, comptime T: type, slba: u64, nlba: u
         return error.OutOfMemory;
     };
 
-    log.debug("///2", .{});
-    @memset(data, 0); //TODO promote to an option, 1 or 0?
-    //
-    //
-    log.debug("///3", .{});
-
+    @memset(data, 0);
     const prp1_phys = paging.physFromPtr(data.ptr) catch |err| {
         log.err("Failed to get physical address: {}", .{err});
         return error.PageToPhysFailed;
     };
-
-    log.debug("///5", .{});
 
     var prp_list: ?[]usize = null;
     const prp2_phys: usize = switch (page_count) {
