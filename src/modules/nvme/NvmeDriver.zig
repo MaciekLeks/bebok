@@ -1,5 +1,5 @@
 const std = @import("std");
-const log = std.log.scoped(.nvme);
+const log = std.log.scoped(.nvme_driver);
 const math = std.math;
 
 //const apic_test = @import("../arch/x86_64/apic.zig");
@@ -305,6 +305,12 @@ fn discoverNamespacesByIoCommandSet(ctrl: *NvmeController) !void {
 
     const prp1_phys = try paging.physFromPtr(prp1.ptr);
 
+    // Identify Command CNS=0x00 crosses the PRP1 memory boundary and Tripple Fault accours then, TODO: Explanation needed
+    const prp2 = try heap.page_allocator.alloc(u8, pmm.page_size);
+    @memset(prp2, 0);
+    defer heap.page_allocator.free(prp2);
+    const prp2_phys = try paging.physFromPtr(prp2.ptr);
+
     _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
         .cdw0 = .{
             .opc = .identify,
@@ -391,6 +397,7 @@ fn discoverNamespacesByIoCommandSet(ctrl: *NvmeController) !void {
 
                 // Identify Namespace Data Structure (CNS 0x00)
                 @memset(prp1, 0);
+                @memset(prp2, 0);
                 _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
                     .cdw0 = .{
                         .opc = .identify,
@@ -400,6 +407,7 @@ fn discoverNamespacesByIoCommandSet(ctrl: *NvmeController) !void {
                     .dptr = .{
                         .prp = .{
                             .prp1 = prp1_phys,
+                            .prp2 = prp2_phys, //TODO: it's not documented but this command crosses the prp1 memory boundary
                         },
                     },
                     .cns = 0x00,
@@ -412,7 +420,19 @@ fn discoverNamespacesByIoCommandSet(ctrl: *NvmeController) !void {
                 log.info("Identify Namespace Data Structure(cns: 0x00): nsid:{d}, info:{}", .{ nsid, ns_info.* });
 
                 //@@@try ctrl.ns_info_map.put(nsid, ns_info.*);
-                try ctrl.namespaces.put(nsid, try NvmeNamespace.init(heap.page_allocator, ctrl, nsid, ns_info.*));
+                const ns = try NvmeNamespace.init(heap.page_allocator, ctrl, nsid, ns_info.*);
+                const addr: [*]const u8 = @ptrCast(ns);
+                log.debug("   ///661 {*}: {}", .{ ns, std.fmt.fmtSliceHexLower(addr[0..32]) });
+
+                try ctrl.namespaces.put(nsid, ns);
+
+                { //tbd
+                    const ns_test = ctrl.namespaces.get(nsid);
+                    if (ns_test) |nst| {
+                        const addrt: [*]const u8 = @ptrCast(nst);
+                        log.debug("   ///661_ {*}: {}", .{ ns, std.fmt.fmtSliceHexLower(addrt[0..32]) });
+                    }
+                }
 
                 const vs = regs.readRegister(regs.VSRegister, ctrl.bar, .vs); //TODO added to compile the code
                 log.debug("vs: {}", .{vs});

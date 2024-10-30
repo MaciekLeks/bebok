@@ -20,7 +20,7 @@ const Device = @import("deps.zig").Device;
 
 const NvmeController = @This();
 
-const log = std.log.scoped(.nvme_device);
+const log = std.log.scoped(.nvme_controller);
 
 const nvme_ncqr = 0x2; //number of completion queues requested (+1 is admin cq)
 const nvme_nsqr = nvme_ncqr; //number of submission queues requested

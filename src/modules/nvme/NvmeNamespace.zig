@@ -3,6 +3,7 @@ const math = std.math;
 
 const pmm = @import("deps.zig").pmm;
 const paging = @import("deps.zig").paging;
+const heap = @import("deps.zig").heap; //TODO:rmv
 
 const Streamer = @import("deps.zig").BlockDevice.Streamer;
 
@@ -22,16 +23,23 @@ nsid: u32,
 info: id.NsInfo,
 ctrl: *NvmeController,
 
+const tmp_len = 32;
+
 pub fn init(allocator: std.mem.Allocator, ctrl: *NvmeController, nsid: u32, info: id.NsInfo) !*NvmeNamespace {
     var self = try allocator.create(NvmeNamespace);
     self.alloctr = allocator;
     self.nsid = nsid;
     self.info = info;
     self.ctrl = ctrl;
+
+    const addr: [*]const u8 = @ptrCast(self);
+    log.debug("///660 {*}: {}", .{ self, std.fmt.fmtSliceHexLower(addr[0..tmp_len]) });
+
     return self;
 }
 
 pub fn deinit(self: *NvmeNamespace) void {
+    log.debug("///661 - deinit", {});
     self.alloctr.deinit(self);
 }
 
@@ -51,7 +59,10 @@ pub fn streamer(self: *NvmeNamespace) Streamer {
 /// @param offset : Offset to read from
 /// @param total : Total bytes to read
 pub fn read(ctx: *anyopaque, allocator: std.mem.Allocator, offset: usize, total: usize) anyerror![]u8 {
-    const self: *NvmeNamespace = @ptrCast(@alignCast(ctx));
+    const self: *const NvmeNamespace = @ptrCast(@alignCast(ctx));
+
+    const addr: [*]const u8 = @ptrCast(self);
+    log.debug("///664 {*}: {}", .{ self, std.fmt.fmtSliceHexLower(addr[0..tmp_len]) });
 
     const lbads_bytes = math.pow(u32, 2, self.info.lbaf[self.info.flbas].lbads);
     const slba = offset / lbads_bytes;
@@ -62,6 +73,7 @@ pub fn read(ctx: *anyopaque, allocator: std.mem.Allocator, offset: usize, total:
 
     const data = try self.readInternal(u8, slba, nlba);
     defer self.alloctr.free(data);
+    //defer heap.page_allocator.free(data);
 
     const buf = allocator.alloc(u8, total) catch |err| {
         log.err("Failed to allocate memory for data buffer: {}", .{err});
@@ -91,6 +103,8 @@ fn readInternal(self: *const NvmeNamespace, comptime T: type, slba: u64, nlba: u
     //     log.err("Namespace {d} not found", .{nsid});
     //     return e.NvmeError.InvalidNsid;
     // };
+    const addr: [*]const u8 = @ptrCast(self);
+    log.debug("///665 {*}: {}", .{ self, std.fmt.fmtSliceHexLower(addr[0..tmp_len]) });
 
     log.debug("Namespace {d} info: {}", .{ self.nsid, self.info });
 
@@ -111,14 +125,21 @@ fn readInternal(self: *const NvmeNamespace, comptime T: type, slba: u64, nlba: u
     log.debug("///1 {d}/{d}", .{ total_bytes, @sizeOf(T) });
     log.debug("///1 ={d}", .{total_bytes / @sizeOf(T)});
 
+    //log my alloctr
+    //log.debug("///1 self: {any}", .{&self.alloctr});
+    //log.debug("///1 self: {any}", .{heap.page_allocator});
+    log.debug("///1 alloctr: {any}", .{self.alloctr});
+    log.debug("///1 alloctr done", .{});
+
     // calculate the physical address of the data buffer
     const data = self.alloctr.alloc(T, total_bytes / @sizeOf(T)) catch |err| {
+        //const data = heap.page_allocator.alloc(T, total_bytes / @sizeOf(T)) catch |err| {
         log.err("Failed to allocate memory for data buffer: {}", .{err});
         return error.OutOfMemory;
     };
 
     log.debug("///2", .{});
-    @memset(data, 1); //TODO promote to an option
+    @memset(data, 0); //TODO promote to an option, 1 or 0?
     //
     //
     log.debug("///3", .{});

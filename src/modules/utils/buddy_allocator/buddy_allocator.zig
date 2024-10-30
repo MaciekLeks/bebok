@@ -95,7 +95,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
 
         inline fn indexFromSlice(self: *Self, old_mem: []u8) !usize {
             const virt_start = @intFromPtr(old_mem.ptr);
-            const virt_end = virt_start + old_mem.len;
+            const virt_end = virt_start + old_mem.len - 1;
 
             if (virt_start < self.mem_virt or virt_end > self.mem_virt + self.max_mem_size_pow2) return error.OutOfMemory;
 
