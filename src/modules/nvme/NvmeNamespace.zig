@@ -48,42 +48,57 @@ pub fn streamer(self: *NvmeNamespace) Streamer {
     return Streamer.init(self, vtable);
 }
 
+fn calculateLba(offset: usize, total: usize, namespace_info: id.NsInfo) !struct {
+    slba: u64,
+    nlba: u16,
+    slba_offset: u64,
+} {
+    const lbads_bytes = math.pow(u32, 2, namespace_info.lbaf[namespace_info.flbas].lbads);
+    const slba = offset / lbads_bytes;
+    const nlba: u16 = @intCast(try std.math.divCeil(usize, total, lbads_bytes));
+    const slba_offset = offset % lbads_bytes;
+
+    return .{ .slba = slba, .nlba = nlba, .slba_offset = slba_offset };
+}
+
 /// Read from the NVMe to owned slice and then copy the data to the user buffer.
 /// @param ctx : pointer to NvmeNamespace
 /// @param allocator : User allocator to allocate memory for the data buffer
 /// @param offset : Offset to read from
 /// @param total : Total bytes to read
+/// TODO: if more devices supports LBA than this can be move out to BlockDevice
 pub fn read(ctx: *anyopaque, allocator: std.mem.Allocator, offset: usize, total: usize) anyerror![]u8 {
     const self: *const NvmeNamespace = @ptrCast(@alignCast(ctx));
 
-    const lbads_bytes = math.pow(u32, 2, self.info.lbaf[self.info.flbas].lbads);
-    const slba = offset / lbads_bytes;
-    const nlba: u16 = @intCast(try std.math.divCeil(usize, total, lbads_bytes));
-    const slba_offset = offset % lbads_bytes;
+    const lba = try calculateLba(offset, total, self.info);
+    log.debug("read(): Calculated LBA: {d}, NLBA: {d}, Offset: {d}", .{ lba.slba, lba.nlba, lba.slba_offset });
 
-    log.debug("Reading from namespace {d} at offset {d}, total: {d}, slba: {d}, nlba: {d}, slba_offset: {d}", .{ self.nsid, offset, total, slba, nlba, slba_offset });
-
-    const data = try self.readInternal(u8, slba, nlba);
+    const data = try self.readInternal(u8, lba.slba, lba.nlba);
     defer self.alloctr.free(data);
     //defer heap.page_allocator.free(data);
 
     const buf = allocator.alloc(u8, total) catch |err| {
-        log.err("Failed to allocate memory for data buffer: {}", .{err});
+        log.err("read(): Failed to allocate memory for data buffer: {}", .{err});
         return error.OutOfMemory;
     };
 
-    @memcpy(buf, data[slba_offset .. slba_offset + total]);
+    @memcpy(buf, data[lba.slba_offset .. lba.slba_offset + total]);
 
     return buf;
 }
 
+/// Write to the NVMe namespace
+/// @param ctx : pointer to NvmeNamespace
+/// @param offset : Offset to write to
+/// @param buf : Data to write
+/// TODO: if more devices supports LBA than this can be move out to BlockDevice
 pub fn write(ctx: *anyopaque, offset: usize, buf: []u8) anyerror!void {
-    _ = ctx;
-    _ = buf;
-    _ = offset;
-    return error.NotImplemented;
+    const self: *const NvmeNamespace = @ptrCast(@alignCast(ctx));
 
-    //self: *const NvmeNamespace, T: type, slba: u64, data: []const T
+    const lba = try calculateLba(offset, buf.len, self.info);
+    log.debug("write(): Calculated LBA: {d}, NLBA: {d}, Offset: {d}", .{ lba.slba, lba.nlba, lba.slba_offset });
+
+    return error.NotImplemented;
 }
 
 /// Read from the NVMe namespace
