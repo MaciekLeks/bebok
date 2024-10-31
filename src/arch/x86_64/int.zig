@@ -4,6 +4,7 @@ const cpu = @import("cpu.zig");
 const gdt = @import("gdt.zig");
 const testing = @import("testing");
 const apic = @import("apic.zig");
+const InterruptPool = @import("deps.zig").InterruptPool;
 
 const log = std.log.scoped(.init_x86_64);
 
@@ -264,7 +265,7 @@ fn setEmptyInterruptEntry(comptime idx: VectorIndex) void {
     setIdtEntry(idx, 0, IdtEntry.GateType.interrupt_gate, dpl.PrivilegeLevel.ring0, false);
 }
 
-pub fn init(comptime isr_handle_loop_fn: ISRHandleLoopFn) void {
+pub fn init(comptime isr_handle_loop_fn: ISRHandleLoopFn, pool: *InterruptPool) !void {
     log.info("Initializing interrupts handling", .{});
     defer log.info("Interrupts handling initialized", .{});
 
@@ -282,22 +283,23 @@ pub fn init(comptime isr_handle_loop_fn: ISRHandleLoopFn) void {
     //}
 
     // Update the IDT with the exceptions: 0x0->0x1F
-    inline for (0..total_exceptions) |i| {
-        switch (i) {
-            0x02, 0x09, 0x15, 0x16...0x1B, 0x1F => |ei| { //TODO: unmask 0x16 FPU
-                setDefaultPicInterruptEntry(ei, isr_handle_loop_fn, true);
-                // idt[ei].setOffset(@intFromPtr(&interruptFnBind(ei)));
-                // idt[ei].segment_selector = gdt.segment_selectors.kernel_code_x64;
-                // idt[ei].interrupt_stack_table = 0;
-                // idt[ei].gate_type = IdtEntry.GateType.interrupt_gate;
-                // idt[ei].privilege = dpl.PrivilegeLevel.ring0;
-                // idt[ei].present = true;
-            },
-            else => {},
-        }
-    }
-    inline for (et, 0..) |e, idx| {
-        setDefaultExceptionEntry(idx, if (e.type == Exception.Type.fault) IdtEntry.GateType.interrupt_gate else IdtEntry.GateType.trap_gate);
+    // PIC no longer in use
+    // inline for (0..total_exceptions) |i| {
+    //     switch (i) {
+    //         0x02, 0x09, 0x15, 0x16...0x1B, 0x1F => |ei| { //TODO: unmask 0x16 FPU
+    //             setDefaultPicInterruptEntry(ei, isr_handle_loop_fn, true);
+    //             // idt[ei].setOffset(@intFromPtr(&interruptFnBind(ei)));
+    //             // idt[ei].segment_selector = gdt.segment_selectors.kernel_code_x64;
+    //             // idt[ei].interrupt_stack_table = 0;
+    //             // idt[ei].gate_type = IdtEntry.GateType.interrupt_gate;
+    //             // idt[ei].privilege = dpl.PrivilegeLevel.ring0;
+    //             // idt[ei].present = true;
+    //         },
+    //         else => {},
+    //     }
+    // }
+    inline for (et, 0..) |e, int| {
+        setDefaultExceptionEntry(int, if (e.type == Exception.Type.fault) IdtEntry.GateType.interrupt_gate else IdtEntry.GateType.trap_gate);
 
         // idt[e.vec_no].setOffset(@intFromPtr(&exceptionFnBind(i)));
         // idt[e.vec_no].segment_selector = gdt.segment_selectors.kernel_code_x64;
@@ -306,6 +308,9 @@ pub fn init(comptime isr_handle_loop_fn: ISRHandleLoopFn) void {
         // idt[e.vec_no].privilege = dpl.PrivilegeLevel.ring0;
         // idt[e.vec_no].present = true;
     }
+
+    // We can't use the first 32 interrupts
+    try pool.markRangeAsUsed(0, total_exceptions);
 
     // PIC IRQs
     // inline for (0..total_irqs) |i| {
@@ -334,7 +339,8 @@ pub fn init(comptime isr_handle_loop_fn: ISRHandleLoopFn) void {
     // }
 
     // counts from 0x30, do not tuch disabled PIC remapped vectors - see Intel Programming Guide
-    inline for (0x30..0xFF) |int| {
+    
+    inline for ((total_exceptions + 1)..0xFF) |int| {
         setDefaultLapicInterruptEntry(int, isr_handle_loop_fn, false);
     }
 

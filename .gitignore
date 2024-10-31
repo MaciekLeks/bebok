@@ -1,10 +1,10 @@
 zig-out/
-.zig-cache/
-.idea/
-.swp
 tmp
-.gdbinit*
+.* 
+!.gitignore
+!.vscode/
 
 *.log
+*.txt
 
 qemu-system-x86_64

@@ -2,18 +2,26 @@ const std = @import("std");
 const builtin = @import("builtin");
 const limine = @import("limine");
 const config = @import("config");
-const cpu = @import("cpu.zig");
 //const start = @import("start.zig");
 const segmentation = @import("segmentation.zig");
-const paging = @import("paging.zig");
-const pmm = @import("mem/pmm.zig");
-const heap = @import("mem/heap.zig").heap;
 const term = @import("terminal");
-const pcie = @import("drivers/pcie.zig");
-const Nvme = @import("drivers/Nvme.zig");
-const int = @import("int.zig");
+pub const Driver = @import("drivers/Driver.zig");
+pub const Device = @import("devices/Device.zig");
+pub const BlockDevice = @import("devices/BlockDevice.zig");
+const Registry = @import("drivers/Registry.zig");
+const NvmeDriver = @import("nvme").NvmeDriver;
+const NvmeNamespace = @import("nvme").NvmeNamespace;
 const smp = @import("smp.zig");
 const acpi = @import("acpi.zig");
+
+pub const bus = @import("bus/mod.zig");
+pub const cpu = @import("cpu.zig");
+pub const int = @import("int.zig");
+pub const paging = @import("paging.zig");
+pub const pmm = @import("mem/pmm.zig");
+pub const heap = @import("mem/heap.zig").heap;
+
+const apic_test = @import("arch/x86_64/apic.zig");
 
 const log = std.log.scoped(.kernel);
 
@@ -22,11 +30,12 @@ pub export var base_revision: limine.BaseRevision = .{ .revision = 1 };
 pub const std_options = .{
     .logFn = logFn,
     .log_scope_levels = &[_]std.log.ScopeLevel{
-        .{ .scope = .bbtree, .level = .info },
+        .{ .scope = .bbtree, .level = .debug },
     },
 };
 
-pub fn logFn(comptime message_level: std.log.Level, comptime scope: @Type(.EnumLiteral), comptime format: []const u8, args: anytype) void {
+//pub fn logFn(comptime message_level: std.log.Level, comptime scope: @Type(.EnumLiteral), comptime format: []const u8, args: anytype) void {
+pub fn logFn(comptime message_level: std.log.Level, comptime scope: @Type(.enum_literal), comptime format: []const u8, args: anytype) void {
     var log_allocator_buf: [4096 * 8]u8 = undefined;
     var log_fba = std.heap.FixedBufferAllocator.init(&log_allocator_buf);
     const log_allocator = log_fba.allocator();
@@ -53,8 +62,6 @@ pub fn logFn(comptime message_level: std.log.Level, comptime scope: @Type(.EnumL
 }
 
 pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
-    @setCold(true);
-
     log.err("{s}", .{msg});
 
     cpu.halt();
@@ -66,6 +73,7 @@ export fn _start() callconv(.C) noreturn {
         cpu.halt();
     }
 
+    //TODO: uncomment out this block if LAPIC problem is solved
     smp.init();
 
     cpu.cli();
@@ -96,40 +104,111 @@ export fn _start() callconv(.C) noreturn {
     allocator.free(memory);
 
     //{  init handler list
-    int.init(int.processISRList);
     var arena_allocator = std.heap.ArenaAllocator.init(heap.page_allocator);
+    int.init(int.processISRList, int.defaultPool()) catch |err| {
+        log.err("Interrupt initialization error: {}", .{err});
+        @panic("Interrupt initialization error");
+    };
     int.initISRMap(arena_allocator.allocator());
     defer int.deinitISRMap();
 
-    int.addISR(0x30, .{ .unique_id = 0x01, .func = &testISR2 }) catch |err| {
+    int.addISR(try int.acquireAnyInterrupt(), &.{ .unique_id = 0x01, .ctx = null, .func = &testISR0 }) catch |err| {
         log.err("Failed to add Timer interrupt handler: {}", .{err});
     };
-    int.addISR(0x31, .{ .unique_id = 0x02, .func = &testISR2 }) catch |err| {
-        log.err("Failed to add NVMe interrupt handler: {}", .{err});
-    };
+    //int.addISR(0x31, .{ .unique_id = 0x02, .func = &testISR1 }) catch |err| {
+    //    log.err("Failed to add NVMe interrupt handler: {}", .{err});
+    //};
 
-    cpu.sti();
     //} init handler list
 
     //pci test start
-    pcie.init();
-    Nvme.init();
-    pcie.scan() catch |err| {
+    var registry = Registry.init(arena_allocator.allocator()) catch |err| {
+        log.err("Driver registry creation error: {}", .{err});
+        @panic("Driver registry creation error");
+    };
+    defer registry.deinit();
+    const nvme_driver = NvmeDriver.init(arena_allocator.allocator()) catch |err| {
+        log.err("Nvme driver creation error: {}", .{err});
+        @panic("Nvme driver creation error");
+    };
+
+    registry.registerDriver(nvme_driver.driver()) catch |err| {
+        log.err("Nvme driver registration error: {}", .{err});
+        @panic("Nvme driver registration error");
+    };
+
+    const pcie_bus = bus.Bus.init(arena_allocator.allocator(), .pcie, registry) catch |err| {
+        log.err("PCIe bus creation error: {}", .{err});
+        @panic("PCIe bus creation error");
+    };
+    pcie_bus.scan() catch |err| {
         log.err("PCI scan error: {}", .{err});
         @panic("PCI scan error");
     };
-    defer Nvme.deinit();
-    defer pcie.deinit(); //TODO: na pewno?
+    defer pcie_bus.deinit(); //TODO: na pewno?
     //pci test end
+
+    //log.debug("waiting for the first interrupt", .{});
+    //apic_test.setTimerTest();
+    cpu.sti();
+    //cpu.halt();
+    //log.debug("waiting for the first interrupt/2", .{});
+
+    //list bus devices
+    for (pcie_bus.devices.items) |dev| {
+        log.warn("Device: {}", .{dev});
+    }
+
+    const tst_ns = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl.namespaces.get(1);
+    if (tst_ns) |ns| {
+        const streamer = ns.streamer();
+        var stream = BlockDevice.Stream(u8).init(streamer);
+        log.info("Writing to NVMe starts.", .{});
+        defer log.info("Writing to NVMe ends.", .{});
+        //
+        const mlk_data: []const u8 = &.{ 'M', 'a', 'c', 'i', 'e', 'k', ' ', 'L', 'e', 'k', 's', ' ' };
+        stream.write(mlk_data) catch |err| blk: {
+            log.err("Nvme write error: {}", .{err});
+            break :blk;
+        };
+
+        // read from the beginning
+        stream.seek(1); //we ommit the first byte (0x4d)
+
+        log.info("Reading from NVMe starts.", .{});
+        const data = stream.read(heap.page_allocator, mlk_data.len) catch |err| blk: {
+            log.err("Nvme read error: {}", .{err});
+            break :blk null;
+        };
+        for (data.?) |d| {
+            log.warn("Nvme data: {x}", .{d});
+        }
+        if (data) |block| heap.page_allocator.free(block);
+    }
 
     var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");
     pty.printf("Bebok version: {any}\n", .{config.kernel_version});
+
+    {
+        log.debug("TEST:Start", .{});
+        const mem_test = heap.page_allocator.alloc(u8, 0x2000) catch |err| {
+            log.err("OOM: {}", .{err});
+            @panic("OOM");
+        };
+        log.debug("TEST:Allocated memory at {*}", .{mem_test});
+        heap.page_allocator.free(mem_test[2..]); //it's ok, but if we narrow down the slice to the next level (e.g. page leve) than we can
+        log.debug("TEST:End", .{});
+    }
 
     //start.done(); //only now we can hlt - do not use defer after start.init();
     cpu.halt();
 }
 
 //TODO tbd
-fn testISR2() !void {
-    log.warn("apic: 2----->>>>!!!!", .{});
+fn testISR0(_: ?*anyopaque) !void {
+    log.warn("apic: 0----->>>>!!!!", .{});
 }
+// fn testISR1() !void {
+//     log.warn("apic: 1----->>>>!!!!", .{});
+// }
+//

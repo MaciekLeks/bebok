@@ -12,9 +12,9 @@ var apic_default_base_phys: usize = undefined;
 var apic_default_base_virt: usize = undefined;
 const lvt_mask = 0x10000;
 
-fn isLapicSupported() bool {
-    const cpuid = cpu.cpuid(0x01);
-    return cpuid.edx & (1 << 9) != 0;
+fn isLapicSupported(cpuid: u16) bool {
+    const cpuid_res = cpu.cpuid(cpuid);
+    return cpuid_res.edx & (1 << 9) != 0;
 }
 
 // only on Pentium 4, Intel Xeon, Intel P6 processors
@@ -51,6 +51,8 @@ fn isLapicSupported() bool {
 //     log.debug("Local APIC enabled 0x1B@MSR: 0x{0x}(0b{0b:0>64})", .{apic_base_msr});
 // }
 //
+
+// TODO now works only on CPUID#0
 fn enableLapicWithDefaultBase() void {
     var apic_base_msr: u64 = cpu.rdmsr(apic_base_msr_addr);
     log.info("Before updating APIC 0x1B@MSR: 0b{0b:0>64}=0x{0x} ", .{apic_base_msr});
@@ -66,7 +68,7 @@ fn enableLapicWithDefaultBase() void {
     };
     log.info("APIC registry page area PAT set to UC", .{});
 
-    // set APIC base address (bits 12 though 35 - 3 bytes) and enable APIC though bit 11 and Bootstrap Processor flag through bit 8
+    // set APIC base address (bits 12 though 35 - 3 bytes) and enable Local APIC though bit 11 and Bootstrap Processor flag through bit 8
     if (apic_base_msr & 1 << 11 == 0) {
         apic_base_msr |= 1 << 11;
         log.info("Setting APIC MSR to 0x{x}", .{apic_base_msr});
@@ -83,7 +85,35 @@ const LapicRegisterOffset = enum(u10) {
     version = 0x30,
     tpr = 0x80,
     eoi = 0xB0,
+    ldr = 0xD0,
     sivr = 0xF0,
+    isr0 = 0x100,
+    isr1 = 0x110,
+    isr2 = 0x120,
+    isr3 = 0x130,
+    isr4 = 0x140,
+    isr5 = 0x150,
+    isr6 = 0x160,
+    isr7 = 0x170,
+    tmr0 = 0x180,
+    tmr1 = 0x190,
+    tmr2 = 0x1A0,
+    tmr3 = 0x1B0,
+    tmr4 = 0x1C0,
+    tmr5 = 0x1D0,
+    tmr6 = 0x1E0,
+    tmr7 = 0x1F0,
+    irr0 = 0x200,
+    irr1 = 0x210,
+    irr2 = 0x220,
+    irr3 = 0x230,
+    irr4 = 0x240,
+    irr5 = 0x250,
+    irr6 = 0x260,
+    irr7 = 0x270,
+    esr = 0x280,
+    icr0 = 0x300,
+    icr1 = 0x310,
     lvt_timer = 0x320,
     lvt_thermal_sensor = 0x330,
     lvt_performance_monitor = 0x340,
@@ -108,12 +138,12 @@ inline fn writeRegister(T: type, offset: LapicRegisterOffset, val: T) void {
     registerAddr(T, offset).* = aligned_val;
 }
 
-fn logRegistryState() void {
+pub fn logRegistryState() void {
     // Log all registers
-    const fields = @typeInfo(LapicRegisterOffset).Enum.fields;
+    const fields = @typeInfo(LapicRegisterOffset).@"enum".fields;
     log.info("Local APIC Register State", .{});
     inline for (fields) |field| {
-        const val align(128) = readRegister(u32, @enumFromInt(field.value));
+        const val align(16) = readRegister(u32, @enumFromInt(field.value));
         log.info("Local APIC Register: {s} -> value:0x{x} at 0x{*}", .{ field.name, val, &val });
     }
 }
@@ -122,7 +152,7 @@ pub fn init() !void {
     log.info("Initializing APIC", .{});
     defer log.info("APIC initialized", .{});
 
-    const lapic_supported = isLapicSupported();
+    const lapic_supported = isLapicSupported(0);
     log.info("Checking if LAPIC is supported: {}", .{lapic_supported});
 
     if (!lapic_supported) {
@@ -133,7 +163,8 @@ pub fn init() !void {
 
     logRegistryState();
 
-    // Enable the APIC by setting the Spurious Interrupt Vector Register
+    // Enable Local APIC by setting the Spurious Interrupt Vector Register
+    writeRegister(u32, .sivr, readRegister(u32, .sivr) | 0x100); // Enable Local APIC
 
     // Disable LVT entries for LINT0 and LINT1
     writeRegister(u32, .lvt_lint0, lvt_mask); // Mask
@@ -169,7 +200,7 @@ pub fn setTimerTest() void {
     // Initialize the timer
     log.info("Setting up the timer", .{});
     writeRegister(u32, .timer_divide_config, 0x0011); //divide by 16 (2nd bit is always 0), see Figure 11.10 in the Intel System Programming Guide
-    writeRegister(u32, .timer_initial_count, 0x10000);
+    writeRegister(u32, .timer_initial_count, 0xffff_ffff);
     writeRegister(u32, .lvt_timer, 0x00 << 17 | 0x30); //0x01 - periodic - 17-18 bits,  we do not use 0x20 for PIC even it's masked
 
 }
