@@ -22,6 +22,9 @@ In Silesian language, a creature from our (Upper Silesians) demonology.
 - [ ] Ongoing refactoring and bug fixing
 - [ ] ext4 filesystem support
 
+# Pre-requisites
+- qemu-system-x86_64 on board
+
 # How to run
 zig build iso-qemu 
 ```
