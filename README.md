@@ -9,17 +9,18 @@ In Silesian language, a creature from our (Upper Silesians) demonology.
 
 # Current Features :
 - Ready-to-use features provided by Limine
-- PMM (Physical Memory Manager) using Buddy Allocator for memory slices and AVL tree for the whole regions
+- PMM (Physical Memory Manager) using Buddy Allocator for memory slices and AVL tree for entire memory regions
 - Custom GDT (Global Descriptor Table) with kernel code and data segments, in addition to the default one provided by Limine
-- IDT (Interrupt Descriptor Table) with basic handlers for the Exceptions and LAPIC (Local Programmable Interrupt Controller)
-- Basic terminal support in graphical mode with the PC Screen Fonts (version 1 and 2)
-- PCI Express (Peripheral Component Interconnect Express) driver  
+- IDT (Interrupt Descriptor Table) with basic handlers for Exceptions and LAPIC (Local Advanced Programmable Interrupt Controller)
+- Basic terminal support in graphical mode using PC Screen Fonts (versions 1 and 2)
+- PCI Express (Peripheral Component Interconnect Express) support
 - MSI-X (Message Signaled Interrupts - Extended) support
-- NVMe (Non-Volatile Memory Express) driver in progress (95% ready)
+- NVMe (Non-Volatile Memory Express) module (including driver, controller, etc.)
+- Basic stream operations for NVMe (read, write)
 
 # In progress
-- [ ] NVMe driver (I/O operations - read, write)
-- [ ] Block operations for NVMe
+- [ ] Ongoing refactoring and bug fixing
+- [ ] ext4 filesystem support
 
 # How to run
 zig build iso-qemu 

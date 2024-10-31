@@ -163,16 +163,20 @@ export fn _start() callconv(.C) noreturn {
     if (tst_ns) |ns| {
         const streamer = ns.streamer();
         var stream = BlockDevice.Stream(u8).init(streamer);
-        // log.info("Writing to NVMe starts.", .{});
-        // defer log.info("Writing to NVMe ends.", .{});
+        log.info("Writing to NVMe starts.", .{});
+        defer log.info("Writing to NVMe ends.", .{});
         //
-        // const mlk_data: []const u8 = &.{ 'M', 'a', 'c', 'i', 'e', 'k', ' ', 'L', 'e', 'k', 's', ' ', 'x' };
-        // ns.write(u8, heap.pe_allocator, 0, mlk_data) catch |err| {
-        //     log.err("Nvme w dcrite error: {}", .{err});
-        // };
+        const mlk_data: []const u8 = &.{ 'M', 'a', 'c', 'i', 'e', 'k', ' ', 'L', 'e', 'k', 's', ' ' };
+        stream.write(mlk_data) catch |err| blk: {
+            log.err("Nvme write error: {}", .{err});
+            break :blk;
+        };
+
+        // read from the beginning
+        stream.seek(1); //we ommit the first byte (0x4d)
 
         log.info("Reading from NVMe starts.", .{});
-        const data = stream.read(heap.page_allocator, 10) catch |err| blk: {
+        const data = stream.read(heap.page_allocator, mlk_data.len) catch |err| blk: {
             log.err("Nvme read error: {}", .{err});
             break :blk null;
         };

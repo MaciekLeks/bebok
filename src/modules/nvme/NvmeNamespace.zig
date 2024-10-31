@@ -61,46 +61,6 @@ pub fn calculateInternal(ctx: *anyopaque, offset: usize, total: usize) !Streamer
     return .{ .slba = slba, .nlba = nlba, .slba_offset = slba_offset };
 }
 
-/// Read from the NVMe to owned slice and then copy the data to the user buffer.
-/// @param ctx : pointer to NvmeNamespace
-/// @param allocator : User allocator to allocate memory for the data buffer
-/// @param offset : Offset to read from
-/// @param total : Total bytes to read
-/// TODO: if more devices supports LBA than this can be move out to BlockDevice
-// pub fn read(ctx: *anyopaque, allocator: std.mem.Allocator, offset: usize, total: usize) anyerror![]u8 {
-//     const self: *const NvmeNamespace = @ptrCast(@alignCast(ctx));
-//
-//     const lba = try calculateLba(offset, total, self.info);
-//     log.debug("read(): Calculated LBA: {d}, NLBA: {d}, Offset: {d}", .{ lba.slba, lba.nlba, lba.slba_offset });
-//
-//     const data = try self.readInternal(u8, lba.slba, lba.nlba);
-//     defer self.alloctr.free(data);
-//     //defer heap.page_allocator.free(data);
-//
-//     const buf = allocator.alloc(u8, total) catch |err| {
-//         log.err("read(): Failed to allocate memory for data buffer: {}", .{err});
-//         return error.OutOfMemory;
-//     };
-//
-//     @memcpy(buf, data[lba.slba_offset .. lba.slba_offset + total]);
-//
-//     return buf;
-// }
-
-/// Write to the NVMe namespace
-/// @param ctx : pointer to NvmeNamespace
-/// @param offset : Offset to write to
-/// @param buf : Data to write
-/// TODO: if more devices supports LBA than this can be move out to BlockDevice
-// pub fn write(ctx: *anyopaque, offset: usize, buf: []u8) anyerror!void {
-//     const self: *const NvmeNamespace = @ptrCast(@alignCast(ctx));
-//
-//     const lba = try calculateLba(offset, buf.len, self.info);
-//     log.debug("write(): Calculated LBA: {d}, NLBA: {d}, Offset: {d}", .{ lba.slba, lba.nlba, lba.slba_offset });
-//
-//     return error.NotImplemented;
-// }
-
 /// Read from the NVMe namespace
 /// @param allocator : User allocator
 /// @param slba : Start Logical Block Address

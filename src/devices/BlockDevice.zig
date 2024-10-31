@@ -66,22 +66,21 @@ pub const Streamer = struct {
         return buf;
     }
 
-    pub fn write(self: Streamer, offset: usize, buf: []u8) anyerror!void {
-        _ = offset;
-        _ = buf;
-        _ = self;
-        //return self.vtable.write(self.ptr, offset, buf);
+    pub fn write(self: Streamer, comptime T: type, inalloctr: std.mem.Allocator, offset: usize, buf: []const T) anyerror!void {
+        const total_bytes = buf.len * @sizeOf(T);
+        const lba = try self.vtable.calculate(self.ptr, offset, total_bytes);
+        log.debug("read(): Calculated LBA: {d}, NLBA: {d}, Offset: {d}", .{ lba.slba, lba.nlba, lba.slba_offset });
+
+        //TODO: cache needed
+        const data = try self.vtable.read(self.ptr, inalloctr, lba.slba, lba.nlba);
+        defer inalloctr.free(data);
+
+        // copy buffer into data starting from lba.slba_offset
+        const buf_bytes = std.mem.bytesAsSlice(u8, buf);
+        @memcpy(data[lba.slba_offset .. lba.slba_offset + total_bytes], buf_bytes);
+
+        try self.vtable.write(self.ptr, inalloctr, lba.slba, data);
     }
-
-    // pub fn readAs(self: Streamer, comptime T: type, allocator: std.mem.Allocator, offset: usize, total: usize) ![]T {
-    //     const bytes = try self.read(allocator, offset, total * @sizeOf(T));
-    //     return std.mem.bytesAsSlice(T, bytes);
-    // }
-
-    // pub fn writeFrom(self: Streamer, comptime T: type, offset: usize, data: []const T) !void {
-    //     const bytes = std.mem.sliceAsBytes(data);
-    //     try self.write(offset, bytes);
-    // }
 
     pub fn init(ctx: *anyopaque, vtable: VTable) Streamer {
         return .{
@@ -121,12 +120,12 @@ pub fn Stream(comptime T: type) type {
             return data;
         }
 
-        pub fn write(self: *Self, buf: []T) anyerror!void {
-            try self.streamer.write(self.pos, buf);
+        pub fn write(self: *Self, buf: []const T) anyerror!void {
+            try self.streamer.write(T, self.alloctr, self.pos, buf);
             self.pos += buf.len * @sizeOf(T);
         }
 
-        pub fn seek(self: *Self, offset: usize) anyerror!void {
+        pub fn seek(self: *Self, offset: usize) void {
             self.pos = offset;
         }
     };
