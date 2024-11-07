@@ -23,7 +23,12 @@ In Silesian language, a creature from our (Upper Silesians) demonology.
 - [ ] ext4 filesystem support
 
 # Pre-requisites
-- qemu-system-x86_64 on board
+
+## Installed tools
+- zig (master branch)
+- qemu-system-x86_64
+- xorriso
+- parted
 
 # How to run
 zig build iso-qemu 

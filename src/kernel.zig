@@ -30,7 +30,7 @@ pub export var base_revision: limine.BaseRevision = .{ .revision = 1 };
 pub const std_options = .{
     .logFn = logFn,
     .log_scope_levels = &[_]std.log.ScopeLevel{
-        .{ .scope = .bbtree, .level = .debug },
+        .{ .scope = .bbtree, .level = .info },
     },
 };
 
@@ -159,24 +159,40 @@ export fn _start() callconv(.C) noreturn {
         log.warn("Device: {}", .{dev});
     }
 
+    // const tst_ns = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl.namespaces.get(1);
+    // if (tst_ns) |ns| {
+    //     const streamer = ns.streamer();
+    //     var stream = BlockDevice.Stream(u8).init(streamer);
+    //     log.info("Writing to NVMe starts.", .{});
+    //     defer log.info("Writing to NVMe ends.", .{});
+    //     //
+    //     const mlk_data: []const u8 = &.{ 'M', 'a', 'c', 'i', 'e', 'k', ' ', 'L', 'e', 'k', 's', ' ' };
+    //     stream.write(mlk_data) catch |err| blk: {
+    //         log.err("Nvme write error: {}", .{err});
+    //         break :blk;
+    //     };
+    //
+    //     // read from the beginning
+    //     stream.seek(1); //we ommit the first byte (0x4d)
+    //
+    //     log.info("Reading from NVMe starts.", .{});
+    //     const data = stream.read(heap.page_allocator, mlk_data.len) catch |err| blk: {
+    //         log.err("Nvme read error: {}", .{err});
+    //         break :blk null;
+    //     };
+    //     for (data.?) |d| {
+    //         log.warn("Nvme data: {x}", .{d});
+    //     }
+    //     if (data) |block| heap.page_allocator.free(block);
+    // }
+
     const tst_ns = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl.namespaces.get(1);
     if (tst_ns) |ns| {
         const streamer = ns.streamer();
         var stream = BlockDevice.Stream(u8).init(streamer);
-        log.info("Writing to NVMe starts.", .{});
-        defer log.info("Writing to NVMe ends.", .{});
-        //
-        const mlk_data: []const u8 = &.{ 'M', 'a', 'c', 'i', 'e', 'k', ' ', 'L', 'e', 'k', 's', ' ' };
-        stream.write(mlk_data) catch |err| blk: {
-            log.err("Nvme write error: {}", .{err});
-            break :blk;
-        };
-
-        // read from the beginning
-        stream.seek(1); //we ommit the first byte (0x4d)
 
         log.info("Reading from NVMe starts.", .{});
-        const data = stream.read(heap.page_allocator, mlk_data.len) catch |err| blk: {
+        const data = stream.read(heap.page_allocator, 256) catch |err| blk: {
             log.err("Nvme read error: {}", .{err});
             break :blk null;
         };

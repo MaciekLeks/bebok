@@ -4,7 +4,7 @@ const Target = std.Target;
 const Feature = std.Target.Cpu.Feature;
 
 const bebok_iso_filename = "bebok.iso";
-const bebok_disk_img_filename = "disk.img";
+const bebok_disk_img_filename = "disk-gpt-ext4.img";
 const kernel_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 };
 
 // fn nasmRun(b: *Build, src: []const u8, dst: []const u8, options: []const []const u8, prev_step: ?*Build.Step) error{OutOfMemory}!*Build.Step {
@@ -180,6 +180,47 @@ fn buildDiskImgFileAction(b: *Build, out_file: *Build.LazyPath) *Build.Step.Run 
     return qemu_img_action;
 }
 
+//--{ ext4
+fn createGPTPartitionAction(b: *Build, disk_file: *Build.LazyPath) *Build.Step.Run {
+    const parted_action = b.addSystemCommand(&.{"parted"});
+    parted_action.addArg("-s");
+    parted_action.addFileArg(disk_file.*);
+    parted_action.addArg("mklabel");
+    parted_action.addArg("gpt");
+    return parted_action;
+}
+
+fn createExt4PartitionAction(b: *Build, disk_file: *Build.LazyPath) *Build.Step.Run {
+    const parted_action = b.addSystemCommand(&.{"parted"});
+    parted_action.addArg("-s");
+    parted_action.addFileArg(disk_file.*);
+    parted_action.addArg("mkpart");
+    parted_action.addArg("primary");
+    parted_action.addArg("ext4");
+    parted_action.addArg("0%");
+    parted_action.addArg("100%");
+    return parted_action;
+}
+
+fn formatExt4Action(b: *Build, disk_file: *Build.LazyPath) *Build.Step.Run {
+    const mkfs_action = b.addSystemCommand(&.{"mkfs.ext4"});
+    mkfs_action.addArg("-F"); // wymusza formatowanie bez pytania
+    mkfs_action.addFileArg(disk_file.*);
+    return mkfs_action;
+}
+
+fn buildDiskImgFileWithExt4Action(b: *Build, out_file: *Build.LazyPath) *Build.Step.Run {
+    const qemu_img_action = buildDiskImgFileAction(b, out_file);
+    const create_gpt_partition_action = createGPTPartitionAction(b, out_file);
+    const create_ext4_partition_action = createExt4PartitionAction(b, out_file);
+    const format_ext4_action = formatExt4Action(b, out_file);
+    create_gpt_partition_action.step.dependOn(&qemu_img_action.step);
+    create_ext4_partition_action.step.dependOn(&create_gpt_partition_action.step);
+    format_ext4_action.step.dependOn(&create_ext4_partition_action.step);
+    return format_ext4_action;
+}
+//--} ext4
+
 fn injectLimineStages(limine_run_action: *Build.Step.Run, iso_file: Build.LazyPath) void {
     limine_run_action.addArg("bios-install");
     limine_run_action.addFileArg(iso_file);
@@ -312,7 +353,7 @@ pub fn build(b: *Build) !void {
     iso_stage.dependOn(install_kernel_task); //to be able to debug in gdb
 
     var qemu_disk_img_file_action_output: Build.LazyPath = undefined;
-    const qemu_disk_img_file_action = buildDiskImgFileAction(b, &qemu_disk_img_file_action_output);
+    const qemu_disk_img_file_action = buildDiskImgFileWithExt4Action(b, &qemu_disk_img_file_action_output);
     const qemu_disk_img_file_task = &qemu_disk_img_file_action.step;
     const qemu_install_disk_img_file_action = installDiskImgFileAction(b, qemu_disk_img_file_task, qemu_disk_img_file_action_output);
     const qemu_install_disk_img_file_task = &qemu_install_disk_img_file_action.step;
