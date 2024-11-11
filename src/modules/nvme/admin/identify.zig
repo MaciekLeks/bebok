@@ -25,41 +25,58 @@ pub const IdentifyCommand = packed struct(u512) {
 // Identify CNS = 0x00
 pub const IdentifyNamespaceInfo = extern struct {
     const LBAFormatInfo = packed struct(u32) {
-        ms: u16, //0-15 - Metadata Size
-        lbads: u8, //4-7 - LBA Data Size
-        rp: u2, //8 - Relative Performance
-        rsvd: u6, //9-11
+        ms: u16, // Metadata Size
+        lbads: u8, // LBA Data Size
+        rp: u2, // Relative Performance
+        rsvd: u6, // Reserved
     };
 
-    nsze: u64, //8bytes - Namespace Size in logical blocks
-    ncap: u64, //8bytes - Namespace Capacity
-    nuse: u64, //8bytes - Namespace Utilization
+    nsze: u64 align(1), // Namespace Size
+    ncap: u64 align(1), // Namespace Capacity
+    nuse: u64 align(1), // Namespace Utilization
     nsfeat: packed struct(u8) {
-        thinp: u1, //0 - Thin Provisioning
-        nsabp: u1, //1
-        dae: u1, //2
-        uidreuse: u1, //3
-        optperf: u1, //4
-        rsrv: u3, //5-7
-    }, //1byte - Namespace Features
-    nlbaf: u8, //1byte - Number of LBA Formats
-    flbas: u8, //1byte - Formatted LBA Size (lbaf array index)
-    mc: u8, //1byte - Metadata Capabilities
-    dpc: u8, //1byte - End-to-end Data Protection Capabilities
-    dps: u8, //1byte - End-to-end Data Protection Type Settings
-    nmic: u8, //1byte - Namespace Multi-path I/O and Namespace Sharing Capabilities
-    rescap: u8, //1byte - Reservation Capabilities
-    fpi: u8, //1byte - Format Progress Indicator
-    //fill gap to the.128 byte of the 4096 bytes
-    dlfeat: enum(u8) {
-        read_not_reported = 0b000,
-        deallocated_lba_cleared = 0b001,
-        deallocated_lba_not_cleared = 0b010, //reported as 0xff
-    }, //1byte - Deallocate Logical Block Features
-    ignrd_a: [128 - 31]u8,
-    lbaf: [64]LBAFormatInfo, //16bytes - LBA Format
-    //fill gap to the 4096 bytes
-    // ignrd_b: [4096 - 384]u8,
+        thinp: u1, // Thin Provisioning
+        nsabp: u1, // Namespace Atomic Boundaries
+        dae: u1, // Deallocate
+        uidreuse: u1, // UID Reuse
+        optperf: u1, // Optimal Performance
+        rsrv: u3, // Reserved
+    } align(1),
+    nlbaf: u8 align(1), // Number of LBA Formats
+    flbas: u8 align(1), // Formatted LBA Size
+    mc: u8 align(1), // Metadata Capabilities
+    dpc: u8 align(1), // End-to-end Data Protection Capabilities
+    dps: u8 align(1), // End-to-end Data Protection Type Settings
+    nmic: u8 align(1), // Namespace Multi-path I/O and Namespace Sharing Capabilities
+    rescap: u8 align(1), // Reservation Capabilities
+    fpi: u8 align(1), // Format Progress Indicator
+    dlfeat: u8 align(1), // Deallocate Logical Block Features
+    nawun: u16 align(1), // Namespace Atomic Write Unit Normal
+    nawupf: u16 align(1), // Namespace Atomic Write Unit Power Fail
+    nacwu: u16 align(1), // Namespace Atomic Compare & Write Unit
+    nabsn: u16 align(1), // Namespace Atomic Boundary Size Normal
+    nabo: u16 align(1), // Namespace Atomic Boundary Offset
+    nabspf: u16 align(1), // Namespace Atomic Boundary Size Power Fail
+    noiob: u16 align(1), // Namespace Optimal I/O Boundary
+    nvmcap: u128 align(1), // NVM Capacity
+    npwg: u16 align(1), // Namespace Preferred Write Granularity )
+    npwa: u16 align(1), // Namespace Preferred Write Alignment
+    npdg: u16 align(1), // Namespace Preferred Deallocate Granularity
+    npda: u16 align(1), // Namespace Preferred Deallocate Alignment
+    nows: u16 align(1), // Namespace Optimal Write Size )
+    mssrl: u16 align(1), // Minimum Single Source Range Lenght (bytes 74-75)
+    mcl: u32 align(1), // Meximum Copy Length (bytes 76-79)
+    msrc: u8 align(1), // Maximum Source Range Cout( byte 80)
+    rsrv_a: [11]u8 align(1), // Reserved (bytes 81-91)
+    anagrpid: u32 align(1), // ANA Group Identifier (bytes 92-95)
+    rsrvd_b: [3]u8 align(1), // Reserved (bytes 96-98)
+    nsattr: u8 align(1), // Namespace Attributes (bytes 99)
+    nvmsetid: u16 align(1), // NVM Set Identifier (bytes 100-101)
+    endgid: u16 align(1), // Endurance Group Identifier (bytes 102-103)
+    nguid: [16]u8 align(1), // Namespace Globally Unique Identifier
+    eui64: [8]u8 align(1), // IEEE Extended Unique Identifier
+    lbaf: [64]LBAFormatInfo align(1), // LBA Format Support
+    vs: [3712]u8 align(1), // Vendor Specific (bytes 384-4095)
 };
 
 pub const NsInfo = IdentifyNamespaceInfo; //alias for Identify0x00Info
