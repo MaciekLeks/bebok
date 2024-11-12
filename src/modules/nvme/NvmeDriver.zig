@@ -71,8 +71,8 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
     const self: *NvmeDriver = @ptrCast(@alignCast(ctx));
     base.driver = self.driver();
     //base.spec = .{ .block = .{ .nvme = .{ .base = base } } };
-    var block = try BlockDevice.init(base.alloctr, base);
-    const ctrl = try NvmeController.init(base.alloctr, base);
+    var block = try BlockDevice.init(self.alloctr, base);
+    const ctrl = try NvmeController.init(self.alloctr, base);
     block.spec.nvme_ctrl = ctrl;
     base.spec.block = block;
 
@@ -159,7 +159,7 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
     ctrl.enableController();
 
     // I/O Command Set specific initialization
-    try discoverNamespacesByIoCommandSet(ctrl);
+    try self.discoverNamespacesByIoCommandSet(ctrl);
 
     // Create I/O queues
     try createIoQueues(ctrl, doorbell_base, doorbell_size);
@@ -189,8 +189,8 @@ pub fn deinit(_: *anyopaque) void {
     // TODO: for now we don't have a way to unregister the driver
 
     // TODO: admin queue has been freed already - waiting for an error?
-    // for (&dev.iocq) |*cq| heap.page_allocator.free(cq.entries);
-    // for (&dev.iosq) |*sq| heap.page_allocator.free(sq.entries);
+    // for (&self.iocq) |*cq| heap.page_allocator.free(cq.entries);
+    // for (&self.iosq) |*sq| heap.page_allocator.free(sq.entries);
 }
 
 //--- private functions
@@ -253,11 +253,11 @@ fn preConfigureController(ctrl: *NvmeController, doorbell_base: usize, doorbell_
 
     // ASQ and ACQ setup
     ctrl.sq[0].entries = try heap.page_allocator.alloc(com.SQEntry, nvme_ioasqs);
-    defer heap.page_allocator.free(@volatileCast(ctrl.sq[0].entries));
+    //defer heap.page_allocator.free(@volatileCast(ctrl.sq[0].entries));
     @memset(ctrl.sq[0].entries, 0);
 
     ctrl.cq[0].entries = try heap.page_allocator.alloc(com.CQEntry, nvme_ioacqs);
-    defer heap.page_allocator.free(@volatileCast(ctrl.cq[0].entries));
+    //defer heap.page_allocator.free(@volatileCast(ctrl.cq[0].entries));
     @memset(ctrl.cq[0].entries, .{});
 
     const sqa_phys = try paging.physFromPtr(ctrl.sq[0].entries.ptr);
@@ -298,23 +298,17 @@ fn preConfigureController(ctrl: *NvmeController, doorbell_base: usize, doorbell_
     ctrl.cq[0].head_dbl = @ptrFromInt(doorbell_base + doorbell_size * 1);
 }
 
-fn discoverNamespacesByIoCommandSet(ctrl: *NvmeController) !void {
+fn discoverNamespacesByIoCommandSet(self: *const NvmeDriver, ctrl: *NvmeController) !void {
     const prp1 = try heap.page_allocator.alloc(u8, pmm.page_size);
     @memset(prp1, 0);
     defer heap.page_allocator.free(prp1);
 
     const prp1_phys = try paging.physFromPtr(prp1.ptr);
 
-    // Identify Command CNS=0x00 crosses the PRP1 memory boundary and Tripple Fault accours then, TODO: Explanation needed
-    //const prp2 = try heap.page_allocator.alloc(u8, pmm.page_size);
-    // @memset(prp2, 0);
-    // defer heap.page_allocator.free(prp2);
-    // const prp2_phys = try paging.physFromPtr(prp2.ptr);
-
     _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
         .cdw0 = .{
             .opc = .identify,
-            .cid = 0x02, //our id
+            .cid = 0x02, //r id
         },
         .dptr = .{
             .prp = .{
@@ -397,7 +391,6 @@ fn discoverNamespacesByIoCommandSet(ctrl: *NvmeController) !void {
 
                 // Identify Namespace Data Structure (CNS 0x00)
                 @memset(prp1, 0);
-                //@memset(prp2, 0);
                 _ = acmd.executeAdminCommand(ctrl, @bitCast(id.IdentifyCommand{
                     .cdw0 = .{
                         .opc = .identify,
@@ -407,7 +400,6 @@ fn discoverNamespacesByIoCommandSet(ctrl: *NvmeController) !void {
                     .dptr = .{
                         .prp = .{
                             .prp1 = prp1_phys,
-                            //           .prp2 = prp2_phys, //TODO: it's not documented but this command crosses the prp1 memory boundary
                         },
                     },
                     .cns = 0x00,
@@ -417,9 +409,10 @@ fn discoverNamespacesByIoCommandSet(ctrl: *NvmeController) !void {
                 };
 
                 const ns_info: *const id.IdentifyNamespaceInfo = @ptrCast(@alignCast(prp1));
-                log.info("Identify Namespace Data Structure(cns: 0x00): nsid:{d}, info:{}", .{ nsid, ns_info.* });
+                log.info("Identify Namespace Data Structure(cns: 0x00): nsid:{d}, info:{*}", .{ nsid, ns_info });
 
-                try ctrl.namespaces.put(nsid, try NvmeNamespace.init(heap.page_allocator, ctrl, nsid, ns_info.*));
+                //try ctrl.namespaces.put(nsid, try NvmeNamespace.init(heap.page_allocator, ctrl, nsid, ns_info));
+                try ctrl.namespaces.put(nsid, try NvmeNamespace.init(self.alloctr, ctrl, nsid, ns_info));
 
                 const vs = regs.readRegister(regs.VSRegister, ctrl.bar, .vs); //TODO added to compile the code
                 log.debug("vs: {}", .{vs});

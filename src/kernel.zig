@@ -191,8 +191,12 @@ export fn _start() callconv(.C) noreturn {
         const streamer = ns.streamer();
         var stream = BlockDevice.Stream(u8).init(streamer);
 
+        stream.seek(0x400);
+
+        log.debug("admin.identify.IdentifyNamespaceInfo: ptr:{*}, info:{}", .{ ns, ns.info });
+
         log.info("Reading from NVMe starts.", .{});
-        const data = stream.read(heap.page_allocator, 256) catch |err| blk: {
+        const data = stream.read(heap.page_allocator, 32) catch |err| blk: {
             log.err("Nvme read error: {}", .{err});
             break :blk null;
         };

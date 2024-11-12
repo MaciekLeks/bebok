@@ -23,14 +23,13 @@ nsid: u32,
 info: id.NsInfo,
 ctrl: *NvmeController,
 
-const tmp_len = 32;
-
-pub fn init(allocator: std.mem.Allocator, ctrl: *NvmeController, nsid: u32, info: id.NsInfo) !*NvmeNamespace {
+pub fn init(allocator: std.mem.Allocator, ctrl: *NvmeController, nsid: u32, info: *const id.NsInfo) !*const NvmeNamespace {
     var self = try allocator.create(NvmeNamespace);
-    self.alloctr = allocator;
+    self.alloctr = heap.page_allocator; //we use page allocator internally cause LBA size is at least 512
     self.nsid = nsid;
-    self.info = info;
+    self.info = info.*;
     self.ctrl = ctrl;
+
     return self;
 }
 
@@ -40,7 +39,7 @@ pub fn deinit(self: *NvmeNamespace) void {
 
 // Yields istels as a Streamer interface
 // @return Streamer interface
-pub fn streamer(self: *NvmeNamespace) Streamer {
+pub fn streamer(self: *const NvmeNamespace) Streamer {
     const vtable = Streamer.VTable{
         .read = readInternal,
         .write = writeInternal,
@@ -50,7 +49,7 @@ pub fn streamer(self: *NvmeNamespace) Streamer {
 }
 
 /// Calculate the LBA from the offset and total bytes to read/write
-pub fn calculateInternal(ctx: *anyopaque, offset: usize, total: usize) !Streamer.LbaPos {
+pub fn calculateInternal(ctx: *const anyopaque, offset: usize, total: usize) !Streamer.LbaPos {
     const self: *const NvmeNamespace = @ptrCast(@alignCast(ctx));
 
     const lbads_bytes = math.pow(u32, 2, self.info.lbaf[self.info.flbas].lbads);
@@ -65,12 +64,12 @@ pub fn calculateInternal(ctx: *anyopaque, offset: usize, total: usize) !Streamer
 /// @param allocator : User allocator
 /// @param slba : Start Logical Block Address
 /// @param nlb : Number of Logical Blocks
-pub fn readInternal(ctx: *anyopaque, allocator: std.mem.Allocator, slba: u64, nlba: u16) ![]u8 {
+pub fn readInternal(ctx: *const anyopaque, allocator: std.mem.Allocator, slba: u64, nlba: u16) ![]u8 {
     const self: *const NvmeNamespace = @ptrCast(@alignCast(ctx));
 
     log.debug("Namespace {d} info: {}", .{ self.nsid, self.info });
 
-    if (slba > self.info.nsze) return e.NvmeError.InvalidLBA;
+    if (slba + nlba - 1 > self.info.nsze) return e.NvmeError.InvalidLBA;
 
     const flbaf = self.info.lbaf[self.info.flbas];
     log.debug("LBA Format Index: {d}, LBA Format: {}", .{ self.info.flbas, flbaf });
@@ -134,17 +133,19 @@ pub fn readInternal(ctx: *anyopaque, allocator: std.mem.Allocator, slba: u64, nl
     log.debug("PRP1: 0x{x}, PRP2: 0x{x}", .{ prp1_phys, prp2_phys });
 
     // allotate memory for Metadata buffer
-    const metadata = allocator.alloc(u8, nlba * flbaf.ms) catch |err| {
-        log.err("Failed to allocate memory for metadata buffer: {}", .{err});
-        return error.OutOfMemory;
-    };
-    defer allocator.free(metadata);
-    @memset(metadata, 0);
+    var metadata: ?[]u8 = null;
+    const mptr_phys = if (flbaf.ms > 0) blk: {
+        metadata = allocator.alloc(u8, nlba * flbaf.ms) catch |err| {
+            log.err("Failed to allocate memory for metadata buffer: {}", .{err});
+            return error.OutOfMemory;
+        };
+        @memset(metadata.?, 0);
 
-    const mptr_phys = paging.physFromPtr(metadata.ptr) catch |err| {
-        log.err("Failed to get physical address: {}", .{err});
-        return error.PageToPhysFailed;
-    };
+        break :blk paging.physFromPtr(metadata.?.ptr) catch |err| {
+            log.err("Failed to get physical address: {}", .{err});
+            return error.PageToPhysFailed;
+        };
+    } else 0;
 
     // choose sqn and cqn for the operation
     // TODO: implwement the logic to choose the right queue
@@ -168,7 +169,7 @@ pub fn readInternal(ctx: *anyopaque, allocator: std.mem.Allocator, slba: u64, nl
             .nlb = nlba - 1, //0's based value
             .stc = 0, //no streaming
             .prinfo = 0, //no protection info
-            .fua = 0, //no force unit access
+            .fua = 1, //force unit access (read from the device)
             .lr = 0, //no limited retry
             .dsm = .{
                 .access_frequency = 0, //no dataset management
@@ -186,7 +187,10 @@ pub fn readInternal(ctx: *anyopaque, allocator: std.mem.Allocator, slba: u64, nl
     };
 
     //log metadata
-    for (metadata) |m| log.debug("Metadata: 0x{x}", .{m});
+    if (metadata) |md| {
+        for (md) |d| log.debug("Metadata: 0x{x}", .{d});
+        defer allocator.free(metadata.?);
+    }
 
     return data;
 }
@@ -197,7 +201,7 @@ pub fn readInternal(ctx: *anyopaque, allocator: std.mem.Allocator, slba: u64, nl
 /// @param nsid : Namespace ID
 /// @param slba : Start Logical Block Address
 /// @param data : Data to write
-pub fn writeInternal(ctx: *anyopaque, allocator: std.mem.Allocator, slba: u64, data: []const u8) !void {
+pub fn writeInternal(ctx: *const anyopaque, allocator: std.mem.Allocator, slba: u64, data: []const u8) !void {
     const self: *const NvmeNamespace = @ptrCast(@alignCast(ctx));
 
     log.debug("Namespace {d} info: {}", .{ self.nsid, self.info });
@@ -297,7 +301,7 @@ pub fn writeInternal(ctx: *anyopaque, allocator: std.mem.Allocator, slba: u64, d
             .dtype = 0, //no streaming TODO:???
             .stc = 0, //no streaming
             .prinfo = 0, //no protection info
-            .fua = 0, //no force unit access
+            .fua = 1, //force unit access (no caching)
             .lr = 0, //no limited retry
             .dsm = .{
                 .access_frequency = 0, //no dataset management

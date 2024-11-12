@@ -39,19 +39,19 @@ pub const Streamer = struct {
 
     pub const VTable = struct {
         //read: *const fn (ctx: *anyopaque, allocator: std.mem.Allocator, offset: usize, total: usize) anyerror![]u8,
-        read: *const fn (ctx: *anyopaque, allocator: std.mem.Allocator, offset: u64, total: u16) anyerror![]u8,
+        read: *const fn (ctx: *const anyopaque, allocator: std.mem.Allocator, offset: u64, total: u16) anyerror![]u8,
         //write: *const fn (ctx: *anyopaque, offset: usize, buf: []u8) anyerror!void,
-        write: *const fn (ctx: *anyopaque, allocator: std.mem.Allocator, slba: u64, data: []const u8) anyerror!void,
-        calculate: *const fn (ctx: *anyopaque, offset: usize, total: usize) anyerror!Streamer.LbaPos,
+        write: *const fn (ctx: *const anyopaque, allocator: std.mem.Allocator, slba: u64, data: []const u8) anyerror!void,
+        calculate: *const fn (ctx: *const anyopaque, offset: usize, total: usize) anyerror!Streamer.LbaPos,
     };
 
-    ptr: *anyopaque,
+    ptr: *const anyopaque,
     vtable: VTable,
 
     pub fn read(self: Streamer, comptime T: type, inalloctr: std.mem.Allocator, allocator: std.mem.Allocator, offset: usize, total: usize) anyerror![]T {
         const total_bytes = total * @sizeOf(T);
         const lba = try self.vtable.calculate(self.ptr, offset, total_bytes);
-        log.debug("read(): Calculated LBA: {d}, NLBA: {d}, Offset: {d}", .{ lba.slba, lba.nlba, lba.slba_offset });
+        log.debug("read(): Calculated slba: {d}, nlba: {d}, offset: {d}", .{ lba.slba, lba.nlba, lba.slba_offset });
 
         const data = try self.vtable.read(self.ptr, inalloctr, lba.slba, lba.nlba);
         defer inalloctr.free(data);
@@ -82,7 +82,7 @@ pub const Streamer = struct {
         try self.vtable.write(self.ptr, inalloctr, lba.slba, data);
     }
 
-    pub fn init(ctx: *anyopaque, vtable: VTable) Streamer {
+    pub fn init(ctx: *const anyopaque, vtable: VTable) Streamer {
         return .{
             .ptr = ctx,
             .vtable = vtable,

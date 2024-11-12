@@ -1,3 +1,4 @@
+const std = @import("std");
 const cmd = @import("command.zig");
 const com = @import("../commons.zig");
 
@@ -77,6 +78,15 @@ pub const IdentifyNamespaceInfo = extern struct {
     eui64: [8]u8 align(1), // IEEE Extended Unique Identifier
     lbaf: [64]LBAFormatInfo align(1), // LBA Format Support
     vs: [3712]u8 align(1), // Vendor Specific (bytes 384-4095)
+
+    pub fn format(
+        self: IdentifyNamespaceInfo,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = try writer.print("IdentifyNamespaceInfo[ nsze:{d}, ncap:{d}, nuse:{d} ]", .{ self.nsze, self.ncap, self.nuse });
+    }
 };
 
 pub const NsInfo = IdentifyNamespaceInfo; //alias for Identify0x00Info
