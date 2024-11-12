@@ -132,7 +132,7 @@ pub fn readInternal(ctx: *const anyopaque, allocator: std.mem.Allocator, slba: u
     defer if (prp_list) |pl| allocator.free(pl);
     log.debug("PRP1: 0x{x}, PRP2: 0x{x}", .{ prp1_phys, prp2_phys });
 
-    // allotate memory for Metadata buffer
+    // allocate memory for Metadata buffer
     var metadata: ?[]u8 = null;
     const mptr_phys = if (flbaf.ms > 0) blk: {
         metadata = allocator.alloc(u8, nlba * flbaf.ms) catch |err| {
@@ -265,18 +265,20 @@ pub fn writeInternal(ctx: *const anyopaque, allocator: std.mem.Allocator, slba: 
     defer if (prp_list) |pl| allocator.free(pl);
     log.debug("PRP1: 0x{x}, PRP2: 0x{x}", .{ prp1_phys, prp2_phys });
 
-    // allotate memory for Metadata buffer
-    const metadata = allocator.alloc(u8, nlba * flbaf.ms) catch |err| {
-        log.err("Failed to allocate memory for metadata buffer: {}", .{err});
-        return error.OutOfMemory;
-    };
-    defer allocator.free(metadata);
-    @memset(metadata, 0);
+    // allocate memory for Metadata buffer
+    var metadata: ?[]u8 = null;
+    const mptr_phys = if (flbaf.ms > 0) blk: {
+        metadata = allocator.alloc(u8, nlba * flbaf.ms) catch |err| {
+            log.err("Failed to allocate memory for metadata buffer: {}", .{err});
+            return error.OutOfMemory;
+        };
+        @memset(metadata.?, 0);
 
-    const mptr_phys = paging.physFromPtr(metadata.ptr) catch |err| {
-        log.err("Failed to get physical address: {}", .{err});
-        return error.PageToPhysFailed;
-    };
+        break :blk paging.physFromPtr(metadata.?.ptr) catch |err| {
+            log.err("Failed to get physical address: {}", .{err});
+            return error.PageToPhysFailed;
+        };
+    } else 0;
 
     // choose sqn and cqn for the operation
     // TODO: implwement the logic to choose the right queue
@@ -320,5 +322,8 @@ pub fn writeInternal(ctx: *const anyopaque, allocator: std.mem.Allocator, slba: 
     };
 
     //log metadata
-    for (metadata) |m| log.debug("Metadata: 0x{x}", .{m});
+    if (metadata) |md| {
+        for (md) |d| log.debug("Metadata: 0x{x}", .{d});
+        defer allocator.free(metadata.?);
+    }
 }
