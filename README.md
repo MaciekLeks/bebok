@@ -26,9 +26,26 @@ In Silesian language, a creature from our (Upper Silesians) demonology.
 
 ## Installed tools
 - zig (master branch)
+- qemu-img
 - qemu-system-x86_64
 - xorriso
-- parted
+- sgdisk
+
+# Pre-run
+## Create an empty disk with GPT and ext4 partition with the `create_disk.sh` script
+Script usage:
+```bash
+   scripts/create_disk.sh                    
+   scripts/create_disk.sh <installation_prefix>
+```
+Requirements:
+- Root privileges for losetup operations
+- qemu-img, sgdisk, and mkfs.ext4 tools installed
+- Target directory must be writable
+
+## Alternative:
+   You can use your own disk image if it has GPT and ext4 partition.
+   In this case, place your disk.img in the installation directory.
 
 # How to run
 zig build iso-qemu 
