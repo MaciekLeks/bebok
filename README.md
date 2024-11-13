@@ -35,6 +35,8 @@ In Silesian language, a creature from our (Upper Silesians) demonology.
 Script usage:
 ```bash
    scripts/create_disk.sh                    
+```
+```bash
    scripts/create_disk.sh <installation_prefix>
 ```
 Requirements:
@@ -50,4 +52,3 @@ In this case, place your disk.img in the installation directory.
 ```bash
 zig build iso-qemu 
 ```
-
