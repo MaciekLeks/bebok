@@ -43,9 +43,11 @@ Requirements:
 - Target directory must be writable
 
 ## Alternative:
-   You can use your own disk image if it has GPT and ext4 partition.
-   In this case, place your disk.img in the installation directory.
+You can use your own disk image if it has GPT and ext4 partition.
+In this case, place your disk.img in the installation directory.
 
 # How to run
+```bash
 zig build iso-qemu 
 ```
+
