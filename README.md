@@ -34,10 +34,10 @@ In Silesian language, a creature from our (Upper Silesians) demonology.
 ## Create an empty disk with GPT and ext4 partition with the `create_disk.sh` script
 Script usage:
 ```bash
-   scripts/create_disk.sh                    
+scripts/create_disk.sh                    
 ```
 ```bash
-   scripts/create_disk.sh <installation_prefix>
+scripts/create_disk.sh <installation_prefix>
 ```
 Requirements:
 - Root privileges for losetup operations
