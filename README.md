@@ -23,7 +23,6 @@ In Silesian language, a creature from our (Upper Silesians) demonology.
 - [ ] ext4 filesystem support
 
 # Pre-requisites
-
 ## Installed tools
 - zig (master branch)
 - qemu-img
@@ -31,7 +30,7 @@ In Silesian language, a creature from our (Upper Silesians) demonology.
 - xorriso
 - sgdisk
 
-# Pre-run
+# Pre-run (only once)
 ## Create an empty disk with GPT and ext4 partition with the `create_disk.sh` script
 Script usage:
 ```bash
