@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const BlockDevice = @import("deps.zig").BlockDevice;
+
 pub const GptError = error{
     InvalidSignature,
     InvalidRevision,
@@ -10,10 +12,10 @@ pub const GptError = error{
 };
 
 pub const Guid = extern struct {
-    data1: u32,
-    data2: u16,
-    data3: u16,
-    data4: [8]u8,
+    data1: u32 align(1),
+    data2: u16 align(1),
+    data3: u16 align(1),
+    data4: [8]u8 align(1),
 };
 
 pub const GptHeader = extern struct {
@@ -67,12 +69,12 @@ pub const GptPartitionAttributes = packed struct {
 };
 
 pub const GptEntry = extern struct {
-    partition_type_guid: Guid,
-    unique_partition_guid: Guid,
-    starting_lba: u64,
-    ending_lba: u64,
-    attributes: GptPartitionAttributes,
-    partition_name: [72]u8, // 36 UTF-16LE characters
+    partition_type_guid: Guid align(1),
+    unique_partition_guid: Guid align(1),
+    starting_lba: u64 align(1),
+    ending_lba: u64 align(1),
+    attributes: GptPartitionAttributes align(1),
+    partition_name: [72]u8 align(1), // 36 UTF-16LE characters
 
     pub fn isEmpty(self: *const GptEntry) bool {
         const zero_guid = std.mem.zeroes(Guid);
@@ -88,6 +90,61 @@ pub const GptEntry = extern struct {
             }
         }
         return utf16_slice;
+    }
+};
+
+pub const Gpt = struct {
+    const Self = @This();
+
+    alloctr: std.mem.Allocator,
+    header: GptHeader,
+    entries: []GptEntry,
+
+    pub fn init(allocator: std.mem.Allocator, streamer: BlockDevice.Streamer) !*const Self {
+        // Read GPT Header (LBA1)
+        var header_buffer: [512]u8 = undefined;
+
+        var stream = BlockDevice.Stream(u8).init(streamer, allocator);
+        stream.seek(512);
+
+        _ = try streamer.readAll(&header_buffer);
+
+        const header = @as(*const GptHeader, @ptrCast(&header_buffer)).*;
+        try header.validate();
+
+        // Read GPT Entries
+        const entries_size = header.number_of_partition_entries * header.size_of_partition_entry;
+        const entries_buffer = try allocator.alloc(u8, entries_size);
+        defer allocator.free(entries_buffer);
+
+        // Seek to partition entries
+        try streamer.seek(header.partition_entry_lba * 512);
+        _ = try stream.readAll(entries_buffer);
+
+        // Convert buffer to entries
+        const entries = try allocator.alloc(GptEntry, header.number_of_partition_entries);
+        const entries_ptr = @as([*]const GptEntry, @ptrCast(entries_buffer.ptr));
+        @memcpy(entries, entries_ptr[0..header.number_of_partition_entries]);
+
+        const self = try allocator.create(Self);
+        self.alloctr = allocator;
+        self.header = header;
+        self.entries = entries;
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.allocator.free(self.entries);
+    }
+
+    // Helper methods
+    pub fn getPartitionCount(self: *const Self) u32 {
+        var count: u32 = 0;
+        for (self.entries) |entry| {
+            if (!entry.isEmpty()) {
+                count += 1;
+            }
+        }
+        return count;
     }
 };
 

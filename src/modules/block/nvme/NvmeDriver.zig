@@ -71,10 +71,10 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
     const self: *NvmeDriver = @ptrCast(@alignCast(ctx));
     base.driver = self.driver();
     //base.spec = .{ .block = .{ .nvme = .{ .base = base } } };
-    var block = try BlockDevice.init(self.alloctr, base);
     const ctrl = try NvmeController.init(self.alloctr, base);
-    block.spec.nvme_ctrl = ctrl;
-    base.spec.block = block;
+    _ = try BlockDevice.init(self.alloctr, base, .{ .nvme_ctrl = ctrl });
+    //block.spec.nvme_ctrl = ctrl;
+    //base.spec.block = block;
 
     // now we can access the NVMe device
     const addr = base.addr.pcie;

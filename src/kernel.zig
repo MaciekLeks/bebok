@@ -189,7 +189,7 @@ export fn _start() callconv(.C) noreturn {
     const tst_ns = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl.namespaces.get(1);
     if (tst_ns) |ns| {
         const streamer = ns.streamer();
-        var stream = BlockDevice.Stream(u8).init(streamer);
+        var stream = BlockDevice.Stream(u8).init(streamer, heap.page_allocator);
 
         stream.seek(0x400);
 

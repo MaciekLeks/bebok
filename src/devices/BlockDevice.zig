@@ -2,29 +2,44 @@ const std = @import("std");
 const NvmeController = @import("deps.zig").NvmeController;
 const Device = @import("Device.zig");
 
+const PartitionScheme = @import("block/PartitionScheme.zig");
+
 const heap = @import("deps.zig").heap; //TODO: tbd
 
 const log = std.log.scoped(.blockl_device);
 
 const BlockDevice = @This();
 
+const BlockDeviceSpec = union(enum) {
+    nvme_ctrl: *NvmeController,
+};
+
 alloctr: std.mem.Allocator,
 base: *Device,
-spec: union(enum) {
-    nvme_ctrl: *NvmeController,
-},
+spec: BlockDeviceSpec,
+partition_scheme: ?PartitionScheme, // null means partitionless device
 
-pub fn init(allocator: std.mem.Allocator, base: *Device) !*BlockDevice {
+pub fn init(
+    allocator: std.mem.Allocator,
+    base: *Device,
+    block_device_spec: BlockDeviceSpec,
+) !*BlockDevice {
     var self = try allocator.create(BlockDevice);
     self.alloctr = allocator;
     self.base = base;
+    self.base.spec.block = self;
+    self.partition_scheme = null;
+    self.spec = block_device_spec;
 
     return self;
 }
 
 pub fn deinit(self: *BlockDevice) void {
     defer self.alloctr.destroy(self);
-    return switch (self) {
+    if (self.partition_scheme) |*scheme| {
+        scheme.deinit();
+    }
+    return switch (self.spec) {
         inline else => |it| it.deinit(),
     };
 }
@@ -106,18 +121,20 @@ pub fn Stream(comptime T: type) type {
         pos: usize, //in bytes
         alloctr: std.mem.Allocator,
 
-        pub fn init(streamer: Streamer) Self {
-            return .{
-                .streamer = streamer,
-                .pos = 0,
-                .alloctr = heap.page_allocator, //TODO: make more flexible
-            };
+        pub fn init(streamer: Streamer, allocator: std.mem.Allocator) Self {
+            return .{ .streamer = streamer, .pos = 0, .alloctr = allocator };
         }
 
         pub fn read(self: *Self, allocator: std.mem.Allocator, total: usize) anyerror![]T {
             const data = try self.streamer.read(T, self.alloctr, allocator, self.pos, total);
             self.pos += total * @sizeOf(T);
             return data;
+        }
+
+        pub fn readAll(self: *Self, buf: []T) anyerror!void {
+            const data = try self.read(self.alloctr, buf.len);
+            defer self.alloctr.free(data);
+            @memcpy(buf, data);
         }
 
         pub fn write(self: *Self, buf: []const T) anyerror!void {
