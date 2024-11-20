@@ -195,6 +195,22 @@ export fn _start() callconv(.C) noreturn {
             log.err("Partition scheme detection error: {}", .{err});
         };
 
+        //show partition scheme if any
+        if (ns.state.partition_scheme) |scheme| {
+            switch (scheme.spec) {
+                .gpt => |gpt| {
+                    log.warn("GPT detected", .{});
+                    log.warn("GPT header: {}", .{gpt.header});
+                    for (gpt.entries) |entry| {
+                        if (entry.isEmpty()) {
+                            continue;
+                        }
+                        log.warn("GPT entry: {}", .{entry});
+                    }
+                },
+            }
+        }
+
         const streamer = ns.streamer();
         var stream = BlockDevice.Stream(u8).init(streamer, heap.page_allocator);
 

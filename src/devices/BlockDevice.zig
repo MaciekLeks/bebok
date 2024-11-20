@@ -130,9 +130,12 @@ pub fn Stream(comptime T: type) type {
         }
 
         pub fn readAll(self: *Self, buf: []T) anyerror!void {
-            const data = try self.read(self.alloctr, buf.len);
-            defer self.alloctr.free(data);
-            @memcpy(buf, data);
+            // const data = try self.read(self.alloctr, buf.len);
+            // defer self.alloctr.free(data);
+            // @memcpy(buf, data);
+            // We use a fixed buffer to avoid multiple allocations
+            var fba = std.heap.FixedBufferAllocator.init(buf);
+            _ = try self.read(fba.allocator(), buf.len);
         }
 
         pub fn write(self: *Self, buf: []const T) anyerror!void {
