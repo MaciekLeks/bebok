@@ -78,9 +78,11 @@ fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.bu
     const utils_module = b.addModule("utils", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/utils/mod.zig" } } });
     compile_kernel_action.root_module.addImport("utils", utils_module);
 
-    const nvme_module = b.addModule("nvme", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/nvme/mod.zig" } } });
-    //nvme_module.addImport("kernel", &compile_kernel_action.root_module); //we need limine there
+    const nvme_module = b.addModule("nvme", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/block/nvme/mod.zig" } } });
     compile_kernel_action.root_module.addImport("nvme", nvme_module);
+
+    const gpt_module = b.addModule("gpt", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/block/gpt/mod.zig" } } });
+    compile_kernel_action.root_module.addImport("gpt", gpt_module);
     //}Modules
 
     return compile_kernel_action;
