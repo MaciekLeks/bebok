@@ -5,9 +5,11 @@ const config = @import("config");
 //const start = @import("start.zig");
 const segmentation = @import("segmentation.zig");
 const term = @import("terminal");
+
 pub const Driver = @import("drivers/Driver.zig");
 pub const Device = @import("devices/Device.zig");
-pub const BlockDevice = @import("devices/BlockDevice.zig");
+pub const BlockDevice = @import("devices/mod.zig").BlockDevice;
+pub const PartitionScheme = @import("devices/mod.zig").PartitionScheme;
 const Registry = @import("drivers/Registry.zig");
 const NvmeDriver = @import("nvme").NvmeDriver;
 const NvmeNamespace = @import("nvme").NvmeNamespace;
@@ -188,6 +190,11 @@ export fn _start() callconv(.C) noreturn {
 
     const tst_ns = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl.namespaces.get(1);
     if (tst_ns) |ns| {
+        //detect partition scheme if any
+        ns.detectPartitionScheme() catch |err| {
+            log.err("Partition scheme detection error: {}", .{err});
+        };
+
         const streamer = ns.streamer();
         var stream = BlockDevice.Stream(u8).init(streamer, heap.page_allocator);
 

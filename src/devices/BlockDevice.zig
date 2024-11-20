@@ -17,7 +17,6 @@ const BlockDeviceSpec = union(enum) {
 alloctr: std.mem.Allocator,
 base: *Device,
 spec: BlockDeviceSpec,
-partition_scheme: ?PartitionScheme, // null means partitionless device
 
 pub fn init(
     allocator: std.mem.Allocator,
@@ -28,7 +27,6 @@ pub fn init(
     self.alloctr = allocator;
     self.base = base;
     self.base.spec.block = self;
-    self.partition_scheme = null;
     self.spec = block_device_spec;
 
     return self;

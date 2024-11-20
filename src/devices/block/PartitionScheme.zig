@@ -8,7 +8,7 @@ const log = std.log.scoped("partition_scheme");
 const PartitionScheme = @This();
 
 alloctr: std.mem.Allocator,
-spec: union(enum) { gpt: Gpt },
+spec: union(enum) { gpt: *const Gpt },
 
 /// Detects the partition scheme of a block device.
 /// Returns a PartitionScheme object if successful, or null for paritionless devices.
@@ -20,7 +20,7 @@ pub fn init(allocator: std.mem.Allocator, streamer: BlockDevice.Streamer) !?*con
 
     try stream.readAll(&buffer);
 
-    const self = allocator.create(PartitionScheme);
+    var self = try allocator.create(PartitionScheme);
     self.alloctr = allocator;
 
     // Check MBR signature

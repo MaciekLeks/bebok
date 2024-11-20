@@ -6,6 +6,7 @@ pub const Pcie = @import("root").bus.Pcie;
 pub const Driver = @import("root").Driver;
 pub const Device = @import("root").Device;
 pub const BlockDevice = @import("root").BlockDevice;
+pub const PartitionScheme = @import("root").PartitionScheme;
 
 pub const heap = @import("root").heap;
 pub const pmm = @import("root").pmm;
