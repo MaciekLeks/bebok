@@ -7,24 +7,6 @@ const bebok_iso_filename = "bebok.iso";
 const bebok_disk_img_filename = "disk.img";
 const kernel_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 };
 
-// fn nasmRun(b: *Build, src: []const u8, dst: []const u8, options: []const []const u8, prev_step: ?*Build.Step) error{OutOfMemory}!*Build.Step {
-//     var args = std.ArrayList([]const u8).init(b.allocator);
-//     try args.append("nasm");
-//     try args.append(src);
-//     try args.append("-o");
-//     try args.append(dst);
-//     for (options) |option| {
-//         try args.append(option);
-//     }
-//
-//     const cmd = b.addSystemCommand(args.items);
-//     cmd.step.name = src;
-//     if (prev_step) |step| {
-//         cmd.step.dependOn(step);
-//     }
-//     return &cmd.step;
-// }
-
 fn resolveTarget(b: *Build, arch: Target.Cpu.Arch) !Build.ResolvedTarget {
     const target = b.resolveTargetQuery(.{
         .cpu_arch = arch,
@@ -96,9 +78,11 @@ fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.bu
     const utils_module = b.addModule("utils", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/utils/mod.zig" } } });
     compile_kernel_action.root_module.addImport("utils", utils_module);
 
-    const nvme_module = b.addModule("nvme", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/nvme/mod.zig" } } });
-    //nvme_module.addImport("kernel", &compile_kernel_action.root_module); //we need limine there
+    const nvme_module = b.addModule("nvme", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/block/nvme/mod.zig" } } });
     compile_kernel_action.root_module.addImport("nvme", nvme_module);
+
+    const gpt_module = b.addModule("gpt", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/block/gpt/mod.zig" } } });
+    compile_kernel_action.root_module.addImport("gpt", gpt_module);
     //}Modules
 
     return compile_kernel_action;
@@ -170,16 +154,6 @@ fn buildIsoFileAction(b: *Build, compile_kernel_action: *Build.Step.Compile) *Bu
     return iso_build_action;
 }
 
-fn buildDiskImgFileAction(b: *Build, out_file: *Build.LazyPath) *Build.Step.Run {
-    const qemu_img_action = b.addSystemCommand(&.{"qemu-img"});
-    qemu_img_action.addArg("create");
-    qemu_img_action.addArg("-f");
-    qemu_img_action.addArg("raw");
-    out_file.* = qemu_img_action.addOutputFileArg(bebok_disk_img_filename); //output file is not the last one in the sequence of args, we can't add it from outside
-    qemu_img_action.addArg("1G");
-    return qemu_img_action;
-}
-
 fn injectLimineStages(limine_run_action: *Build.Step.Run, iso_file: Build.LazyPath) void {
     limine_run_action.addArg("bios-install");
     limine_run_action.addFileArg(iso_file);
@@ -190,13 +164,6 @@ fn installIsoFileAction(b: *Build, iso_build_task: *Build.Step, iso_file: Build.
     copy_iso_task.step.dependOn(iso_build_task);
     const iso_artifact_path = copy_iso_task.addCopyFile(iso_file, bebok_iso_filename);
     return b.addInstallFile(iso_artifact_path, bebok_iso_filename);
-}
-
-fn installDiskImgFileAction(b: *Build, disk_img_build_task: *Build.Step, disk_img_file: Build.LazyPath) *Build.Step.InstallFile {
-    const copy_disk_img_task = b.addWriteFiles();
-    copy_disk_img_task.step.dependOn(disk_img_build_task);
-    const disk_img_artifact_path = copy_disk_img_task.addCopyFile(disk_img_file, bebok_disk_img_filename);
-    return b.addInstallFile(disk_img_artifact_path, bebok_disk_img_filename);
 }
 
 fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, debug: bool, bios_path: []const u8) !*Build.Step.Run {
@@ -311,16 +278,8 @@ pub fn build(b: *Build) !void {
     iso_stage.dependOn(install_iso_file_task);
     iso_stage.dependOn(install_kernel_task); //to be able to debug in gdb
 
-    var qemu_disk_img_file_action_output: Build.LazyPath = undefined;
-    const qemu_disk_img_file_action = buildDiskImgFileAction(b, &qemu_disk_img_file_action_output);
-    const qemu_disk_img_file_task = &qemu_disk_img_file_action.step;
-    const qemu_install_disk_img_file_action = installDiskImgFileAction(b, qemu_disk_img_file_task, qemu_disk_img_file_action_output);
-    const qemu_install_disk_img_file_task = &qemu_install_disk_img_file_action.step;
-
-    //const qemu_iso_action = try qemuIsoAction(b, target, build_iso_file_action_output, qemu_disk_img_file_action_output, false); //run with the cached iso file
     const qemu_iso_action = try qemuIsoAction(b, target, false, build_options.bios_path); //run with the cached iso file
     const qemu_iso_task = &qemu_iso_action.step;
-    qemu_iso_task.dependOn(qemu_install_disk_img_file_task);
     qemu_iso_task.dependOn(install_iso_file_task);
     const qemu_iso_stage = b.step("iso-qemu", "Run the ISO in QEMU");
     qemu_iso_stage.dependOn(qemu_iso_task);
@@ -328,7 +287,6 @@ pub fn build(b: *Build) !void {
     // debug mode
     const qemu_iso_debug_action = try qemuIsoAction(b, target, true, build_options.bios_path); //run with the cached iso file
     const qemu_iso_debug_task = &qemu_iso_debug_action.step;
-    qemu_iso_debug_task.dependOn(qemu_install_disk_img_file_task);
     qemu_iso_debug_task.dependOn(install_iso_file_task);
     qemu_iso_debug_task.dependOn(install_kernel_task); //to be able to debug in gdb
     const qemu_iso_debug_stage = b.step("iso-qemu-debug", "Run the ISO in QEMU with debug mode enabled");

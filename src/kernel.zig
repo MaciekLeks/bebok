@@ -5,9 +5,13 @@ const config = @import("config");
 //const start = @import("start.zig");
 const segmentation = @import("segmentation.zig");
 const term = @import("terminal");
+
 pub const Driver = @import("drivers/Driver.zig");
 pub const Device = @import("devices/Device.zig");
-pub const BlockDevice = @import("devices/BlockDevice.zig");
+pub const BlockDevice = @import("devices/mod.zig").BlockDevice;
+pub const PartitionScheme = @import("devices/mod.zig").PartitionScheme;
+pub const Partition = @import("devices/mod.zig").Partition;
+pub const Guid = @import("commons/guid.zig").Guid;
 const Registry = @import("drivers/Registry.zig");
 const NvmeDriver = @import("nvme").NvmeDriver;
 const NvmeNamespace = @import("nvme").NvmeNamespace;
@@ -30,7 +34,7 @@ pub export var base_revision: limine.BaseRevision = .{ .revision = 1 };
 pub const std_options = .{
     .logFn = logFn,
     .log_scope_levels = &[_]std.log.ScopeLevel{
-        .{ .scope = .bbtree, .level = .debug },
+        .{ .scope = .bbtree, .level = .info },
     },
 };
 
@@ -159,24 +163,78 @@ export fn _start() callconv(.C) noreturn {
         log.warn("Device: {}", .{dev});
     }
 
+    // const tst_ns = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl.namespaces.get(1);
+    // if (tst_ns) |ns| {
+    //     const streamer = ns.streamer();
+    //     var stream = BlockDevice.Stream(u8).init(streamer);
+    //     log.info("Writing to NVMe starts.", .{});
+    //     defer log.info("Writing to NVMe ends.", .{});
+    //     //
+    //     const mlk_data: []const u8 = &.{ 'M', 'a', 'c', 'i', 'e', 'k', ' ', 'L', 'e', 'k', 's', ' ' };
+    //     stream.write(mlk_data) catch |err| blk: {
+    //         log.err("Nvme write error: {}", .{err});
+    //         break :blk;
+    //     };
+    //
+    //     // read from the beginning
+    //     stream.seek(1); //we ommit the first byte (0x4d)
+    //
+    //     log.info("Reading from NVMe starts.", .{});
+    //     const data = stream.read(heap.page_allocator, mlk_data.len) catch |err| blk: {
+    //         log.err("Nvme read error: {}", .{err});
+    //         break :blk null;
+    //     };
+    //     for (data.?) |d| {
+    //         log.warn("Nvme data: {x}", .{d});
+    //     }
+    //     if (data) |block| heap.page_allocator.free(block);
+    // }
+
     const tst_ns = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl.namespaces.get(1);
     if (tst_ns) |ns| {
-        const streamer = ns.streamer();
-        var stream = BlockDevice.Stream(u8).init(streamer);
-        log.info("Writing to NVMe starts.", .{});
-        defer log.info("Writing to NVMe ends.", .{});
-        //
-        const mlk_data: []const u8 = &.{ 'M', 'a', 'c', 'i', 'e', 'k', ' ', 'L', 'e', 'k', 's', ' ' };
-        stream.write(mlk_data) catch |err| blk: {
-            log.err("Nvme write error: {}", .{err});
-            break :blk;
+        //detect partition scheme if any
+        ns.detectPartitionScheme() catch |err| {
+            log.err("Partition scheme detection error: {}", .{err});
         };
 
-        // read from the beginning
-        stream.seek(1); //we ommit the first byte (0x4d)
+        //show partition scheme if any
+        if (ns.state.partition_scheme) |scheme| {
+            switch (scheme.spec) {
+                .gpt => |gpt| {
+                    log.warn("GPT detected", .{});
+                    log.warn("GPT header: {}", .{gpt.header});
+                    for (gpt.entries) |entry| {
+                        if (entry.isEmpty()) {
+                            continue;
+                        }
+                        log.warn("GPT entry: {}", .{entry});
+                    }
+                },
+            }
+
+            // Iterate over partitions no matter the scheme
+            var it = scheme.iterator();
+            while (it.next()) |partition_opt| {
+                if (partition_opt) |partition| {
+                    log.debug("Partition: start_lba={}, end_lba={}, type={}, name={s}", .{ partition.start_lba, partition.end_lba, partition.partition_type, partition.name });
+                } else {
+                    log.debug("No more partition", .{});
+                    break;
+                }
+            } else |err| {
+                log.err("Partition iteration error: {}", .{err});
+            }
+        }
+
+        const streamer = ns.streamer();
+        var stream = BlockDevice.Stream(u8).init(streamer, heap.page_allocator);
+
+        stream.seek(0x400);
+
+        log.debug("admin.identify.IdentifyNamespaceInfo: ptr:{*}, info:{}", .{ ns, ns.info });
 
         log.info("Reading from NVMe starts.", .{});
-        const data = stream.read(heap.page_allocator, mlk_data.len) catch |err| blk: {
+        const data = stream.read(heap.page_allocator, 32) catch |err| blk: {
             log.err("Nvme read error: {}", .{err});
             break :blk null;
         };

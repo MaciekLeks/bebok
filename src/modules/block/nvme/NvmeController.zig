@@ -26,7 +26,7 @@ const nvme_ncqr = 0x2; //number of completion queues requested (+1 is admin cq)
 const nvme_nsqr = nvme_ncqr; //number of submission queues requested
 
 //pub const NsInfoMap = std.AutoHashMap(u32, id.NsInfo);
-pub const NamespaceMap = std.AutoHashMap(u32, *NvmeNamespace);
+pub const NamespaceMap = std.AutoHashMap(u32, *const NvmeNamespace);
 
 pub const ControllerType = enum(u8) {
     io_controller = 1,

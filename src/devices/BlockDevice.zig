@@ -2,29 +2,42 @@ const std = @import("std");
 const NvmeController = @import("deps.zig").NvmeController;
 const Device = @import("Device.zig");
 
+const PartitionScheme = @import("block/PartitionScheme.zig");
+
 const heap = @import("deps.zig").heap; //TODO: tbd
 
 const log = std.log.scoped(.blockl_device);
 
 const BlockDevice = @This();
 
+const BlockDeviceSpec = union(enum) {
+    nvme_ctrl: *NvmeController,
+};
+
 alloctr: std.mem.Allocator,
 base: *Device,
-spec: union(enum) {
-    nvme_ctrl: *NvmeController,
-},
+spec: BlockDeviceSpec,
 
-pub fn init(allocator: std.mem.Allocator, base: *Device) !*BlockDevice {
+pub fn init(
+    allocator: std.mem.Allocator,
+    base: *Device,
+    block_device_spec: BlockDeviceSpec,
+) !*BlockDevice {
     var self = try allocator.create(BlockDevice);
     self.alloctr = allocator;
     self.base = base;
+    self.base.spec.block = self;
+    self.spec = block_device_spec;
 
     return self;
 }
 
 pub fn deinit(self: *BlockDevice) void {
     defer self.alloctr.destroy(self);
-    return switch (self) {
+    if (self.partition_scheme) |*scheme| {
+        scheme.deinit();
+    }
+    return switch (self.spec) {
         inline else => |it| it.deinit(),
     };
 }
@@ -39,19 +52,19 @@ pub const Streamer = struct {
 
     pub const VTable = struct {
         //read: *const fn (ctx: *anyopaque, allocator: std.mem.Allocator, offset: usize, total: usize) anyerror![]u8,
-        read: *const fn (ctx: *anyopaque, allocator: std.mem.Allocator, offset: u64, total: u16) anyerror![]u8,
+        read: *const fn (ctx: *const anyopaque, allocator: std.mem.Allocator, offset: u64, total: u16) anyerror![]u8,
         //write: *const fn (ctx: *anyopaque, offset: usize, buf: []u8) anyerror!void,
-        write: *const fn (ctx: *anyopaque, allocator: std.mem.Allocator, slba: u64, data: []const u8) anyerror!void,
-        calculate: *const fn (ctx: *anyopaque, offset: usize, total: usize) anyerror!Streamer.LbaPos,
+        write: *const fn (ctx: *const anyopaque, allocator: std.mem.Allocator, slba: u64, data: []const u8) anyerror!void,
+        calculate: *const fn (ctx: *const anyopaque, offset: usize, total: usize) anyerror!Streamer.LbaPos,
     };
 
-    ptr: *anyopaque,
+    ptr: *const anyopaque,
     vtable: VTable,
 
     pub fn read(self: Streamer, comptime T: type, inalloctr: std.mem.Allocator, allocator: std.mem.Allocator, offset: usize, total: usize) anyerror![]T {
         const total_bytes = total * @sizeOf(T);
         const lba = try self.vtable.calculate(self.ptr, offset, total_bytes);
-        log.debug("read(): Calculated LBA: {d}, NLBA: {d}, Offset: {d}", .{ lba.slba, lba.nlba, lba.slba_offset });
+        log.debug("read(): Calculated slba: {d}, nlba: {d}, offset: {d}", .{ lba.slba, lba.nlba, lba.slba_offset });
 
         const data = try self.vtable.read(self.ptr, inalloctr, lba.slba, lba.nlba);
         defer inalloctr.free(data);
@@ -82,7 +95,7 @@ pub const Streamer = struct {
         try self.vtable.write(self.ptr, inalloctr, lba.slba, data);
     }
 
-    pub fn init(ctx: *anyopaque, vtable: VTable) Streamer {
+    pub fn init(ctx: *const anyopaque, vtable: VTable) Streamer {
         return .{
             .ptr = ctx,
             .vtable = vtable,
@@ -106,18 +119,23 @@ pub fn Stream(comptime T: type) type {
         pos: usize, //in bytes
         alloctr: std.mem.Allocator,
 
-        pub fn init(streamer: Streamer) Self {
-            return .{
-                .streamer = streamer,
-                .pos = 0,
-                .alloctr = heap.page_allocator, //TODO: make more flexible
-            };
+        pub fn init(streamer: Streamer, allocator: std.mem.Allocator) Self {
+            return .{ .streamer = streamer, .pos = 0, .alloctr = allocator };
         }
 
         pub fn read(self: *Self, allocator: std.mem.Allocator, total: usize) anyerror![]T {
             const data = try self.streamer.read(T, self.alloctr, allocator, self.pos, total);
             self.pos += total * @sizeOf(T);
             return data;
+        }
+
+        pub fn readAll(self: *Self, buf: []T) anyerror!void {
+            // const data = try self.read(self.alloctr, buf.len);
+            // defer self.alloctr.free(data);
+            // @memcpy(buf, data);
+            // We use a fixed buffer to avoid multiple allocations
+            var fba = std.heap.FixedBufferAllocator.init(buf);
+            _ = try self.read(fba.allocator(), buf.len);
         }
 
         pub fn write(self: *Self, buf: []const T) anyerror!void {

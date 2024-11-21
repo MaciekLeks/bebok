@@ -16,15 +16,40 @@ In Silesian language, a creature from our (Upper Silesians) demonology.
 - PCI Express (Peripheral Component Interconnect Express) support
 - MSI-X (Message Signaled Interrupts - Extended) support
 - NVMe (Non-Volatile Memory Express) module (including driver, controller, etc.)
-- Basic stream operations for NVMe (read, write)
+- Basic stream operations (read, write, seek) on block devices
+- Partition schemes handling with GPT support (no CRC32 validation and no mirroring)
 
 # In progress
 - [ ] Ongoing refactoring and bug fixing
 - [ ] ext4 filesystem support
 
 # Pre-requisites
-- qemu-system-x86_64 on board
+## Installed tools
+- zig (master branch)
+- qemu-img
+- qemu-system-x86_64
+- xorriso
+- sgdisk
+
+# Pre-run (only once)
+## Create an empty disk with GPT and ext4 partition with the `create_disk.sh` script
+Script usage:
+```bash
+scripts/create_disk.sh                    
+```
+```bash
+scripts/create_disk.sh <installation_prefix>
+```
+Requirements:
+- Root privileges for losetup operations
+- qemu-img, sgdisk, and mkfs.ext4 tools installed
+- Target directory must be writable
+
+## Alternative:
+You can use your own disk image if it has GPT and ext4 partition.
+In this case, place your disk.img in the installation directory.
 
 # How to run
+```bash
 zig build iso-qemu 
 ```
