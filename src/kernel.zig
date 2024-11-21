@@ -10,6 +10,8 @@ pub const Driver = @import("drivers/Driver.zig");
 pub const Device = @import("devices/Device.zig");
 pub const BlockDevice = @import("devices/mod.zig").BlockDevice;
 pub const PartitionScheme = @import("devices/mod.zig").PartitionScheme;
+pub const Partition = @import("devices/mod.zig").Partition;
+pub const Guid = @import("commons/guid.zig").Guid;
 const Registry = @import("drivers/Registry.zig");
 const NvmeDriver = @import("nvme").NvmeDriver;
 const NvmeNamespace = @import("nvme").NvmeNamespace;
@@ -208,6 +210,23 @@ export fn _start() callconv(.C) noreturn {
                         log.warn("GPT entry: {}", .{entry});
                     }
                 },
+            }
+
+            // Iterate over partitions no matter the scheme
+            var it = scheme.iterator();
+            while (it.next()) |partition_opt| {
+                if (partition_opt) |partition| {
+                    log.debug("Partition: start_lba={}, end_lba={}, type={}", .{
+                        partition.start_lba,
+                        partition.end_lba,
+                        partition.partition_type,
+                    });
+                } else {
+                    log.debug("No more partition", .{});
+                    break;
+                }
+            } else |err| {
+                log.err("Partition iteration error: {}", .{err});
             }
         }
 

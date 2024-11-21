@@ -16,7 +16,8 @@ In Silesian language, a creature from our (Upper Silesians) demonology.
 - PCI Express (Peripheral Component Interconnect Express) support
 - MSI-X (Message Signaled Interrupts - Extended) support
 - NVMe (Non-Volatile Memory Express) module (including driver, controller, etc.)
-- Basic stream operations for NVMe (read, write)
+- Basic stream operations (read, write, seek) on block devices
+- Partition schemes handling with GPT support (no CRC32 validation and no mirroring)
 
 # In progress
 - [ ] Ongoing refactoring and bug fixing

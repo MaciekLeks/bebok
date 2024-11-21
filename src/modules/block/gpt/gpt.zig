@@ -1,6 +1,10 @@
 const std = @import("std");
 
 const BlockDevice = @import("deps.zig").BlockDevice;
+const Guid = @import("deps.zig").Guid;
+const Partition = @import("deps.zig").Partition;
+
+//TODO: add code to read GPT header and entries from the mirror
 
 pub const GptError = error{
     InvalidSignature,
@@ -9,13 +13,6 @@ pub const GptError = error{
     InvalidHeaderCrc32,
     InvalidPartitionEntrySize,
     InvalidPartitionArrayCrc32,
-};
-
-pub const Guid = extern struct {
-    data1: u32 align(1),
-    data2: u16 align(1),
-    data3: u16 align(1),
-    data4: [8]u8 align(1),
 };
 
 pub const GptHeader = extern struct {
@@ -81,15 +78,34 @@ pub const GptEntry = extern struct {
         return std.mem.eql(u8, std.mem.asBytes(&self.partition_type_guid), std.mem.asBytes(&zero_guid));
     }
 
-    pub fn getName(self: *const GptEntry) []const u16 {
-        const utf16_slice = std.mem.bytesAsSlice(u16, &self.partition_name);
-        // Find the null terminator and include it in the returned slice
-        for (utf16_slice, 0..) |char, i| {
-            if (char == 0) {
-                return utf16_slice[0 .. i + 1]; // Include null terminator
-            }
-        }
-        return utf16_slice;
+    pub fn getName(self: *const GptEntry) ![72]u8 {
+        var name_buffer: [36]u16 = undefined;
+        const utf16_bytes = std.mem.bytesAsSlice(u8, &self.partition_name);
+
+        std.mem.copyForwards(u8, @as([*]u8, @ptrCast(&name_buffer))[0..72], utf16_bytes);
+
+        // Find name length (till null terminator)
+        var len: usize = 0;
+        while (len < name_buffer.len and name_buffer[len] != 0) : (len += 1) {}
+
+        // Convert UTF-16LE to UTF-8
+        var result: [72]u8 = undefined;
+        _ = try std.unicode.utf16LeToUtf8(&result, name_buffer[0..len]);
+
+        return result;
+    }
+
+    pub fn asPartition(self: *const GptEntry) !Partition {
+        return Partition{
+            .start_lba = self.starting_lba,
+            .end_lba = self.ending_lba,
+            .partition_type = try Partition.Type.fromGuid(self.partition_type_guid),
+            .attributes = .{
+                .required_to_function = self.attributes.required_to_function,
+                .type_guid_specific = self.attributes.type_guid_specific,
+            },
+            .name = try self.getName(),
+        };
     }
 };
 
@@ -147,6 +163,26 @@ pub const Gpt = struct {
             }
         }
         return count;
+    }
+
+    pub fn getPartitionAt(self: *const Self, index: usize) !?Partition {
+        const count = self.getPartitionCount();
+        if (index >= count) return null;
+
+        // Znajdź n-tą niepustą partycję
+        var current_index: usize = 0;
+        var found_index: usize = 0;
+
+        while (current_index < count) : (current_index += 1) {
+            const entry = &self.entries[current_index];
+            if (!entry.isEmpty()) {
+                if (found_index == index) {
+                    return try entry.asPartition();
+                }
+                found_index += 1;
+            }
+        }
+        return null;
     }
 };
 

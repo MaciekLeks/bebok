@@ -2,6 +2,7 @@ const std = @import("std");
 
 const Gpt = @import("../deps.zig").Gpt;
 const BlockDevice = @import("../BlockDevice.zig");
+const Partition = @import("Partition.zig");
 
 const log = std.log.scoped("partition_scheme");
 
@@ -41,4 +42,32 @@ pub fn deinit(self: *const PartitionScheme) void {
     switch (self.spec) {
         inline else => |scheme| scheme.deinit(),
     }
+}
+
+const PartitionIterator = struct {
+    scheme: *const PartitionScheme,
+    current_index: usize = 0,
+
+    pub fn next(self: *PartitionIterator) !?Partition {
+        const result = switch (self.scheme.spec) {
+            inline else => |scheme| try scheme.getPartitionAt(self.current_index),
+        };
+
+        if (result == null) {
+            return null;
+        }
+
+        self.current_index += 1;
+        return result;
+    }
+};
+
+pub fn iterator(self: *const PartitionScheme) PartitionIterator {
+    return PartitionIterator{
+        .scheme = self,
+    };
+}
+
+pub fn asGpt(self: *const PartitionScheme) ?*const Gpt {
+    if (self.spec == .gpt) self.spec else null;
 }
