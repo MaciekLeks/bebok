@@ -29,7 +29,6 @@ In Silesian language, a creature from our (Upper Silesians) demonology.
 - qemu-img
 - qemu-system-x86_64
 - xorriso
-- sgdisk
 
 # Pre-run (only once)
 ## Create an empty disk with GPT and ext4 partition with the `create_disk.sh` script
