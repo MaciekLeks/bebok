@@ -216,11 +216,7 @@ export fn _start() callconv(.C) noreturn {
             var it = scheme.iterator();
             while (it.next()) |partition_opt| {
                 if (partition_opt) |partition| {
-                    log.debug("Partition: start_lba={}, end_lba={}, type={}", .{
-                        partition.start_lba,
-                        partition.end_lba,
-                        partition.partition_type,
-                    });
+                    log.debug("Partition: start_lba={}, end_lba={}, type={}, name={s}", .{ partition.start_lba, partition.end_lba, partition.partition_type, partition.name });
                 } else {
                     log.debug("No more partition", .{});
                     break;
