@@ -34,8 +34,8 @@ sgdisk --clear --new=1:2048:0 --typecode=1:8300 "$TEMP_IMG"
 echo "Setting up loop device..."
 LOOP_DEV=$(sudo losetup --show -fP "$TEMP_IMG")
 
-echo "Creating ext4 filesystem..."
-sudo mkfs.ext4 -F -L rootfs "${LOOP_DEV}p1"
+echo "Creating ext2 filesystem..."
+sudo mkfs.ext2 -F -L rootfs "${LOOP_DEV}p1"
 
 echo "Cleaning up loop device..."
 sudo losetup -d "$LOOP_DEV"

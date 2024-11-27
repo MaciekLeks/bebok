@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Mount disk.img with GPT and ext4 partition
+# Mount disk.img with GPT and ext2 partition
 #
 # Usage:
 #   scripts/mount_disk.sh <mount_point> [source_dir]
@@ -14,7 +14,7 @@
 #
 # Requirements:
 #   - Root privileges for mount operations
-#   - disk.img must exist and contain GPT and ext4 partition
+#   - disk.img must exist and contain GPT and ext2 partition
 #   - Mount point directory must exist
 
 set -e

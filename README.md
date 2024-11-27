@@ -21,7 +21,7 @@ In Silesian language, a creature from our (Upper Silesians) demonology.
 
 # In progress
 - [ ] Ongoing refactoring and bug fixing
-- [ ] ext4 filesystem support
+- [ ] ext2(and possibly ext4 ) filesystem support
 
 # Pre-requisites
 ## Installed tools
@@ -31,7 +31,7 @@ In Silesian language, a creature from our (Upper Silesians) demonology.
 - xorriso
 
 # Pre-run (only once)
-## Create an empty disk with GPT and ext4 partition with the `create_disk.sh` script
+## Create an empty disk with GPT and ext2 partition with the `create_disk.sh` script
 Script usage:
 ```bash
 scripts/create_disk.sh                    
@@ -41,11 +41,11 @@ scripts/create_disk.sh <installation_prefix>
 ```
 Requirements:
 - Root privileges for losetup operations
-- qemu-img, sgdisk, and mkfs.ext4 tools installed
+- qemu-img, sgdisk, and mkfs.ext2 tools installed
 - Target directory must be writable
 
 ## Alternative:
-You can use your own disk image if it has GPT and ext4 partition.
+You can use your own disk image if it has GPT and ext2 partition.
 In this case, place your disk.img in the installation directory.
 
 # How to run
