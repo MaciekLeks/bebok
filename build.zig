@@ -83,6 +83,10 @@ fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.bu
 
     const gpt_module = b.addModule("gpt", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/block/gpt/mod.zig" } } });
     compile_kernel_action.root_module.addImport("gpt", gpt_module);
+
+    const ext2_module = b.addModule("ext2", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/fs/ext2/mod.zig" } } });
+    compile_kernel_action.root_module.addImport("ext2", ext2_module);
+
     //}Modules
 
     return compile_kernel_action;

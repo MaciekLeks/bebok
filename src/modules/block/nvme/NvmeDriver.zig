@@ -60,7 +60,7 @@ alloctr: std.mem.Allocator,
 
 //pub const NsInfoMap = std.AutoHashMap(u32, id.NsInfo);
 
-/// Devicer interface function to match the driver with the device
+/// Device interface function to match the driver with the device
 pub fn probe(_: *anyopaque, probe_ctx: *const anyopaque) bool {
     const pcie_ctx: *const Pcie.PcieProbeContext = @ptrCast(@alignCast(probe_ctx));
     return pcie_ctx.class_code == nvme_class_code and pcie_ctx.subclass == nvme_subclass and pcie_ctx.prog_if == nvme_prog_if;

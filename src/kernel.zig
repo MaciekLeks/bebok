@@ -12,9 +12,12 @@ pub const BlockDevice = @import("devices/mod.zig").BlockDevice;
 pub const PartitionScheme = @import("devices/mod.zig").PartitionScheme;
 pub const Partition = @import("devices/mod.zig").Partition;
 pub const Guid = @import("commons/guid.zig").Guid;
-const Registry = @import("drivers/Registry.zig");
+pub const FileSystem = @import("fs/FileSystem.zig");
+const DriverRegistry = @import("drivers/Registry.zig");
 const NvmeDriver = @import("nvme").NvmeDriver;
 const NvmeNamespace = @import("nvme").NvmeNamespace;
+const FileSystemRegistry = @import("fs/Registry.zig");
+const Ext2 = @import("ext2").Ext2;
 const smp = @import("smp.zig");
 const acpi = @import("acpi.zig");
 
@@ -126,22 +129,22 @@ export fn _start() callconv(.C) noreturn {
     //} init handler list
 
     //pci test start
-    var registry = Registry.init(arena_allocator.allocator()) catch |err| {
+    var driver_reg = DriverRegistry.init(arena_allocator.allocator()) catch |err| {
         log.err("Driver registry creation error: {}", .{err});
         @panic("Driver registry creation error");
     };
-    defer registry.deinit();
+    defer driver_reg.deinit();
     const nvme_driver = NvmeDriver.init(arena_allocator.allocator()) catch |err| {
         log.err("Nvme driver creation error: {}", .{err});
         @panic("Nvme driver creation error");
     };
 
-    registry.registerDriver(nvme_driver.driver()) catch |err| {
+    driver_reg.registerDriver(nvme_driver.driver()) catch |err| {
         log.err("Nvme driver registration error: {}", .{err});
         @panic("Nvme driver registration error");
     };
 
-    const pcie_bus = bus.Bus.init(arena_allocator.allocator(), .pcie, registry) catch |err| {
+    const pcie_bus = bus.Bus.init(arena_allocator.allocator(), .pcie, driver_reg) catch |err| {
         log.err("PCIe bus creation error: {}", .{err});
         @panic("PCIe bus creation error");
     };
@@ -189,6 +192,18 @@ export fn _start() callconv(.C) noreturn {
     //     }
     //     if (data) |block| heap.page_allocator.free(block);
     // }
+
+    const fs_reg = FileSystemRegistry.init(arena_allocator.allocator()) catch |err| {
+        log.err("Filesystem registry creation error: {}", .{err});
+        @panic("Filesystem registry creation error");
+    };
+    defer fs_reg.deinit();
+
+    var ext2: Ext2 = .{};
+    fs_reg.registerFileSystem(ext2.filesystem()) catch |err| {
+        log.err("Ext2 filesystem registration error: {}", .{err});
+        @panic("Ext2 filesystem registration error");
+    };
 
     const tst_ns = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl.namespaces.get(1);
     if (tst_ns) |ns| {
