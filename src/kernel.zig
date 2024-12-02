@@ -34,6 +34,15 @@ const log = std.log.scoped(.kernel);
 
 pub export var base_revision: limine.BaseRevision = .{ .revision = 1 };
 
+const logo =
+    \\   /(,-.   )\.---.     /(,-.     .-./(      .'( 
+    \\,' _   ) (   ,-._(  ,' _   )  ,'     )  ,')\  )
+    \\(  '-' (   \  '-,   (  '-' (  (  .-, (  (  '/ / 
+    \\ )  _   )   ) ,-`    )  _   )  ) '._\ )  )   (  
+    \\(  '-' /   (  ``-.  (  '-' /  (  ,   (  (  .\ \ 
+    \\ )/._.'     )..-.(   )/._.'    )/ ._.'   )/  )/ 
+;
+
 pub const std_options = .{
     .logFn = logFn,
     .log_scope_levels = &[_]std.log.ScopeLevel{
@@ -260,7 +269,7 @@ export fn _start() callconv(.C) noreturn {
     }
 
     var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");
-    pty.printf("Bebok version: {any}\n", .{config.kernel_version});
+    pty.printf("{s}\n\nversion: {any}", .{ logo, config.kernel_version });
 
     {
         log.debug("TEST:Start", .{});
