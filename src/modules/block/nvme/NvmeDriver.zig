@@ -158,6 +158,8 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
 
     ctrl.enableController();
 
+    try identifyController(ctrl);
+
     // I/O Command Set specific initialization
     try self.discoverNamespacesByIoCommandSet(ctrl);
 
@@ -652,6 +654,7 @@ fn createIoQueues(ctrl: *NvmeController, doorbell_base: usize, doorbell_size: u3
     }
 }
 
+/// Check if the controller is supported by the driver
 fn identifyController(ctrl: *NvmeController) !void {
     // Allocate one prp1 for all commands
     const prp1 = try heap.page_allocator.alloc(u8, pmm.page_size);
@@ -679,7 +682,7 @@ fn identifyController(ctrl: *NvmeController) !void {
     const identify_info: *const id.ControllerInfo = @ptrCast(@alignCast(prp1));
     log.info("Identify Controller Data Structure(cns: 0x01): {}", .{identify_info.*});
 
-    const ctrl_type: NvmeController.ControllerType = @enumFromInt(identify_info.cntrl);
+    const ctrl_type: NvmeController.ControllerType = @enumFromInt(identify_info.cntrltype);
     if (ctrl_type != NvmeController.ControllerType.io_controller) {
         log.err("Unsupported NVMe controller type: {}", .{identify_info.cntrltype});
         return e.NvmeError.UnsupportedControllerType;
