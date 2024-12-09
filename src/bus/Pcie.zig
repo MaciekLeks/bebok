@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const Device = @import("deps.zig").Device;
+const PhysDevice = @import("deps.zig").PhysDevice;
 const Driver = @import("deps.zig").Driver;
 const Registry = @import("deps.zig").Registry;
 const cpu = @import("deps.zig").cpu;

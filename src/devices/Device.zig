@@ -1,32 +1,42 @@
 const std = @import("std");
 const log = std.log.scoped(.driver);
-const BlockDevice = @import("BlockDevice.zig");
-
-const BusDeviceAddress = @import("deps.zig").BusDeviceAddress;
-const Bus = @import("deps.zig").Bus;
-const Driver = @import("deps.zig").Driver;
+const LogicDevice = @import("LogicDevice.zig");
+const PhysDevice = @import("PhysDevice.zig");
 
 const Device = @This();
 
+pub const DeviceSpec = union(enum) {
+    logic: *LogicDevice,
+    phys: *PhysDevice,
+};
+
 //Fields
 alloctr: std.mem.Allocator,
-addr: BusDeviceAddress,
-spec: union(enum) { //set by the driver
-    block: *BlockDevice,
-},
-driver: Driver, //Driver is an interface only
+spec: DeviceSpec,
+children: std.ArrayList(*Device),
+parent: ?*const Device, //who is above me
 
-pub fn init(allocator: std.mem.Allocator, addr: BusDeviceAddress) !*Device {
+pub fn init(allocator: std.mem.Allocator, spec: DeviceSpec, parent: *const Device) !*Device {
     var dev = try allocator.create(Device);
     dev.alloctr = allocator;
-    dev.addr = addr;
+    dev.spec = spec;
+    dev.children = std.ArrayList(*Device).init(allocator);
+    dev.parent = parent;
 
     return dev;
 }
 
 pub fn deinit(self: *Device) void {
     defer self.alloctr.destroy(self);
+    for (self.children.items) |child| {
+        child.deinit();
+    }
+    self.children.deinit();
     switch (self.spec) {
         inline else => |it| it.deinit(),
     }
+}
+
+pub fn addChild(self: *Device, child: *Device) !void {
+    try self.children.append(child);
 }

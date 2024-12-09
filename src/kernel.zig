@@ -8,6 +8,9 @@ const term = @import("terminal");
 
 pub const Driver = @import("drivers/Driver.zig");
 pub const Device = @import("devices/Device.zig");
+pub const LogicalDevice = @import("devices/LogicalDevice.zig");
+pub const PhysDevice = @import("devices/PhysDevice.zig");
+pub const AdminDevice = @import("devices/mod.zig").AdminDevice;
 pub const BlockDevice = @import("devices/mod.zig").BlockDevice;
 pub const PartitionScheme = @import("devices/mod.zig").PartitionScheme;
 pub const Partition = @import("devices/mod.zig").Partition;
