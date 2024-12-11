@@ -2,6 +2,7 @@ pub const Device = @import("../devices/Device.zig"); //re-export
 pub const BlockDevice = @import("../devices/BlockDevice.zig");
 pub const NvmeController = @import("nvme").NvmeController;
 pub const Pcie = @import("../bus/Pcie.zig");
+pub const bus = @import("../bus/bus.zig");
 pub const int = @import("../int.zig");
 pub const paging = @import("../paging.zig");
 pub const cpu = @import("../cpu.zig");

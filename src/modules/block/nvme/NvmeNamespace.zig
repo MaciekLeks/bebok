@@ -18,16 +18,11 @@ const NvmeNamespace = @This();
 
 const log = std.log.scoped(.nvme_namespace);
 
-const State = struct {
-    partition_scheme: ?*const PartitionScheme, // null means partitionless device
-};
-
 //Fields
 alloctr: std.mem.Allocator, //we use page allocator internally cause LBA size is at least 512 bytes
 nsid: u32,
 info: id.NsInfo,
 ctrl: *NvmeController,
-state: *State,
 
 pub fn init(allocator: std.mem.Allocator, ctrl: *NvmeController, nsid: u32, info: *const id.NsInfo) !*const NvmeNamespace {
     var self = try allocator.create(NvmeNamespace);
@@ -35,19 +30,17 @@ pub fn init(allocator: std.mem.Allocator, ctrl: *NvmeController, nsid: u32, info
     self.nsid = nsid;
     self.info = info.*;
     self.ctrl = ctrl;
-    self.state = try allocator.create(State); //TODO: to much memory
 
     return self;
 }
 
-pub fn detectPartitionScheme(self: *const NvmeNamespace) !void {
-    const scheme = try PartitionScheme.init(self.alloctr, self.streamer());
-    log.debug("Partition scheme detected: {any}", .{scheme});
-    self.state.partition_scheme = scheme;
-}
+// pub fn detectPartitionScheme(self: *const NvmeNamespace) !void {
+//     const scheme = try PartitionScheme.init(self.alloctr, self.streamer());
+//     log.debug("Partition scheme detected: {any}", .{scheme});
+//     self.state.partition_scheme = scheme;
+// }
 
-pub fn deinit(self: *NvmeNamespace) void {
-    self.alloctr.destroy(self.state);
+pub fn deinit(self: *const NvmeNamespace) void {
     self.alloctr.destroy(self);
 }
 

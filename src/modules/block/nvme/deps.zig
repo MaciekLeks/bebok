@@ -1,11 +1,10 @@
-pub const BusDeviceAddress = @import("root").bus.BusDeviceAddress;
-pub const Bus = @import("root").bus.Bus;
-pub const Pcie = @import("root").bus.Pcie;
-
 //pub const Driver = @import("../../drivers/mod.zig").Driver;
 pub const Driver = @import("root").Driver;
 pub const Device = @import("root").Device;
-pub const LogicalDevice = @import("root").LogicalDevice;
+pub const Bus = @import("root").Bus;
+pub const Pcie = @import("root").bus.Pcie;
+pub const BusDeviceAddress = @import("root").BusDeviceAddress;
+pub const PhysDevice = @import("root").PhysDevice;
 pub const AdminDevice = @import("root").AdminDevice;
 pub const BlockDevice = @import("root").BlockDevice;
 pub const PartitionScheme = @import("root").PartitionScheme;

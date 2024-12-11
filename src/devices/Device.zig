@@ -1,42 +1,48 @@
+///! Device interface
 const std = @import("std");
-const log = std.log.scoped(.driver);
-const LogicDevice = @import("LogicDevice.zig");
-const PhysDevice = @import("PhysDevice.zig");
+const log = std.log.scoped(.device);
 
 const Device = @This();
 
-pub const DeviceSpec = union(enum) {
-    logic: *LogicDevice,
-    phys: *PhysDevice,
+ptr: *anyopaque,
+vtable: VTable,
+
+pub const VTable = struct {
+    //probe: *const fn (ctx: *anyopaque, probe_ctx: *const anyopaque) bool,
+    //setup: *const fn (ctx: *anyopaque, setup_ctx: *const anyopaque) anyerror![]*Device,
+    deinit: *const fn (ctx: *anyopaque) void,
+    kind: *const fn (ctx: *anyopaque) Kind,
 };
 
-//Fields
-alloctr: std.mem.Allocator,
-spec: DeviceSpec,
-children: std.ArrayList(*Device),
-parent: ?*const Device, //who is above me
-
-pub fn init(allocator: std.mem.Allocator, spec: DeviceSpec, parent: *const Device) !*Device {
-    var dev = try allocator.create(Device);
-    dev.alloctr = allocator;
-    dev.spec = spec;
-    dev.children = std.ArrayList(*Device).init(allocator);
-    dev.parent = parent;
-
-    return dev;
+pub fn init(ctx: *anyopaque, vtable: VTable) Device {
+    return .{
+        .ptr = ctx,
+        .vtable = vtable,
+    };
 }
 
-pub fn deinit(self: *Device) void {
-    defer self.alloctr.destroy(self);
-    for (self.children.items) |child| {
-        child.deinit();
-    }
-    self.children.deinit();
-    switch (self.spec) {
-        inline else => |it| it.deinit(),
-    }
+pub const Kind = enum {
+    block,
+    admin,
+    char,
+};
+
+// pub fn probe(self: Driver, probe_ctx: *const anyopaque) bool {
+//     return @call(.auto, self.vtable.probe, .{ self.ptr, probe_ctx });
+// }
+//
+// pub fn setup(self: Driver, setup_ctx: *const anyopaque) anyerror![]*Device {
+//     return @call(.auto, self.vtable.setup, .{ self.ptr, setup_ctx });
+// }
+
+pub fn deinit(self: Device) void {
+    return @call(.auto, self.vtable.deinit, .{self.ptr});
 }
 
-pub fn addChild(self: *Device, child: *Device) !void {
-    try self.children.append(child);
+pub fn kind(self: Device) Kind {
+    return @call(.auto, self.vtable.kind, .{self.ptr});
+}
+
+pub fn impl(self: Device, comptime TImpl: type) *TImpl {
+    return @ptrCast(@alignCast(self.ptr));
 }

@@ -11,6 +11,8 @@ const heap = @import("deps.zig").heap;
 
 const Device = @import("deps.zig").Device;
 const Driver = @import("deps.zig").Driver;
+const Bus = @import("deps.zig").Bus;
+const BusDeviceAddress = @import("deps.zig").BusDeviceAddress;
 const BlockDevice = @import("deps.zig").BlockDevice;
 const Pcie = @import("deps.zig").Pcie;
 
@@ -60,24 +62,25 @@ alloctr: std.mem.Allocator,
 
 //pub const NsInfoMap = std.AutoHashMap(u32, id.NsInfo);
 
-/// Device interface function to match the driver with the device
+/// Driver interface function to match the driver with the device
 pub fn probe(_: *anyopaque, probe_ctx: *const anyopaque) bool {
     const pcie_ctx: *const Pcie.PcieProbeContext = @ptrCast(@alignCast(probe_ctx));
     return pcie_ctx.class_code == nvme_class_code and pcie_ctx.subclass == nvme_subclass and pcie_ctx.prog_if == nvme_prog_if;
 }
 
-/// Devicer interface function
-pub fn setup(ctx: *anyopaque, base: *Device) !void {
+/// Driver interface function
+//pub fn setup(ctx: *anyopaque, base: *Device) !void {
+pub fn setup(ctx: *anyopaque, allocator: std.mem.Allocator, bus: *Bus, address: BusDeviceAddress) !void {
     const self: *NvmeDriver = @ptrCast(@alignCast(ctx));
-    base.driver = self.driver();
+    //base.driver = self.driver(); //TODO: Do we need driver at all in the controller?
     //base.spec = .{ .block = .{ .nvme = .{ .base = base } } };
-    const ctrl = try NvmeController.init(self.alloctr, base);
-    _ = try BlockDevice.init(self.alloctr, base, .{ .nvme_ctrl = ctrl });
+    const addr = address.pcie;
+    const ctrl = try NvmeController.init(self.alloctr, addr);
+    const ctrl_device_node = try bus.addDevice(ctrl.asDevice(), null);
+
+    //_ = try BlockDevice.init(self.alloctr, base, .{ .nvme_ctrl = ctrl });
     //block.spec.nvme_ctrl = ctrl;
     //base.spec.block = block;
-
-    // now we can access the NVMe device
-    const addr = base.addr.pcie;
 
     try validatePcieVersion(addr);
     try ctrl.disableMsi();
@@ -90,7 +93,8 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
     // const VEC_NO: u16 = 0x20 + interrupt_line; //TODO: we need MSI/MSI-X support first - PIC does not work here
 
     //@@@ctrl.ns_info_map = NsInfoMap.init(base.alloctr);
-    ctrl.namespaces = NvmeController.NamespaceMap.init(base.alloctr);
+    ctrl.namespaces = NvmeController.NamespaceMap.init(allocator);
+
     ctrl.bar = Pcie.readBarWithArgs(.bar0, addr);
 
     // Initialize queues to the default values
@@ -161,7 +165,7 @@ pub fn setup(ctx: *anyopaque, base: *Device) !void {
     try identifyController(ctrl);
 
     // I/O Command Set specific initialization
-    try self.discoverNamespacesByIoCommandSet(ctrl);
+    try self.discoverNamespacesByIoCommandSet(ctrl, bus, ctrl_device_node);
 
     // Create I/O queues
     try createIoQueues(ctrl, doorbell_base, doorbell_size);
@@ -300,7 +304,7 @@ fn preConfigureController(ctrl: *NvmeController, doorbell_base: usize, doorbell_
     ctrl.cq[0].head_dbl = @ptrFromInt(doorbell_base + doorbell_size * 1);
 }
 
-fn discoverNamespacesByIoCommandSet(self: *const NvmeDriver, ctrl: *NvmeController) !void {
+fn discoverNamespacesByIoCommandSet(self: *const NvmeDriver, ctrl: *NvmeController, bus: *Bus, parent_device_node: *Bus.DeviceNode) !void {
     const prp1 = try heap.page_allocator.alloc(u8, pmm.page_size);
     @memset(prp1, 0);
     defer heap.page_allocator.free(prp1);
@@ -413,8 +417,13 @@ fn discoverNamespacesByIoCommandSet(self: *const NvmeDriver, ctrl: *NvmeControll
                 const ns_info: *const id.IdentifyNamespaceInfo = @ptrCast(@alignCast(prp1));
                 log.info("Identify Namespace Data Structure(cns: 0x00): nsid:{d}, info:{*}", .{ nsid, ns_info });
 
-                //try ctrl.namespaces.put(nsid, try NvmeNamespace.init(heap.page_allocator, ctrl, nsid, ns_info));
-                try ctrl.namespaces.put(nsid, try NvmeNamespace.init(self.alloctr, ctrl, nsid, ns_info));
+                // add namespace to the controller
+                const ns = try NvmeNamespace.init(self.alloctr, ctrl, nsid, ns_info);
+                try ctrl.namespaces.put(nsid, ns);
+
+                // add namespace to the bus as a device
+                const block_device = try BlockDevice.init(self.alloctr, .{ .nvme_namespace = ns });
+                _ = try bus.addDevice(block_device.asDevice(), parent_device_node);
 
                 const vs = regs.readRegister(regs.VSRegister, ctrl.bar, .vs); //TODO added to compile the code
                 log.debug("vs: {}", .{vs});

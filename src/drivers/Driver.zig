@@ -1,6 +1,8 @@
 const std = @import("std");
 
 const Device = @import("deps.zig").Device;
+const Bus = @import("deps.zig").bus.Bus;
+const BusDeviceAddress = @import("deps.zig").bus.BusDeviceAddress;
 
 const Driver = @This();
 
@@ -9,7 +11,7 @@ vtable: VTable,
 
 pub const VTable = struct {
     probe: *const fn (ctx: *anyopaque, probe_ctx: *const anyopaque) bool,
-    setup: *const fn (ctx: *anyopaque, setup_ctx: *const anyopaque) anyerror![]*Device,
+    setup: *const fn (ctx: *anyopaque, allocator: std.mem.Allocator, bus: *Bus, address: BusDeviceAddress) anyerror!void,
     deinit: *const fn (ctx: *anyopaque) void,
 };
 
@@ -24,8 +26,8 @@ pub fn probe(self: Driver, probe_ctx: *const anyopaque) bool {
     return @call(.auto, self.vtable.probe, .{ self.ptr, probe_ctx });
 }
 
-pub fn setup(self: Driver, setup_ctx: *const anyopaque) anyerror![]*Device {
-    return @call(.auto, self.vtable.setup, .{ self.ptr, setup_ctx });
+pub fn setup(self: Driver, allocator: std.mem.Allocator, bus: *Bus, address: BusDeviceAddress) anyerror!void {
+    return @call(.auto, self.vtable.setup, .{ self.ptr, allocator, bus, address });
 }
 
 pub fn deinit(self: Driver) void {

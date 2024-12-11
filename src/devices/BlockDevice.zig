@@ -1,5 +1,6 @@
 const std = @import("std");
-const NvmeController = @import("deps.zig").NvmeController;
+//const NvmeController = @import("deps.zig").NvmeController;
+const NvmeNamespace = @import("deps.zig").NvmeNamespace;
 const Device = @import("Device.zig");
 
 const PartitionScheme = @import("block/PartitionScheme.zig");
@@ -11,35 +12,68 @@ const log = std.log.scoped(.blockl_device);
 const BlockDevice = @This();
 
 const BlockDeviceSpec = union(enum) {
-    nvme_ctrl: *NvmeController,
+    //nvme_ctrl: *NvmeController,
+    nvme_namespace: *const NvmeNamespace,
+};
+
+const State = struct {
+    partition_scheme: ?*const PartitionScheme, // null means partitionless device
 };
 
 alloctr: std.mem.Allocator,
-base: *Device,
 spec: BlockDeviceSpec,
+state: State,
 
 pub fn init(
     allocator: std.mem.Allocator,
-    base: *Device,
     block_device_spec: BlockDeviceSpec,
 ) !*BlockDevice {
     var self = try allocator.create(BlockDevice);
     self.alloctr = allocator;
-    self.base = base;
-    self.base.spec.block = self;
     self.spec = block_device_spec;
+    self.state.partition_scheme = null;
 
     return self;
 }
 
-pub fn deinit(self: *BlockDevice) void {
+//pub fn deinit(self: *BlockDevice) void {
+pub fn deinit(ctx: *anyopaque) void {
+    const self: *BlockDevice = @ptrCast(@alignCast(ctx));
     defer self.alloctr.destroy(self);
-    if (self.partition_scheme) |*scheme| {
+
+    if (self.state.partition_scheme) |scheme| {
         scheme.deinit();
     }
     return switch (self.spec) {
         inline else => |it| it.deinit(),
     };
+}
+
+pub fn asDevice(self: *BlockDevice) Device {
+    return .{
+        .ptr = self,
+        .vtable = .{ .deinit = deinit, .kind = getKind },
+    };
+}
+
+pub fn getKind(_: *anyopaque) Device.Kind {
+    return Device.Kind.block;
+}
+
+pub fn fromDevice(device: Device) *const BlockDevice {
+    return @ptrCast(@alignCast(device.ptr));
+}
+
+pub fn streamer(self: *BlockDevice) Streamer {
+    return switch (self.spec) {
+        inline else => |spec| spec.streamer(),
+    };
+}
+
+pub fn detectPartitionScheme(self: *BlockDevice) !void {
+    const scheme = try PartitionScheme.init(self.alloctr, self.streamer());
+    log.debug("Partition scheme detected: {any}", .{scheme});
+    self.state.partition_scheme = scheme;
 }
 
 // TODO: can't use generic Steamer(T), see: https://www.reddit.com/r/Zig/comments/1gcexso/dynamic_interface_with_comptime_vtable_functions/
@@ -119,8 +153,8 @@ pub fn Stream(comptime T: type) type {
         pos: usize, //in bytes
         alloctr: std.mem.Allocator,
 
-        pub fn init(streamer: Streamer, allocator: std.mem.Allocator) Self {
-            return .{ .streamer = streamer, .pos = 0, .alloctr = allocator };
+        pub fn init(s: Streamer, allocator: std.mem.Allocator) Self {
+            return .{ .streamer = s, .pos = 0, .alloctr = allocator };
         }
 
         pub fn read(self: *Self, allocator: std.mem.Allocator, total: usize) anyerror![]T {

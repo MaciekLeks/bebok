@@ -66,7 +66,7 @@ pub const PcieProbeContext = struct {
 };
 
 //variables
-var allctr: std.mem.Allocator = undefined;
+var alloctr: std.mem.Allocator = undefined;
 
 //Fields
 base: *Bus,
@@ -459,17 +459,17 @@ fn probeAndSetupDevice(self: *Pcie, addr: PcieAddress, class_code: u8, subclass:
     const drivers = self.base.registry.drivers;
     for (drivers.items) |drv| {
         if (drv.probe(&PcieProbeContext{ .class_code = class_code, .subclass = subclass, .prog_if = prog_if })) {
-            const dev = try Device.init(allctr, .{ .pcie = addr });
+            //const dev = try Device.init(allctr, .{ .pcie = addr });
             //let the driver fill the device struct
-            try drv.setup(dev);
-            try self.base.devices.append(dev);
+            try drv.setup(alloctr, self.base, .{ .pcie = addr });
+            //try self.base.devices.append(dev);
         }
     }
 }
 
 pub fn deinit(self: *Pcie) void {
     log.info("Deinitializing PCI", .{});
-    defer allctr.destroy(self);
+    defer alloctr.destroy(self);
     defer log.info("PCI deinitialized", .{});
 
     self.drivers.deinit();
@@ -480,7 +480,7 @@ pub fn init(allocator: std.mem.Allocator, bus: *Bus) !*Pcie {
     defer log.info("PCI initialized", .{});
     var pcie = try allocator.create(Pcie);
 
-    allctr = allocator;
+    alloctr = allocator;
     pcie.base = bus;
 
     return pcie;

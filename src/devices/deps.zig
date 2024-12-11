@@ -3,6 +3,7 @@ const Bus = @import("../bus/mod.zig").Bus;
 pub const Pcie = @import("../bus/mod.zig").Pcie;
 pub const NvmeDriver = @import("nvme").NvmeDriver;
 pub const NvmeController = @import("nvme").NvmeController;
+pub const NvmeNamespace = @import("nvme").NvmeNamespace;
 pub const Gpt = @import("gpt").Gpt;
 pub const Guid = @import("../commons/guid.zig").Guid;
 pub const Driver = @import("../drivers/Driver.zig");

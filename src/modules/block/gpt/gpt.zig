@@ -150,8 +150,8 @@ pub const Gpt = struct {
         return self;
     }
 
-    pub fn deinit(self: *Self) void {
-        self.allocator.free(self.entries);
+    pub fn deinit(self: *const Self) void {
+        self.alloctr.free(self.entries);
     }
 
     // Helper methods

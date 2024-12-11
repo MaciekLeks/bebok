@@ -1,35 +1,37 @@
+//! PhysDevice interface
 const std = @import("std");
-const log = std.log.scoped(.driver);
-const AdminDevice = @import("AdminDevice.zig");
-const BlockDevice = @import("BlockDevice.zig");
+const log = std.log.scoped(.device);
 
 const BusDeviceAddress = @import("deps.zig").BusDeviceAddress;
-const Bus = @import("deps.zig").Bus;
-const Driver = @import("deps.zig").Driver;
 
 const Device = @This();
 
-//Fields
-alloctr: std.mem.Allocator,
-addr: BusDeviceAddress,
-spec: union(enum) { //set by the driver
-    admin: *AdminDevice,
-},
-driver: Driver, //Driver is an interface only
-owner: *const Device, //who owns me
+ptr: *anyopaque,
+vtable: VTable,
 
-pub fn init(allocator: std.mem.Allocator, addr: BusDeviceAddress, owner: *const Device) !*Device {
-    var dev = try allocator.create(Device);
-    dev.alloctr = allocator;
-    dev.addr = addr;
-    dev.owner = owner;
+pub const VTable = struct {
+    //probe: *const fn (ctx: *anyopaque, probe_ctx: *const anyopaque) bool,
+    //setup: *const fn (ctx: *anyopaque, setup_ctx: *const anyopaque) anyerror![]*Device,
+    ///deinit: *const fn (ctx: *anyopaque) void,
+    base: Device.VTable,
+    address: *const fn (ctx: *anyopaque) BusDeviceAddress,
+};
 
-    return dev;
+pub fn init(ctx: *anyopaque, vtable: VTable) Device {
+    return .{
+        .ptr = ctx,
+        .vtable = vtable,
+    };
 }
 
-pub fn deinit(self: *Device) void {
-    defer self.alloctr.destroy(self);
-    switch (self.spec) {
-        inline else => |it| it.deinit(),
-    }
+// pub fn probe(self: Driver, probe_ctx: *const anyopaque) bool {
+//     return @call(.auto, self.vtable.probe, .{ self.ptr, probe_ctx });
+// }
+//
+// pub fn setup(self: Driver, setup_ctx: *const anyopaque) anyerror![]*Device {
+//     return @call(.auto, self.vtable.setup, .{ self.ptr, setup_ctx });
+// }
+
+pub fn deinit(self: Device) void {
+    return @call(.auto, self.vtable.deinit, .{self.ptr});
 }

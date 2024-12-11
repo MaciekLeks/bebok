@@ -6,11 +6,11 @@ const config = @import("config");
 const segmentation = @import("segmentation.zig");
 const term = @import("terminal");
 
+pub const Bus = @import("bus/bus.zig").Bus;
+pub const BusDeviceAddress = @import("bus/bus.zig").BusDeviceAddress;
 pub const Driver = @import("drivers/Driver.zig");
 pub const Device = @import("devices/Device.zig");
-pub const LogicalDevice = @import("devices/LogicalDevice.zig");
 pub const PhysDevice = @import("devices/PhysDevice.zig");
-pub const AdminDevice = @import("devices/mod.zig").AdminDevice;
 pub const BlockDevice = @import("devices/mod.zig").BlockDevice;
 pub const PartitionScheme = @import("devices/mod.zig").PartitionScheme;
 pub const Partition = @import("devices/mod.zig").Partition;
@@ -173,11 +173,6 @@ export fn _start() callconv(.C) noreturn {
     //cpu.halt();
     //log.debug("waiting for the first interrupt/2", .{});
 
-    //list bus devices
-    for (pcie_bus.devices.items) |dev| {
-        log.warn("Device: {}", .{dev});
-    }
-
     // const tst_ns = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl.namespaces.get(1);
     // if (tst_ns) |ns| {
     //     const streamer = ns.streamer();
@@ -217,59 +212,65 @@ export fn _start() callconv(.C) noreturn {
         @panic("Ext2 filesystem registration error");
     };
 
-    const tst_ns = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl.namespaces.get(1);
-    if (tst_ns) |ns| {
-        //detect partition scheme if any
-        ns.detectPartitionScheme() catch |err| {
-            log.err("Partition scheme detection error: {}", .{err});
-        };
+    //const tst_ns = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl.namespaces.get(1);
+    for (pcie_bus.devices.items) |dev_node| {
+        log.warn("Device: {}", .{dev_node});
 
-        //show partition scheme if any
-        if (ns.state.partition_scheme) |scheme| {
-            switch (scheme.spec) {
-                .gpt => |gpt| {
-                    log.warn("GPT detected", .{});
-                    log.warn("GPT header: {}", .{gpt.header});
-                    for (gpt.entries) |entry| {
-                        if (entry.isEmpty()) {
-                            continue;
+        if (dev_node.device.kind() == Device.Kind.block) {
+            const block_dev = dev_node.device.impl(BlockDevice);
+
+            //detect partition scheme if any
+            block_dev.detectPartitionScheme() catch |err| {
+                log.err("Partition scheme detection error: {}", .{err});
+            };
+
+            //show partition scheme if any
+            if (block_dev.state.partition_scheme) |scheme| {
+                switch (scheme.spec) {
+                    .gpt => |gpt| {
+                        log.warn("GPT detected", .{});
+                        log.warn("GPT header: {}", .{gpt.header});
+                        for (gpt.entries) |entry| {
+                            if (entry.isEmpty()) {
+                                continue;
+                            }
+                            log.warn("GPT entry: {}", .{entry});
                         }
-                        log.warn("GPT entry: {}", .{entry});
-                    }
-                },
-            }
-
-            // Iterate over partitions no matter the scheme
-            var it = scheme.iterator();
-            while (it.next()) |partition_opt| {
-                if (partition_opt) |partition| {
-                    log.debug("Partition: start_lba={}, end_lba={}, type={}, name={s}", .{ partition.start_lba, partition.end_lba, partition.partition_type, partition.name });
-                } else {
-                    log.debug("No more partition", .{});
-                    break;
+                    },
                 }
-            } else |err| {
-                log.err("Partition iteration error: {}", .{err});
+
+                // Iterate over partitions no matter the scheme
+                var it = scheme.iterator();
+                while (it.next()) |partition_opt| {
+                    if (partition_opt) |partition| {
+                        log.debug("Partition: start_lba={}, end_lba={}, type={}, name={s}", .{ partition.start_lba, partition.end_lba, partition.partition_type, partition.name });
+                    } else {
+                        log.debug("No more partition", .{});
+                        break;
+                    }
+                } else |err| {
+                    log.err("Partition iteration error: {}", .{err});
+                }
             }
-        }
 
-        const streamer = ns.streamer();
-        var stream = BlockDevice.Stream(u8).init(streamer, heap.page_allocator);
+            const streamer = block_dev.streamer();
+            var stream = BlockDevice.Stream(u8).init(streamer, heap.page_allocator);
 
-        stream.seek(0x400);
+            stream.seek(0x400);
 
-        log.debug("admin.identify.IdentifyNamespaceInfo: ptr:{*}, info:{}", .{ ns, ns.info });
+            //log.debug("admin.identify.IdentifyNamespaceInfo: ptr:{*}, info:{}", .{ ns, ns.info });
 
-        log.info("Reading from NVMe starts.", .{});
-        const data = stream.read(heap.page_allocator, 32) catch |err| blk: {
-            log.err("Nvme read error: {}", .{err});
-            break :blk null;
-        };
-        for (data.?) |d| {
-            log.warn("Nvme data: {x}", .{d});
-        }
-        if (data) |block| heap.page_allocator.free(block);
-    }
+            log.info("Reading from NVMe starts.", .{});
+            const data = stream.read(heap.page_allocator, 32) catch |err| blk: {
+                log.err("Nvme read error: {}", .{err});
+                break :blk null;
+            };
+            for (data.?) |d| {
+                log.warn("Nvme data: {x}", .{d});
+            }
+            if (data) |block| heap.page_allocator.free(block);
+        } //block device condition
+    } //loop over bus devices
 
     var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");
     pty.printf("{s}\n\nversion: {any}", .{ logo, config.kernel_version });

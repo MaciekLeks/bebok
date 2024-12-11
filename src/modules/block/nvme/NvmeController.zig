@@ -15,8 +15,10 @@ const id = @import("admin/identify.zig");
 const e = @import("errors.zig");
 const regs = @import("registers.zig");
 
+const BusDeviceAddress = @import("deps.zig").BusDeviceAddress;
 const BlockDevice = @import("deps.zig").BlockDevice;
 const Device = @import("deps.zig").Device;
+const PhysDevice = @import("deps.zig").PhysDevice;
 
 const NvmeController = @This();
 
@@ -34,7 +36,7 @@ pub const ControllerType = enum(u8) {
     admin_controller = 3,
 };
 alloctr: std.mem.Allocator,
-base: *Device,
+//base: *Device,
 type: ControllerType = ControllerType.io_controller, //only IO controller supported
 
 bar: Pcie.Bar = undefined,
@@ -57,19 +59,62 @@ namespaces: NamespaceMap = undefined,
 
 mutex: bool = false, //TODO: implement real mutex
 
-pub fn init(allocator: std.mem.Allocator, base: *Device) !*NvmeController {
+// PCIe address (bus, device, function)
+address: Pcie.PcieAddress = undefined,
+
+pub fn init(allocator: std.mem.Allocator, address: Pcie.PcieAddress) !*NvmeController {
     var self = try allocator.create(NvmeController);
     self.alloctr = allocator;
-    self.base = base;
+    self.address = address;
     return self;
 }
 
-pub fn deinit(self: *NvmeController) void {
-    defer self.alloctr.destroy(self.base);
-    self.ns_info_map.deinit();
+//pub fn deinit(self: *NvmeController) void {
+pub fn deinit(ctx: *anyopaque) void {
+    const self: *NvmeController = @ptrCast(@alignCast(ctx));
+    self.namespaces.deinit();
     const pg_alloctr = heap.page_allocator;
-    for (self.cq) |cq| pg_alloctr.free(cq.entries);
-    for (self.sq) |sq| pg_alloctr.free(sq.entries);
+    for (self.cq) |cq| pg_alloctr.free(@volatileCast(cq.entries));
+    for (self.sq) |sq| pg_alloctr.free(@volatileCast(sq.entries));
+}
+
+// return PhysDevice interface
+pub fn asPhysDevice(self: *const NvmeController) PhysDevice {
+    return .{
+        .ptr = self,
+        .vtable = .{
+            .base = .{
+                .deinit = deinit,
+            },
+            .address = getAddress,
+        },
+    };
+}
+
+pub fn fromPhysDevice(dev: *PhysDevice) *NvmeController {
+    return @alignCast(*dev.ptr);
+}
+
+// return Device interface
+pub fn asDevice(self: *NvmeController) Device {
+    return .{
+        .ptr = self,
+        .vtable = .{ .deinit = deinit, .kind = getKind },
+    };
+}
+
+pub fn fromDevice(dev: *Device) *NvmeController {
+    return @alignCast(*dev.ptr);
+}
+
+// PhysDevice interface function
+pub fn getAddress(ctx: *anyopaque) BusDeviceAddress {
+    const self: *NvmeDriver = @ptrCast(@alignCast(ctx));
+    return .{ .pcie = self.address };
+}
+
+pub fn getKind(_: *anyopaque) Device.Kind {
+    return Device.Kind.char;
 }
 
 pub fn disableController(self: *NvmeController) void {
@@ -96,9 +141,9 @@ fn toggleController(bar: Pcie.Bar, enable: bool) void {
     log.info("NVMe controller is {s}", .{if (enable) "enabled" else "disabled"});
 }
 
+// TODO: move to Pcie.zig
 fn toggleMsi(ctrl: *NvmeController, enable: bool) !void {
-    const addr = ctrl.base.addr.pcie;
-    var msi_cap: ?Pcie.MsiCap = Pcie.readCapability(Pcie.MsiCap, addr) catch |err| blk: {
+    var msi_cap: ?Pcie.MsiCap = Pcie.readCapability(Pcie.MsiCap, ctrl.address) catch |err| blk: {
         log.err("Can't find MSI capability: {}", .{err});
         break :blk null;
     };
@@ -106,27 +151,28 @@ fn toggleMsi(ctrl: *NvmeController, enable: bool) !void {
 
     if (msi_cap) |*cap| {
         cap.mc.msie = enable;
-        try Pcie.writeCapability(Pcie.MsiCap, cap.*, addr);
+        try Pcie.writeCapability(Pcie.MsiCap, cap.*, ctrl.address);
         log.debug("MSI turned off", .{});
     }
 }
 
+// TODO: move to Pcie.zig
 pub fn disableMsi(ctrl: *NvmeController) !void {
     try toggleMsi(ctrl, false);
 }
 
+// TODO: move to Pcie.zig
 fn toggleMsix(ctrl: *NvmeController, enable: bool) !void {
-    const addr = ctrl.base.addr.pcie;
-    ctrl.msix_cap = try Pcie.readCapability(Pcie.MsixCap, addr);
+    ctrl.msix_cap = try Pcie.readCapability(Pcie.MsixCap, ctrl.address);
     log.debug("MSI-X capability pre-modification: {}", .{ctrl.msix_cap});
 
     if (ctrl.msix_cap.tbir != 0) return e.NvmeError.MsiXMisconfigured; //TODO: it should work on any of the bar but for now we support only bar0
 
     ctrl.msix_cap.mc.mxe = enable;
-    try Pcie.writeCapability(Pcie.MsixCap, ctrl.msix_cap, addr);
+    try Pcie.writeCapability(Pcie.MsixCap, ctrl.msix_cap, ctrl.address);
 
     //TODO: remove the following
-    ctrl.msix_cap = try Pcie.readCapability(Pcie.MsixCap, addr); //TODO: could be removed
+    ctrl.msix_cap = try Pcie.readCapability(Pcie.MsixCap, ctrl.address); //TODO: could be removed
     log.info("MSI-X capability post-modification: {}", .{ctrl.msix_cap});
 }
 
