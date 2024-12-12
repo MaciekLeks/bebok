@@ -216,8 +216,8 @@ export fn _start() callconv(.C) noreturn {
     for (pcie_bus.devices.items) |dev_node| {
         log.warn("Device: {}", .{dev_node});
 
-        if (dev_node.device.kind() == Device.Kind.block) {
-            const block_dev = dev_node.device.impl(BlockDevice);
+        if (dev_node.device.kind == Device.Kind.block) {
+            const block_dev = BlockDevice.fromDevice(dev_node.device);
 
             //detect partition scheme if any
             block_dev.detectPartitionScheme() catch |err| {

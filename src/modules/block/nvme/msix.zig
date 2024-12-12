@@ -4,7 +4,7 @@ const int = @import("deps.zig").int;
 const NvmeController = @import("NvmeController.zig");
 
 pub fn configureMsix(ctrl: *NvmeController, msix_table_idx: u11, int_vec_no: u8) !void {
-    const unique_id = Pcie.uniqueId(ctrl.address);
+    const unique_id = Pcie.uniqueId(ctrl.phys_device.address.pcie);
 
     const isr_closure = try ctrl.alloctr.create(int.ISRHandler);
     isr_closure.* = .{ .unique_id = unique_id, .ctx = ctrl, .func = handleInterrupt };

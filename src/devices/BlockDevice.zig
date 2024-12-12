@@ -21,24 +21,32 @@ const State = struct {
 };
 
 alloctr: std.mem.Allocator,
+device: Device, //Device interface implemented as @fieldParentPtr pattern
 spec: BlockDeviceSpec,
 state: State,
+
+// Device interface vtable for NvmeController
+const device_vtable = Device.VTable{
+    .deinit = deinit,
+};
 
 pub fn init(
     allocator: std.mem.Allocator,
     block_device_spec: BlockDeviceSpec,
 ) !*BlockDevice {
-    var self = try allocator.create(BlockDevice);
-    self.alloctr = allocator;
-    self.spec = block_device_spec;
-    self.state.partition_scheme = null;
+    const self = try allocator.create(BlockDevice);
+    self.* = .{
+        .alloctr = allocator,
+        .device = .{ .kind = Device.Kind.block, .vtable = &device_vtable },
+        .spec = block_device_spec,
+        .state = .{ .partition_scheme = null },
+    };
 
     return self;
 }
 
-//pub fn deinit(self: *BlockDevice) void {
-pub fn deinit(ctx: *anyopaque) void {
-    const self: *BlockDevice = @ptrCast(@alignCast(ctx));
+pub fn deinit(dev: *Device) void {
+    const self: *BlockDevice = @fieldParentPtr("device", dev);
     defer self.alloctr.destroy(self);
 
     if (self.state.partition_scheme) |scheme| {
@@ -49,19 +57,8 @@ pub fn deinit(ctx: *anyopaque) void {
     };
 }
 
-pub fn asDevice(self: *BlockDevice) Device {
-    return .{
-        .ptr = self,
-        .vtable = .{ .deinit = deinit, .kind = getKind },
-    };
-}
-
-pub fn getKind(_: *anyopaque) Device.Kind {
-    return Device.Kind.block;
-}
-
-pub fn fromDevice(device: Device) *const BlockDevice {
-    return @ptrCast(@alignCast(device.ptr));
+pub fn fromDevice(dev: *Device) *BlockDevice {
+    return @fieldParentPtr("device", dev);
 }
 
 pub fn streamer(self: *BlockDevice) Streamer {

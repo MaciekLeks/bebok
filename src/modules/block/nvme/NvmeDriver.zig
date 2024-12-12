@@ -76,7 +76,7 @@ pub fn setup(ctx: *anyopaque, allocator: std.mem.Allocator, bus: *Bus, address: 
     //base.spec = .{ .block = .{ .nvme = .{ .base = base } } };
     const addr = address.pcie;
     const ctrl = try NvmeController.init(self.alloctr, addr);
-    const ctrl_device_node = try bus.addDevice(ctrl.asDevice(), null);
+    const ctrl_device_node = try bus.addDevice(&ctrl.phys_device.device, null);
 
     //_ = try BlockDevice.init(self.alloctr, base, .{ .nvme_ctrl = ctrl });
     //block.spec.nvme_ctrl = ctrl;
@@ -423,7 +423,7 @@ fn discoverNamespacesByIoCommandSet(self: *const NvmeDriver, ctrl: *NvmeControll
 
                 // add namespace to the bus as a device
                 const block_device = try BlockDevice.init(self.alloctr, .{ .nvme_namespace = ns });
-                _ = try bus.addDevice(block_device.asDevice(), parent_device_node);
+                _ = try bus.addDevice(&block_device.device, parent_device_node);
 
                 const vs = regs.readRegister(regs.VSRegister, ctrl.bar, .vs); //TODO added to compile the code
                 log.debug("vs: {}", .{vs});

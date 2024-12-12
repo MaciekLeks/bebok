@@ -25,11 +25,11 @@ pub const Bus = struct {
     const Self = @This();
 
     pub const DeviceNode = struct {
-        device: Device, // Device in an interface
+        device: *Device,
         parent: ?*DeviceNode,
         children: std.ArrayList(*DeviceNode),
 
-        pub fn init(allocator: std.mem.Allocator, device: Device) !DeviceNode {
+        pub fn init(allocator: std.mem.Allocator, device: *Device) !DeviceNode {
             return .{
                 .device = device,
                 .parent = null,
@@ -85,7 +85,7 @@ pub const Bus = struct {
     }
 
     /// Add devices sequentially while maintaining logical tree structure
-    pub fn addDevice(self: *Bus, device: Device, parent: ?*DeviceNode) !*DeviceNode {
+    pub fn addDevice(self: *Bus, device: *Device, parent: ?*DeviceNode) !*DeviceNode {
         var node = try DeviceNode.init(alloctr, device);
 
         // Logical tree structure
