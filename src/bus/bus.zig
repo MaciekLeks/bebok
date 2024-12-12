@@ -25,12 +25,14 @@ pub const Bus = struct {
     const Self = @This();
 
     pub const DeviceNode = struct {
+        alloctr: std.mem.Allocator,
         device: *Device,
         parent: ?*DeviceNode,
         children: std.ArrayList(*DeviceNode),
 
         pub fn init(allocator: std.mem.Allocator, device: *Device) !DeviceNode {
             return .{
+                .alloctr = allocator,
                 .device = device,
                 .parent = null,
                 .children = std.ArrayList(*DeviceNode).init(allocator),
@@ -38,7 +40,8 @@ pub const Bus = struct {
         }
 
         pub fn deinit(self: *DeviceNode) void {
-            // Do not delete devicenode here, it will be deleted by bus
+            defer self.allocr.destroy(self);
+            self.device.deinit();
             self.children.deinit();
         }
     };

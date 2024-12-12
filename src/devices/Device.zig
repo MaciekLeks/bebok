@@ -13,7 +13,7 @@ pub const VTable = struct {
 
 pub const Kind = enum {
     block,
-    admin,
+    admin, //TODO one can introduce AdminDevice to hold NvmeController as a tagged union, but it's not needed for now
     char,
 };
 
@@ -25,6 +25,6 @@ pub const Kind = enum {
 //     return @call(.auto, self.vtable.setup, .{ self.ptr, setup_ctx });
 // }
 
-pub fn deinit(self: *const Device) void {
-    return @call(.auto, self.vtable.deinit, .{self.ptr});
-}
+// pub fn deinit(self: *const Device) void {
+//     return @call(.auto, self.vtable.deinit, .{self.ptr});
+// }
