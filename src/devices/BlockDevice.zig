@@ -6,14 +6,12 @@ const Device = @import("Device.zig");
 const PartitionScheme = @import("block/PartitionScheme.zig");
 
 const heap = @import("deps.zig").heap; //TODO: tbd
-
 const log = std.log.scoped(.blockl_device);
 
 const BlockDevice = @This();
 
 const BlockDeviceSpec = union(enum) {
-    //nvme_ctrl: *NvmeController,
-    nvme_namespace: *const NvmeNamespace,
+    nvme_namespace: *const NvmeNamespace, //TODO: we are tied to nvme module, do we want to keep it like that?
 };
 
 const State = struct {
