@@ -7,6 +7,7 @@ const bbtree = @import("bbtree.zig");
 const Allocator = std.mem.Allocator;
 
 const log = std.log.scoped(.buddy_allocator);
+const metric_log = std.log.scoped(.metric_mem);
 const assert = std.debug.assert;
 const t = std.testing;
 
@@ -26,6 +27,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
         max_mem_size_pow2: usize = undefined,
         free_mem_size: usize = undefined,
         mem_virt: usize = undefined, //start of the memory to be managed the allocator
+        metric_mem_allocated_block_count: usize = 0, //keep track of the allocated blocks
 
         // Initialize the allocator with the given memory by allocating the buffer for the tree and self object in that memory.
         pub fn init(mem: []u8) !*Self {
@@ -125,6 +127,18 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
             return try std.math.ceilPowerOfTwo(usize, @max(BBTree.page_size, size)); //e.g. 1->4, 16 -> 16, but 17,18,... -> 32
         }
 
+        fn metric_mem_allocated_block_count_up(self: *Self, size_pow2: usize) void {
+            const allocated_block_count = size_pow2 / min_size;
+            self.metric_mem_allocated_block_count += allocated_block_count;
+            metric_log.debug("Up: +{d}, Current: {d}", .{ allocated_block_count, self.metric_mem_allocated_block_count });
+        }
+
+        fn metric_mem_allocated_block_count_down(self: *Self, size_pow2: usize) void {
+            const allocated_block_count = size_pow2 / min_size;
+            self.metric_mem_allocated_block_count -= allocated_block_count;
+            metric_log.debug("Down: -{d}, Current: {d}", .{ allocated_block_count, self.metric_mem_allocated_block_count });
+        }
+
         pub fn allocInner(self: *Self, size_pow2: usize) !AllocInfo {
             const idx = (self.tree.freeIndexFromSize(size_pow2)) catch return error.OutOfMemory;
             log.debug("allocInner(): idx: {d} for size: 0x{x}", .{ idx, size_pow2 });
@@ -135,6 +149,9 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
             //self.tree.dump();
 
             self.free_mem_size -= size_pow2;
+
+            //metrics
+            self.metric_mem_allocated_block_count_up(size_pow2);
 
             return .{
                 .size_pow2 = size_pow2,
@@ -176,6 +193,9 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
                 @panic("freeInner(): levelMetaFromIndex failed");
             };
             self.free_mem_size += level_meta.size;
+
+            //metrics
+            self.metric_mem_allocated_block_count_down(level_meta.size);
         }
 
         fn free(ctx: *anyopaque, old_mem: []u8, _: u8, _: usize) void {
