@@ -1,4 +1,4 @@
-///! Device interface with @fieldParentPtr
+///! Abstract Device implemented with @fieldParentPtr
 const std = @import("std");
 const log = std.log.scoped(.device);
 
@@ -17,14 +17,6 @@ pub const Kind = enum {
     char,
 };
 
-// pub fn probe(self: Driver, probe_ctx: *const anyopaque) bool {
-//     return @call(.auto, self.vtable.probe, .{ self.ptr, probe_ctx });
-// }
-//
-// pub fn setup(self: Driver, setup_ctx: *const anyopaque) anyerror![]*Device {
-//     return @call(.auto, self.vtable.setup, .{ self.ptr, setup_ctx });
-// }
-
-// pub fn deinit(self: *const Device) void {
-//     return @call(.auto, self.vtable.deinit, .{self.ptr});
-// }
+pub fn deinit(self: *const Device) void {
+    return @call(.auto, self.vtable.deinit, .{self});
+}
