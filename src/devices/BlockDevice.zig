@@ -10,10 +10,7 @@ const log = std.log.scoped(.blockl_device);
 
 const BlockDevice = @This();
 
-// const BlockDeviceSpec = union(enum) {
-//     nvme_namespace: *const NvmeNamespace, //TODO: we are tied to nvme module, do we want to keep it like that?
-// };
-
+//Fields
 device: Device, //Device interface implemented as @fieldParentPtr pattern
 state: State,
 vtable: *const VTable,
@@ -26,39 +23,6 @@ pub const VTable = struct {
 const State = struct {
     partition_scheme: ?*const PartitionScheme, // null means partitionless device
 };
-
-// Device interface vtable for NvmeController
-// const device_vtable = Device.VTable{
-//     .deinit = deinit
-// };
-
-// pub fn init(
-//     allocator: std.mem.Allocator,
-//     block_device_spec: BlockDeviceSpec,
-// ) !*BlockDevice {
-//     const self = try allocator.create(BlockDevice);
-//     self.* = .{
-//         .alloctr = allocator,
-//         .device = .{ .kind = Device.Kind.block, .vtable = &device_vtable },
-//         .spec = block_device_spec,
-//         .state = .{ .partition_scheme = null },
-//     };
-//
-//     return self;
-// }
-
-// TODO: move to implementator
-// pub fn deinit(dev: *Device) void {
-//     const self: *BlockDevice = @fieldParentPtr("device", dev);
-//     defer self.alloctr.destroy(self);
-//
-//     if (self.state.partition_scheme) |scheme| {
-//         scheme.deinit();
-//     }
-//     return switch (self.spec) {
-//         inline else => |it| it.deinit(),
-//     };
-// }
 
 pub fn deinit(self: *BlockDevice) void {
     if (self.state.partition_scheme) |scheme| {
