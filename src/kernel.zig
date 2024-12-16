@@ -220,7 +220,7 @@ export fn _start() callconv(.C) noreturn {
             const block_dev = BlockDevice.fromDevice(dev_node.device);
 
             //detect partition scheme if any
-            block_dev.detectPartitionScheme() catch |err| {
+            block_dev.detectPartitionScheme(arena_allocator.allocator()) catch |err| {
                 log.err("Partition scheme detection error: {}", .{err});
             };
 

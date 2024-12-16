@@ -5,6 +5,8 @@ const pmm = @import("deps.zig").pmm;
 const paging = @import("deps.zig").paging;
 const heap = @import("deps.zig").heap; //TODO:rmv
 
+const Device = @import("deps.zig").Device;
+const BlockDevice = @import("deps.zig").BlockDevice;
 const Streamer = @import("deps.zig").BlockDevice.Streamer;
 const PartitionScheme = @import("deps.zig").PartitionScheme;
 
@@ -20,33 +22,64 @@ const log = std.log.scoped(.nvme_namespace);
 
 //Fields
 alloctr: std.mem.Allocator, //we use page allocator internally cause LBA size is at least 512 bytes
+block_device: BlockDevice,
 nsid: u32,
 info: id.NsInfo,
 ctrl: *NvmeController,
 
-pub fn init(allocator: std.mem.Allocator, ctrl: *NvmeController, nsid: u32, info: *const id.NsInfo) !*const NvmeNamespace {
-    var self = try allocator.create(NvmeNamespace);
-    self.alloctr = heap.page_allocator; //we use page allocator internally cause LBA size is at least 512
-    self.nsid = nsid;
-    self.info = info.*;
-    self.ctrl = ctrl;
+// Device interface vtable for NvmeController
+const device_vtable = Device.VTable{
+    .deinit = deinit,
+};
+
+const block_device_vtable = BlockDevice.VTable{
+    .streamer = streamer,
+};
+
+pub fn init(allocator: std.mem.Allocator, ctrl: *NvmeController, nsid: u32, info: *const id.NsInfo) !*NvmeNamespace {
+    const self = try allocator.create(NvmeNamespace);
+    self.* = .{
+        .alloctr = heap.page_allocator, //we use page allocator internally cause LBA size is at least 512
+        .block_device = .{
+            .device = .{ .kind = Device.Kind.block, .vtable = &device_vtable },
+            .state = .{ .partition_scheme = null },
+            .vtable = &block_device_vtable,
+        },
+        .nsid = nsid,
+        .info = info.*,
+        .ctrl = ctrl,
+    };
 
     return self;
 }
 
-// pub fn detectPartitionScheme(self: *const NvmeNamespace) !void {
-//     const scheme = try PartitionScheme.init(self.alloctr, self.streamer());
-//     log.debug("Partition scheme detected: {any}", .{scheme});
-//     self.state.partition_scheme = scheme;
-// }
+pub fn detectPartitionScheme(self: *const NvmeNamespace) !void {
+    const scheme = try PartitionScheme.init(self.alloctr, self.streamer());
+    log.debug("Partition scheme detected: {any}", .{scheme});
+    self.state.partition_scheme = scheme;
+}
 
-pub fn deinit(self: *const NvmeNamespace) void {
+pub fn fromDevice(dev: *Device) *NvmeNamespace {
+    const block_device: *BlockDevice = BlockDevice.fromDevice(dev);
+    return @alignCast(@fieldParentPtr("block_device", block_device));
+}
+
+pub fn fromBlockDevice(block_device: *BlockDevice) *NvmeNamespace {
+    return @alignCast(@fieldParentPtr("block_device", block_device));
+}
+
+pub fn deinit(dev: *Device) void {
+    const block_device: *BlockDevice = BlockDevice.fromDevice(dev);
+    const self: *NvmeNamespace = @alignCast(@fieldParentPtr("block_device", block_device));
+
+    block_device.deinit(); //free partition if any
     self.alloctr.destroy(self);
 }
 
 // Yields istels as a Streamer interface
 // @return Streamer interface
-pub fn streamer(self: *const NvmeNamespace) Streamer {
+pub fn streamer(bdev: *BlockDevice) Streamer {
+    const self = fromBlockDevice(bdev);
     const vtable = Streamer.VTable{
         .read = readInternal,
         .write = writeInternal,

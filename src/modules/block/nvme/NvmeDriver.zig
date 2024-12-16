@@ -422,8 +422,8 @@ fn discoverNamespacesByIoCommandSet(self: *const NvmeDriver, ctrl: *NvmeControll
                 try ctrl.namespaces.put(nsid, ns);
 
                 // add namespace to the bus as a device
-                const block_device = try BlockDevice.init(self.alloctr, .{ .nvme_namespace = ns });
-                _ = try bus.addDevice(&block_device.device, parent_device_node);
+                //const block_device = try BlockDevice.init(self.alloctr, .{ .nvme_namespace = ns });
+                _ = try bus.addDevice(&ns.block_device.device, parent_device_node);
 
                 const vs = regs.readRegister(regs.VSRegister, ctrl.bar, .vs); //TODO added to compile the code
                 log.debug("vs: {}", .{vs});

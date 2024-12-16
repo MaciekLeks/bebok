@@ -10,49 +10,60 @@ const log = std.log.scoped(.blockl_device);
 
 const BlockDevice = @This();
 
-const BlockDeviceSpec = union(enum) {
-    nvme_namespace: *const NvmeNamespace, //TODO: we are tied to nvme module, do we want to keep it like that?
+// const BlockDeviceSpec = union(enum) {
+//     nvme_namespace: *const NvmeNamespace, //TODO: we are tied to nvme module, do we want to keep it like that?
+// };
+
+device: Device, //Device interface implemented as @fieldParentPtr pattern
+state: State,
+vtable: *const VTable,
+
+pub const VTable = struct {
+    //add example function as. someFn(physdev: *PhysDevice ) and then implement fn(*PhysDevice) in the implementator
+    streamer: *const fn (ctx: *BlockDevice) Streamer,
 };
 
 const State = struct {
     partition_scheme: ?*const PartitionScheme, // null means partitionless device
 };
 
-alloctr: std.mem.Allocator,
-device: Device, //Device interface implemented as @fieldParentPtr pattern
-spec: BlockDeviceSpec,
-state: State,
-
 // Device interface vtable for NvmeController
-const device_vtable = Device.VTable{
-    .deinit = deinit,
-};
+// const device_vtable = Device.VTable{
+//     .deinit = deinit
+// };
 
-pub fn init(
-    allocator: std.mem.Allocator,
-    block_device_spec: BlockDeviceSpec,
-) !*BlockDevice {
-    const self = try allocator.create(BlockDevice);
-    self.* = .{
-        .alloctr = allocator,
-        .device = .{ .kind = Device.Kind.block, .vtable = &device_vtable },
-        .spec = block_device_spec,
-        .state = .{ .partition_scheme = null },
-    };
+// pub fn init(
+//     allocator: std.mem.Allocator,
+//     block_device_spec: BlockDeviceSpec,
+// ) !*BlockDevice {
+//     const self = try allocator.create(BlockDevice);
+//     self.* = .{
+//         .alloctr = allocator,
+//         .device = .{ .kind = Device.Kind.block, .vtable = &device_vtable },
+//         .spec = block_device_spec,
+//         .state = .{ .partition_scheme = null },
+//     };
+//
+//     return self;
+// }
 
-    return self;
-}
+// TODO: move to implementator
+// pub fn deinit(dev: *Device) void {
+//     const self: *BlockDevice = @fieldParentPtr("device", dev);
+//     defer self.alloctr.destroy(self);
+//
+//     if (self.state.partition_scheme) |scheme| {
+//         scheme.deinit();
+//     }
+//     return switch (self.spec) {
+//         inline else => |it| it.deinit(),
+//     };
+// }
 
-pub fn deinit(dev: *Device) void {
-    const self: *BlockDevice = @fieldParentPtr("device", dev);
-    defer self.alloctr.destroy(self);
-
+pub fn deinit(self: *BlockDevice) void {
     if (self.state.partition_scheme) |scheme| {
         scheme.deinit();
     }
-    return switch (self.spec) {
-        inline else => |it| it.deinit(),
-    };
 }
 
 pub fn fromDevice(dev: *Device) *BlockDevice {
@@ -60,13 +71,11 @@ pub fn fromDevice(dev: *Device) *BlockDevice {
 }
 
 pub fn streamer(self: *BlockDevice) Streamer {
-    return switch (self.spec) {
-        inline else => |spec| spec.streamer(),
-    };
+    return @call(.auto, self.vtable.streamer, .{self});
 }
 
-pub fn detectPartitionScheme(self: *BlockDevice) !void {
-    const scheme = try PartitionScheme.init(self.alloctr, self.streamer());
+pub fn detectPartitionScheme(self: *BlockDevice, allocator: std.mem.Allocator) !void {
+    const scheme = try PartitionScheme.init(allocator, self.streamer());
     log.debug("Partition scheme detected: {any}", .{scheme});
     self.state.partition_scheme = scheme;
 }
@@ -88,7 +97,7 @@ pub const Streamer = struct {
     };
 
     ptr: *const anyopaque,
-    vtable: VTable,
+    vtable: @This().VTable,
 
     pub fn read(self: Streamer, comptime T: type, inalloctr: std.mem.Allocator, allocator: std.mem.Allocator, offset: usize, total: usize) anyerror![]T {
         const total_bytes = total * @sizeOf(T);
@@ -124,7 +133,7 @@ pub const Streamer = struct {
         try self.vtable.write(self.ptr, inalloctr, lba.slba, data);
     }
 
-    pub fn init(ctx: *const anyopaque, vtable: VTable) Streamer {
+    pub fn init(ctx: *const anyopaque, vtable: @This().VTable) Streamer {
         return .{
             .ptr = ctx,
             .vtable = vtable,
