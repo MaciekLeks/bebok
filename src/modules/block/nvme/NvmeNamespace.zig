@@ -42,7 +42,12 @@ pub fn init(allocator: std.mem.Allocator, ctrl: *NvmeController, nsid: u32, info
         .alloctr = heap.page_allocator, //we use page allocator internally cause LBA size is at least 512
         .block_device = .{
             .device = .{ .kind = Device.Kind.block, .vtable = &device_vtable },
-            .state = .{ .partition_scheme = null },
+            .state = .{
+                .partition_scheme = null,
+                .slba = 0,
+                .nlba = info.nsze,
+                .lbads = math.pow(u32, 2, info.lbaf[info.flbas].lbads),
+            },
             .vtable = &block_device_vtable,
         },
         .nsid = nsid,
@@ -92,7 +97,7 @@ pub fn streamer(bdev: *BlockDevice) Streamer {
 pub fn calculateInternal(ctx: *const anyopaque, offset: usize, total: usize) !Streamer.LbaPos {
     const self: *const NvmeNamespace = @ptrCast(@alignCast(ctx));
 
-    const lbads_bytes = math.pow(u32, 2, self.info.lbaf[self.info.flbas].lbads);
+    const lbads_bytes = math.pow(u32, 2, self.info.lbaf[self.info.flbas].lbads); //TODO: change to self.block_device.state.lbads
     const slba = offset / lbads_bytes;
     const nlba: u16 = @intCast(try std.math.divCeil(usize, total, lbads_bytes));
     const slba_offset = offset % lbads_bytes;
@@ -114,7 +119,7 @@ pub fn readInternal(ctx: *const anyopaque, allocator: std.mem.Allocator, slba: u
     const flbaf = self.info.lbaf[self.info.flbas];
     log.debug("LBA Format Index: {d}, LBA Format: {}", .{ self.info.flbas, flbaf });
 
-    const lbads_bytes = math.pow(u32, 2, flbaf.lbads);
+    const lbads_bytes = math.pow(u32, 2, flbaf.lbads); //TODO: change to self.block_device.state.lbads
     log.debug("LBA Data Size: {d} bytes", .{lbads_bytes});
 
     //calculate number of pages to allocate

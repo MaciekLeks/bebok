@@ -22,6 +22,9 @@ pub const VTable = struct {
 
 const State = struct {
     partition_scheme: ?*const PartitionScheme, // null means partitionless device
+    slba: u64, // start lba
+    nlba: u64, // number of lba
+    lbads: u64, // size of lba
 };
 
 pub fn deinit(self: *BlockDevice) void {
@@ -42,6 +45,10 @@ pub fn detectPartitionScheme(self: *BlockDevice, allocator: std.mem.Allocator) !
     const scheme = try PartitionScheme.init(allocator, self.streamer());
     log.debug("Partition scheme detected: {any}", .{scheme});
     self.state.partition_scheme = scheme;
+}
+
+pub fn getSize(self: *BlockDevice) u64 {
+    return self.state.nlba * self.state.lbads;
 }
 
 // TODO: can't use generic Steamer(T), see: https://www.reddit.com/r/Zig/comments/1gcexso/dynamic_interface_with_comptime_vtable_functions/
