@@ -44,13 +44,13 @@ pub fn deinit(self: *const PartitionScheme) void {
     }
 }
 
-const PartitionIterator = struct {
+const PartitionEntryIterator = struct {
     scheme: *const PartitionScheme,
     current_index: usize = 0,
 
-    pub fn next(self: *PartitionIterator) !?Partition {
+    pub fn next(self: *PartitionEntryIterator) !?Partition.Entry {
         const result = switch (self.scheme.spec) {
-            inline else => |scheme| try scheme.getPartitionAt(self.current_index),
+            inline else => |scheme| try scheme.getPartitionEntryAt(self.current_index),
         };
 
         if (result == null) {
@@ -62,8 +62,8 @@ const PartitionIterator = struct {
     }
 };
 
-pub fn iterator(self: *const PartitionScheme) PartitionIterator {
-    return PartitionIterator{
+pub fn iterator(self: *const PartitionScheme) PartitionEntryIterator {
+    return PartitionEntryIterator{
         .scheme = self,
     };
 }

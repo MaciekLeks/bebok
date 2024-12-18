@@ -1,6 +1,9 @@
 const std = @import("std");
 
 const Guid = @import("../deps.zig").Guid;
+const Device = @import("../Device.zig");
+const BlockDevice = @import("../BlockDevice.zig");
+const Streamer = BlockDevice.Streamer;
 
 const log = std.log.scoped("partition");
 
@@ -79,13 +82,92 @@ pub const Attributes = struct {
     type_guid_specific: u32,
 };
 
+// Holds basic info about a partition. Use by partion scheme implementations to return partition info.
+pub const Entry = struct {
+    start_lba: u64,
+    end_lba: u64,
+    partition_type: Type,
+    attributes: Attributes,
+    name: [72]u8, //max as for GPT
+    name_len: u8, //length of name
+};
+
 //Fields
-start_lba: u64,
-end_lba: u64,
+alloctr: std.mem.Allocator,
+block_device: BlockDevice,
 partition_type: Type,
 attributes: Attributes,
-name: [72]u8, //max as for GPT
+name: []u8,
 
-pub fn getSize(self: *const Partition) u64 {
-    return (self.end_lba - self.start_lba + 1) * 512;
+// Device interface vtable for NvmeController
+const device_vtable = Device.VTable{
+    .deinit = deinit,
+};
+
+const block_device_vtable = BlockDevice.VTable{
+    .streamer = streamer,
+};
+
+pub fn init(allocator: std.mem.Allocator, entry: Entry, parent: *BlockDevice) !*Partition {
+    const self = try allocator.create(Partition);
+    self.* = .{
+        .alloctr = allocator, //we use page allocator internally cause LBA size is at least 512
+        .block_device = .{
+            .device = .{ .kind = Device.Kind.block, .vtable = &device_vtable },
+            .state = .{
+                .partition_scheme = null,
+                .slba = entry.start_lba,
+                .nlba = entry.end_lba - entry.start_lba + 1,
+                .lbads = parent.state.lbads,
+            },
+            .vtable = &block_device_vtable,
+        },
+        .partition_type = entry.partition_type,
+        .attributes = entry.attributes,
+        .name = allocator.dupe(u8, entry.name[0..entry.name_len]),
+    };
+
+    return self;
+}
+
+pub fn fromDevice(dev: *Device) *Partition {
+    const block_device: *BlockDevice = BlockDevice.fromDevice(dev);
+    return @alignCast(@fieldParentPtr("block_device", block_device));
+}
+
+pub fn fromBlockDevice(block_device: *BlockDevice) *Partition {
+    return @alignCast(@fieldParentPtr("block_device", block_device));
+}
+
+pub fn deinit(dev: *Device) void {
+    const block_device: *BlockDevice = BlockDevice.fromDevice(dev);
+    const self: *Partition = fromBlockDevice(block_device);
+
+    block_device.deinit(); //should be safe here
+    self.alloctr.free(self.name);
+    self.alloctr.destroy(self);
+}
+
+pub fn streamer(bdev: *BlockDevice) Streamer {
+    const self = fromBlockDevice(bdev);
+    const vtable = Streamer.VTable{
+        // user read and write internal implementations from the parent device
+        .read = self.parent.readInternal,
+        .write = self.parent.writeInternal,
+        .calculate = calculateInternal,
+    };
+    return Streamer.init(self, vtable);
+}
+
+/// Calculate the LBA from the offset (starting from parent's LBA) and total bytes to read/write
+/// offset: offset specified from partition's starting LBA
+pub fn calculateInternal(ctx: *const anyopaque, offset: usize, total: usize) !Streamer.LbaPos {
+    const self: *const Partition = @ptrCast(@alignCast(ctx));
+
+    const lbads_bytes = self.block_device.state.lbads;
+    const parent_slba = (self.block_device.state.slba + offset) / lbads_bytes; //starts on parent device
+    const nlba: u16 = @intCast(try std.math.divCeil(usize, total, lbads_bytes));
+    const slba_offset = offset % lbads_bytes;
+
+    return .{ .slba = parent_slba, .nlba = nlba, .slba_offset = slba_offset };
 }

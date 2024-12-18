@@ -78,7 +78,7 @@ pub const GptEntry = extern struct {
         return std.mem.eql(u8, std.mem.asBytes(&self.partition_type_guid), std.mem.asBytes(&zero_guid));
     }
 
-    pub fn getName(self: *const GptEntry) ![72]u8 {
+    pub fn getName(self: *const GptEntry) !struct { [72]u8, u8 } {
         var name_buffer: [36]u16 = undefined;
         const utf16_bytes = std.mem.bytesAsSlice(u8, &self.partition_name);
 
@@ -92,11 +92,12 @@ pub const GptEntry = extern struct {
         var result: [72]u8 = undefined;
         _ = try std.unicode.utf16LeToUtf8(&result, name_buffer[0..len]);
 
-        return result;
+        return .{ result, @intCast(len) };
     }
 
-    pub fn asPartition(self: *const GptEntry) !Partition {
-        return Partition{
+    pub fn asPartitionEntry(self: *const GptEntry) !Partition.Entry {
+        const name_len = try self.getName();
+        return Partition.Entry{
             .start_lba = self.starting_lba,
             .end_lba = self.ending_lba,
             .partition_type = try Partition.Type.fromGuid(self.partition_type_guid),
@@ -104,7 +105,8 @@ pub const GptEntry = extern struct {
                 .required_to_function = self.attributes.required_to_function,
                 .type_guid_specific = self.attributes.type_guid_specific,
             },
-            .name = try self.getName(),
+            .name = name_len[0],
+            .name_len = name_len[1],
         };
     }
 };
@@ -165,7 +167,7 @@ pub const Gpt = struct {
         return count;
     }
 
-    pub fn getPartitionAt(self: *const Self, index: usize) !?Partition {
+    pub fn getPartitionEntryAt(self: *const Self, index: usize) !?Partition.Entry {
         const count = self.getPartitionCount();
         if (index >= count) return null;
 
@@ -177,7 +179,7 @@ pub const Gpt = struct {
             const entry = &self.entries[current_index];
             if (!entry.isEmpty()) {
                 if (found_index == index) {
-                    return try entry.asPartition();
+                    return try entry.asPartitionEntry();
                 }
                 found_index += 1;
             }

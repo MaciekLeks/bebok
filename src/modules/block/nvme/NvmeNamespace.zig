@@ -58,11 +58,11 @@ pub fn init(allocator: std.mem.Allocator, ctrl: *NvmeController, nsid: u32, info
     return self;
 }
 
-pub fn detectPartitionScheme(self: *const NvmeNamespace) !void {
-    const scheme = try PartitionScheme.init(self.alloctr, self.streamer());
-    log.debug("Partition scheme detected: {any}", .{scheme});
-    self.state.partition_scheme = scheme;
-}
+// pub fn detectPartitionScheme(self: *const NvmeNamespace) !void {
+//     const scheme = try PartitionScheme.init(self.alloctr, self.streamer());
+//     log.debug("Partition scheme detected: {any}", .{scheme});
+//     self.state.partition_scheme = scheme;
+// }
 
 pub fn fromDevice(dev: *Device) *NvmeNamespace {
     const block_device: *BlockDevice = BlockDevice.fromDevice(dev);
@@ -75,7 +75,8 @@ pub fn fromBlockDevice(block_device: *BlockDevice) *NvmeNamespace {
 
 pub fn deinit(dev: *Device) void {
     const block_device: *BlockDevice = BlockDevice.fromDevice(dev);
-    const self: *NvmeNamespace = @alignCast(@fieldParentPtr("block_device", block_device));
+    //const self: *NvmeNamespace = @alignCast(@fieldParentPtr("block_device", block_device));
+    const self: *NvmeNamespace = fromBlockDevice(block_device);
 
     block_device.deinit(); //free partition if any
     self.alloctr.destroy(self);
