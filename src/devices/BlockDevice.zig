@@ -4,6 +4,8 @@ const NvmeNamespace = @import("deps.zig").NvmeNamespace;
 const Device = @import("Device.zig");
 
 const PartitionScheme = @import("block/PartitionScheme.zig");
+const Partition = @import("block/Partition.zig");
+const Bus = @import("deps.zig").Bus;
 
 const heap = @import("deps.zig").heap; //TODO: tbd
 const log = std.log.scoped(.blockl_device);
@@ -14,6 +16,13 @@ const BlockDevice = @This();
 device: Device, //Device interface implemented as @fieldParentPtr pattern
 state: State,
 vtable: *const VTable,
+kind: Kind = .raw,
+
+//BlockDevice kind (subkind of block kind)
+pub const Kind = enum {
+    logical, //e.g. partition
+    raw, //e.g. whole device
+};
 
 pub const VTable = struct {
     //add example function as. someFn(physdev: *PhysDevice ) and then implement fn(*PhysDevice) in the implementator
@@ -41,10 +50,48 @@ pub fn streamer(self: *BlockDevice) Streamer {
     return @call(.auto, self.vtable.streamer, .{self});
 }
 
-pub fn detectPartitionScheme(self: *BlockDevice, allocator: std.mem.Allocator) !void {
+fn detectPartitionScheme(self: *BlockDevice, allocator: std.mem.Allocator) !void {
     const scheme = try PartitionScheme.init(allocator, self.streamer());
     log.debug("Partition scheme detected: {any}", .{scheme});
     self.state.partition_scheme = scheme;
+}
+
+pub fn initPartitions(self: *BlockDevice, allocator: std.mem.Allocator, bus: *Bus, parent: *Bus.DeviceNode) !void {
+    self.detectPartitionScheme(allocator) catch |err| {
+        log.err("Partition scheme detection error: {}", .{err});
+    };
+
+    if (self.state.partition_scheme) |scheme| {
+        // TODO: the code below is just an example, how to iterate over schemes
+        //     switch (scheme.spec) {
+        //         .gpt => |gpt| {
+        //             log.debug("GPT detected", .{});
+        //             log.debug("GPT header: {}", .{gpt.header});
+        //             for (gpt.entries) |entry| {
+        //                 if (entry.isEmpty()) {
+        //                     continue;
+        //                 }
+        //                 log.debug("GPT entry: {}", .{entry});
+        //             }
+        //         },
+        //     }
+
+        // Iterate over partitions no matter the scheme
+        var it = scheme.iterator();
+        while (it.next()) |partition_entry_opt| {
+            if (partition_entry_opt) |partition_entry| {
+                log.debug("Partition: start_lba={}, end_lba={}, type={}, name={s}", .{ partition_entry.start_lba, partition_entry.end_lba, partition_entry.partition_type, partition_entry.name });
+
+                const partition = try Partition.init(allocator, partition_entry, self);
+                _ = try bus.addDevice(&partition.block_device.device, parent);
+            } else {
+                log.debug("No more partition", .{});
+                break;
+            }
+        } else |err| {
+            log.err("Partition iteration error: {}", .{err});
+        }
+    }
 }
 
 pub fn getSize(self: *BlockDevice) u64 {

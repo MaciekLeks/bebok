@@ -95,6 +95,7 @@ pub const Entry = struct {
 //Fields
 alloctr: std.mem.Allocator,
 block_device: BlockDevice,
+parent: *BlockDevice,
 partition_type: Type,
 attributes: Attributes,
 name: []u8,
@@ -110,6 +111,7 @@ const block_device_vtable = BlockDevice.VTable{
 
 pub fn init(allocator: std.mem.Allocator, entry: Entry, parent: *BlockDevice) !*Partition {
     const self = try allocator.create(Partition);
+    errdefer allocator.destroy(self); //if internal dupe signals error
     self.* = .{
         .alloctr = allocator, //we use page allocator internally cause LBA size is at least 512
         .block_device = .{
@@ -120,11 +122,13 @@ pub fn init(allocator: std.mem.Allocator, entry: Entry, parent: *BlockDevice) !*
                 .nlba = entry.end_lba - entry.start_lba + 1,
                 .lbads = parent.state.lbads,
             },
+            .kind = .logical,
             .vtable = &block_device_vtable,
         },
+        .parent = parent,
         .partition_type = entry.partition_type,
         .attributes = entry.attributes,
-        .name = allocator.dupe(u8, entry.name[0..entry.name_len]),
+        .name = try allocator.dupe(u8, entry.name[0..entry.name_len]),
     };
 
     return self;
@@ -150,10 +154,14 @@ pub fn deinit(dev: *Device) void {
 
 pub fn streamer(bdev: *BlockDevice) Streamer {
     const self = fromBlockDevice(bdev);
+
+    // we are going to use our parent's write and read function implementations, so the only way to get it is to get the parent's streamer
+    const parent = self.parent.streamer(); //e.g. NvmeNamespace
+
     const vtable = Streamer.VTable{
         // user read and write internal implementations from the parent device
-        .read = self.parent.readInternal,
-        .write = self.parent.writeInternal,
+        .read = parent.vtable.read,
+        .write = parent.vtable.write,
         .calculate = calculateInternal,
     };
     return Streamer.init(self, vtable);

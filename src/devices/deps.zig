@@ -1,5 +1,5 @@
 pub const BusDeviceAddress = @import("../bus/bus.zig").BusDeviceAddress;
-const Bus = @import("../bus/mod.zig").Bus;
+pub const Bus = @import("../bus/mod.zig").Bus;
 pub const Pcie = @import("../bus/mod.zig").Pcie;
 pub const NvmeDriver = @import("nvme").NvmeDriver;
 pub const NvmeController = @import("nvme").NvmeController;
