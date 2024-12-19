@@ -67,7 +67,7 @@ pub fn scanBlockDevices(bus: *Bus, allocator: std.mem.Allocator) !void {
 }
 
 fn detectPartitionScheme(self: *BlockDevice, allocator: std.mem.Allocator) !void {
-    const scheme = try PartitionScheme.init(allocator, self.streamer());
+    const scheme = try PartitionScheme.init(allocator, self.streamer(), self.state.lbads);
     log.debug("Partition scheme detected: {any}", .{scheme});
     self.state.partition_scheme = scheme;
 }

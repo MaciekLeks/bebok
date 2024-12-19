@@ -118,16 +118,17 @@ pub const Gpt = struct {
     header: GptHeader,
     entries: []GptEntry,
 
-    pub fn init(allocator: std.mem.Allocator, streamer: BlockDevice.Streamer) !*const Self {
+    pub fn init(allocator: std.mem.Allocator, streamer: BlockDevice.Streamer, lbads: u64) !*const Self {
         // Read GPT Header (LBA1)
-        var header_buffer: [512]u8 = undefined;
+        const header_buffer = try allocator.alloc(u8, lbads);
+        defer allocator.free(header_buffer);
 
         var stream = BlockDevice.Stream(u8).init(streamer);
-        stream.seek(512);
+        stream.seek(lbads);
 
-        _ = try stream.readAll(&header_buffer);
+        _ = try stream.readAll(header_buffer);
 
-        const header = @as(*const GptHeader, @ptrCast(&header_buffer)).*;
+        const header = @as(*const GptHeader, @ptrCast(header_buffer)).*;
         try header.validate();
 
         // Read GPT Entries
@@ -136,7 +137,7 @@ pub const Gpt = struct {
         defer allocator.free(entries_buffer);
 
         // Seek to partition entries
-        stream.seek(header.partition_entry_lba * 512);
+        stream.seek(header.partition_entry_lba * lbads);
         _ = try stream.readAll(entries_buffer);
 
         // Convert buffer to entries

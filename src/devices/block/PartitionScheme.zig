@@ -14,7 +14,7 @@ spec: union(enum) { gpt: *const Gpt },
 /// Detects the partition scheme of a block device.
 /// Returns a PartitionScheme object if successful, or null for paritionless devices.
 /// If an error occurs, the error is returned.
-pub fn init(allocator: std.mem.Allocator, streamer: BlockDevice.Streamer) !?*const PartitionScheme {
+pub fn init(allocator: std.mem.Allocator, streamer: BlockDevice.Streamer, lbads: u64) !?*const PartitionScheme {
     var buffer: [512]u8 = undefined;
     //const bytes_read = try reader.readAll(&buffer);
     var stream = BlockDevice.Stream(u8).init(streamer);
@@ -28,7 +28,7 @@ pub fn init(allocator: std.mem.Allocator, streamer: BlockDevice.Streamer) !?*con
     if (buffer[510] == 0x55 and buffer[511] == 0xAA) {
         // Check if it's a Protective MBR for GPT
         if (buffer[450] == 0xEE) {
-            self.spec.gpt = try Gpt.init(allocator, streamer);
+            self.spec.gpt = try Gpt.init(allocator, streamer, lbads);
             return self;
         }
         return error.SchemeNotSupported;
