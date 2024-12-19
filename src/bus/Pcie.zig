@@ -362,7 +362,7 @@ fn checkSlot(self: *Pcie, bus: u8, slot: u5) PciError!void {
     };
     for (1..8) |function| {
         const function_no: u3 = @truncate(function);
-        const addr = .{ .function = function_no, .slot = slot, .bus = bus };
+        const addr: PcieAddress = .{ .function = function_no, .slot = slot, .bus = bus };
         if (readRegisterWithArgs(u16, .vendor_id, addr) != 0xFFFF) {
             try checkFunction(self, addr);
         }

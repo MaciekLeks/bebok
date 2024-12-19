@@ -112,11 +112,11 @@ fn uninstallKernelAction(b: *Build, install_kernel_action: *Build.Step.InstallAr
     return uninstall_kernel_action;
 }
 
-fn buildLimineAction(b: *Build) *Build.Step.Run {
+fn buildLimineAction(b: *Build, target: Build.ResolvedTarget) *Build.Step.Run {
     const limine_dep = b.dependency("limine", .{});
     const limine_build_task = b.addExecutable(.{
         .name = "limine",
-        .target = b.host,
+        .target = target,
         .optimize = .ReleaseFast,
     });
     limine_build_task.addCSourceFile(.{
@@ -233,7 +233,7 @@ pub fn build(b: *Build) !void {
     b.enable_qemu = true;
 
     const build_options = .{
-        .arch = b.option(std.Target.Cpu.Arch, "arch", "The architecture to build for") orelse b.host.result.cpu.arch,
+        .arch = b.option(std.Target.Cpu.Arch, "arch", "The architecture to build for") orelse std.Target.Cpu.Arch.x86_64,
         .mem_page_size = b.option(enum(u32) { ps4k = 4096, ps2m = 512 * 4096, ps1g = 1024 * 1024 * 1024 }, "page-size", "Choose the page size: 'ps4k' stands for 4096 bytes, 'ps1m' means 2MB pages, and 'ps1g' is a 1GB page. ") orelse .ps4k,
         .mem_bit_tree_max_levels = b.option(u8, "mem-bit-tree-max-levels", "Maximum number of the bit tree levels to manage memory, calculated as log2(total_memory_in_bytes/page_size_in_bytes)+ 1; defaults to 32") orelse 32,
         .bios_path = b.option([]const u8, "bios-path", "Aboslute path to BIOS file") orelse "/usr/share/qemu/OVMF.fd",
@@ -269,7 +269,7 @@ pub fn build(b: *Build) !void {
     const uninstall_kernel_task = &uninstall_kernel_action.step;
     b.getUninstallStep().dependOn(uninstall_kernel_task);
 
-    const limine_action = buildLimineAction(b);
+    const limine_action = buildLimineAction(b, target);
 
     const build_iso_file_action = buildIsoFileAction(b, compile_kernel_action);
     const build_iso_file_action_output = build_iso_file_action.addOutputFileArg(bebok_iso_filename);

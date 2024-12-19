@@ -46,7 +46,7 @@ const logo =
     \\ )/._.'     )..-.(   )/._.'    )/ ._.'   )/  )/ 
 ;
 
-pub const std_options = .{
+pub const std_options: std.Options = .{
     .logFn = logFn,
     .log_scope_levels = &[_]std.log.ScopeLevel{
         .{ .scope = .bbtree, .level = .info },

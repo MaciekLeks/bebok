@@ -166,7 +166,7 @@ fn alloc(_: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
 fn free(_: *anyopaque, buf: []u8, _: u8, _: usize) void {
     log.debug("free(): Freeing memory at 0x{x}", .{@intFromPtr(buf.ptr)});
     defer log.debug("free(): Freed memory at 0x{x}", .{@intFromPtr(buf.ptr)});
-    const key = .{ .virt = @intFromPtr(buf.ptr), .size = buf.len };
+    const key: KeyVaddrSize = .{ .virt = @intFromPtr(buf.ptr), .size = buf.len };
     const it = avl_tree_by_vaddr.get(key);
     if (it) |v| {
         const ba = v.*;
@@ -181,7 +181,7 @@ fn free(_: *anyopaque, buf: []u8, _: u8, _: usize) void {
 
 fn resize(_: *anyopaque, buf: []u8, buf_align: u8, new_len: usize, ret_addr: usize) bool {
     defer log.debug("resize(): Resized memory at 0x{x} from {d} to {d} bytes", .{ @intFromPtr(buf.ptr), buf.len, new_len });
-    const key = .{ .virt = @intFromPtr(buf.ptr), .size = buf.len };
+    const key: KeyVaddrSize = .{ .virt = @intFromPtr(buf.ptr), .size = buf.len };
     const it = avl_tree_by_vaddr.get(key);
     if (it) |v| {
         const new_buf = v.*.allocator().rawResize(buf, buf_align, new_len, ret_addr);
