@@ -257,7 +257,7 @@ export fn _start() callconv(.C) noreturn {
                 //     if (partition_opt) |partition| {
                 //         log.debug("Partition: start_lba={}, end_lba={}, type={}, name={s}", .{ partition.start_lba, partition.end_lba, partition.partition_type, partition.name });
                 //     } else {
-                //         log.debug("No more partition", .{});
+
                 //         break;
                 //     }
                 // } else |err| {
@@ -268,12 +268,13 @@ export fn _start() callconv(.C) noreturn {
                 const streamer = block_dev.streamer();
                 var stream = BlockDevice.Stream(u8).init(streamer);
 
-                //stream.seek(0x400);
+                // Go to superblock position, always 1024 in the ext2 partition
+                stream.seek(0x400);
 
                 //log.debug("admin.identify.IdentifyNamespaceInfo: ptr:{*}, info:{}", .{ ns, ns.info });
 
                 log.info("Reading from NVMe starts.", .{});
-                const data = stream.read(heap.page_allocator, 1024) catch |err| blk: {
+                const data = stream.read(heap.page_allocator, 128) catch |err| blk: {
                     log.err("Nvme read error: {}", .{err});
                     break :blk null;
                 };
