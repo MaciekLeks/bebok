@@ -167,38 +167,7 @@ export fn _start() callconv(.C) noreturn {
     defer pcie_bus.deinit(); //TODO: na pewno?
     //pci test end
 
-    //log.debug("waiting for the first interrupt", .{});
-    //apic_test.setTimerTest();
     cpu.sti();
-    //cpu.halt();
-    //log.debug("waiting for the first interrupt/2", .{});
-
-    // const tst_ns = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl.namespaces.get(1);
-    // if (tst_ns) |ns| {
-    //     const streamer = ns.streamer();
-    //     var stream = BlockDevice.Stream(u8).init(streamer);
-    //     log.info("Writing to NVMe starts.", .{});
-    //     defer log.info("Writing to NVMe ends.", .{});
-    //     //
-    //     const mlk_data: []const u8 = &.{ 'M', 'a', 'c', 'i', 'e', 'k', ' ', 'L', 'e', 'k', 's', ' ' };
-    //     stream.write(mlk_data) catch |err| blk: {
-    //         log.err("Nvme write error: {}", .{err});
-    //         break :blk;
-    //     };
-    //
-    //     // read from the beginning
-    //     stream.seek(1); //we ommit the first byte (0x4d)
-    //
-    //     log.info("Reading from NVMe starts.", .{});
-    //     const data = stream.read(heap.page_allocator, mlk_data.len) catch |err| blk: {
-    //         log.err("Nvme read error: {}", .{err});
-    //         break :blk null;
-    //     };
-    //     for (data.?) |d| {
-    //         log.warn("Nvme data: {x}", .{d});
-    //     }
-    //     if (data) |block| heap.page_allocator.free(block);
-    // }
 
     // Scan all block devices already found for partition schemes and partitions
     BlockDevice.scanBlockDevices(pcie_bus, arena_allocator.allocator()) catch |err| {
@@ -225,46 +194,7 @@ export fn _start() callconv(.C) noreturn {
         if (dev_node.device.kind == Device.Kind.block) {
             const block_dev = BlockDevice.fromDevice(dev_node.device);
 
-            // block_dev.initPartitions(arena_allocator.allocator(), pcie_bus, dev_node) catch |err| {
-            //     log.err("Partition initialization error: {}", .{err});
-            // };
-
             if (block_dev.kind == .logical) {
-
-                //detect partition scheme if any
-                // block_dev.detectPartitionScheme(arena_allocator.allocator()) catch |err| {
-                //     log.err("Partition scheme detection error: {}", .{err});
-                // };
-
-                //show partition scheme if any
-                // if (block_dev.state.partition_scheme) |scheme| {
-                //     switch (scheme.spec) {
-                //         .gpt => |gpt| {
-                //             log.warn("GPT detected", .{});
-                //             log.warn("GPT header: {}", .{gpt.header});
-                //             for (gpt.entries) |entry| {
-                //                 if (entry.isEmpty()) {
-                //                     continue;
-                //                 }
-                //                 log.warn("GPT entry: {}", .{entry});
-                //             }
-                //         },
-                //     }
-
-                // // Iterate over partitions no matter the scheme
-                // var it = scheme.iterator();
-                // while (it.next()) |partition_opt| {
-                //     if (partition_opt) |partition| {
-                //         log.debug("Partition: start_lba={}, end_lba={}, type={}, name={s}", .{ partition.start_lba, partition.end_lba, partition.partition_type, partition.name });
-                //     } else {
-
-                //         break;
-                //     }
-                // } else |err| {
-                //     log.err("Partition iteration error: {}", .{err});
-                // }
-                //}
-
                 const streamer = block_dev.streamer();
                 var stream = BlockDevice.Stream(u8).init(streamer);
 
