@@ -118,6 +118,10 @@ pub const Gpt = struct {
     header: GptHeader,
     entries: []GptEntry,
 
+    // Constructor
+    // @allocator: Memory allocator
+    // @streamer: Block device streamer
+    // @lbads: Logical block size in bytes
     pub fn init(allocator: std.mem.Allocator, streamer: BlockDevice.Streamer, lbads: u64) !*const Self {
         // Read GPT Header (LBA1)
         const header_buffer = try allocator.alloc(u8, lbads);
