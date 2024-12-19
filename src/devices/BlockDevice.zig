@@ -8,7 +8,7 @@ const Partition = @import("block/Partition.zig");
 const Bus = @import("deps.zig").Bus;
 
 const heap = @import("deps.zig").heap; //TODO: tbd
-const log = std.log.scoped(.blockl_device);
+const log = std.log.scoped(.block_device);
 
 const BlockDevice = @This();
 
@@ -50,13 +50,29 @@ pub fn streamer(self: *BlockDevice) Streamer {
     return @call(.auto, self.vtable.streamer, .{self});
 }
 
+// Initialize partition scheme and partition devices if any.Helper function for kernel.zig
+// Remark: Memory released by bus deinit function
+pub fn scanBlockDevices(bus: *Bus, allocator: std.mem.Allocator) !void {
+    for (bus.devices.items) |*dev_node| {
+        log.warn("Device: {}", .{dev_node});
+
+        if (dev_node.device.kind == Device.Kind.block) {
+            const block_dev = BlockDevice.fromDevice(dev_node.device);
+
+            block_dev.initPartitions(allocator, bus, dev_node) catch |err| {
+                log.err("Partition initialization error: {}", .{err});
+            };
+        }
+    }
+}
+
 fn detectPartitionScheme(self: *BlockDevice, allocator: std.mem.Allocator) !void {
     const scheme = try PartitionScheme.init(allocator, self.streamer());
     log.debug("Partition scheme detected: {any}", .{scheme});
     self.state.partition_scheme = scheme;
 }
 
-pub fn initPartitions(self: *BlockDevice, allocator: std.mem.Allocator, bus: *Bus, parent: *Bus.DeviceNode) !void {
+fn initPartitions(self: *BlockDevice, allocator: std.mem.Allocator, bus: *Bus, parent: *Bus.DeviceNode) !void {
     self.detectPartitionScheme(allocator) catch |err| {
         log.err("Partition scheme detection error: {}", .{err});
     };
@@ -80,9 +96,10 @@ pub fn initPartitions(self: *BlockDevice, allocator: std.mem.Allocator, bus: *Bu
         var it = scheme.iterator();
         while (it.next()) |partition_entry_opt| {
             if (partition_entry_opt) |partition_entry| {
-                log.debug("Partition: start_lba={}, end_lba={}, type={}, name={s}", .{ partition_entry.start_lba, partition_entry.end_lba, partition_entry.partition_type, partition_entry.name });
-
+                log.debug("Partition start_lba={}, end_lba={}, type={}, name=_s_", .{ partition_entry.start_lba, partition_entry.end_lba, partition_entry.partition_type });
                 const partition = try Partition.init(allocator, partition_entry, self);
+
+                log.debug("Partition slba={}, nlba={}, type={}, name=_s_", .{ partition.block_device.state.slba, partition.block_device.state.nlba, partition_entry.partition_type });
                 _ = try bus.addDevice(&partition.block_device.device, parent);
             } else {
                 log.debug("No more partition", .{});
@@ -173,10 +190,10 @@ pub fn Stream(comptime T: type) type {
 
         streamer: Streamer,
         pos: usize, //in bytes
-        alloctr: std.mem.Allocator,
+        alloctr: std.mem.Allocator = heap.page_allocator, //we need to use page aligned allocators
 
-        pub fn init(s: Streamer, allocator: std.mem.Allocator) Self {
-            return .{ .streamer = s, .pos = 0, .alloctr = allocator };
+        pub fn init(s: Streamer) Self {
+            return .{ .streamer = s, .pos = 0 };
         }
 
         pub fn read(self: *Self, allocator: std.mem.Allocator, total: usize) anyerror![]T {

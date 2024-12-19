@@ -119,7 +119,7 @@ pub fn init(allocator: std.mem.Allocator, entry: Entry, parent: *BlockDevice) !*
             .state = .{
                 .partition_scheme = null,
                 .slba = entry.start_lba,
-                .nlba = entry.end_lba - entry.start_lba + 1,
+                .nlba = entry.end_lba - entry.start_lba + 1, //+1 cause end_lba is inclusive
                 .lbads = parent.state.lbads,
             },
             .kind = .logical,
@@ -154,14 +154,10 @@ pub fn deinit(dev: *Device) void {
 
 pub fn streamer(bdev: *BlockDevice) Streamer {
     const self = fromBlockDevice(bdev);
-
-    // we are going to use our parent's write and read function implementations, so the only way to get it is to get the parent's streamer
-    const parent = self.parent.streamer(); //e.g. NvmeNamespace
-
     const vtable = Streamer.VTable{
         // user read and write internal implementations from the parent device
-        .read = parent.vtable.read,
-        .write = parent.vtable.write,
+        .read = readInternal,
+        .write = writeInternal,
         .calculate = calculateInternal,
     };
     return Streamer.init(self, vtable);
@@ -173,9 +169,29 @@ pub fn calculateInternal(ctx: *const anyopaque, offset: usize, total: usize) !St
     const self: *const Partition = @ptrCast(@alignCast(ctx));
 
     const lbads_bytes = self.block_device.state.lbads;
-    const parent_slba = (self.block_device.state.slba + offset) / lbads_bytes; //starts on parent device
+    const parent_slba = self.block_device.state.slba + offset / lbads_bytes; //starts on parent device
     const nlba: u16 = @intCast(try std.math.divCeil(usize, total, lbads_bytes));
     const slba_offset = offset % lbads_bytes;
 
     return .{ .slba = parent_slba, .nlba = nlba, .slba_offset = slba_offset };
+}
+
+/// Read from the parent device
+/// @param allocator : User allocator
+/// @param slba : Start Logical Block Address
+/// @param nlb : Number of Logical Blocks
+pub fn readInternal(ctx: *const anyopaque, allocator: std.mem.Allocator, slba: u64, nlba: u16) ![]u8 {
+    const self: *const Partition = @ptrCast(@alignCast(ctx));
+    const parent_streamer = self.parent.streamer(); //TODO: could be a field
+    return try parent_streamer.vtable.read(parent_streamer.ptr, allocator, slba, nlba);
+}
+
+/// Write to the parent device
+/// @param allocator : Allocator to allocate memory for PRP list
+/// @param slba : Start Logical Block Address
+/// @param data : Data to write
+pub fn writeInternal(ctx: *const anyopaque, allocator: std.mem.Allocator, slba: u64, data: []const u8) !void {
+    const self: *const Partition = @ptrCast(@alignCast(ctx));
+    const parent_streamer = self.parent.streamer();
+    try parent_streamer.vtable.write(parent_streamer.ptr, allocator, slba, data);
 }

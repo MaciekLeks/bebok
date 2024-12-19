@@ -17,7 +17,7 @@ spec: union(enum) { gpt: *const Gpt },
 pub fn init(allocator: std.mem.Allocator, streamer: BlockDevice.Streamer) !?*const PartitionScheme {
     var buffer: [512]u8 = undefined;
     //const bytes_read = try reader.readAll(&buffer);
-    var stream = BlockDevice.Stream(u8).init(streamer, allocator);
+    var stream = BlockDevice.Stream(u8).init(streamer);
 
     try stream.readAll(&buffer);
 

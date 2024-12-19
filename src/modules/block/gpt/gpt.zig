@@ -122,7 +122,7 @@ pub const Gpt = struct {
         // Read GPT Header (LBA1)
         var header_buffer: [512]u8 = undefined;
 
-        var stream = BlockDevice.Stream(u8).init(streamer, allocator);
+        var stream = BlockDevice.Stream(u8).init(streamer);
         stream.seek(512);
 
         _ = try stream.readAll(&header_buffer);

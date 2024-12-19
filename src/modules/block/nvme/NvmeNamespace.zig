@@ -243,8 +243,6 @@ pub fn readInternal(ctx: *const anyopaque, allocator: std.mem.Allocator, slba: u
 
 /// Write to the NVMe drive
 /// @param allocator : Allocator to allocate memory for PRP list
-/// @param drv : Device
-/// @param nsid : Namespace ID
 /// @param slba : Start Logical Block Address
 /// @param data : Data to write
 pub fn writeInternal(ctx: *const anyopaque, allocator: std.mem.Allocator, slba: u64, data: []const u8) !void {
