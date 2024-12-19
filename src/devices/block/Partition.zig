@@ -95,7 +95,7 @@ pub const Entry = struct {
 //Fields
 alloctr: std.mem.Allocator,
 block_device: BlockDevice,
-parent: *BlockDevice,
+parent: *BlockDevice, //e.g. NvmeNamespace
 partition_type: Type,
 attributes: Attributes,
 name: []u8,
