@@ -48,8 +48,12 @@ pub const Superblock = packed struct {
         return self.magic == 0xEF53;
     }
 
-    pub fn getBlockSize(self: *const Superblock) u32 {
-        return 1024 << self.log_block_size;
+    pub fn getBlockSize(self: *const Superblock) u64 {
+        return @as(u64, 1024) << @as(u6, @truncate(self.log_block_size));
+    }
+
+    pub fn getFragSize(self: *const Superblock) u64 {
+        return if (self.log_frag_size >= 0) @as(u64, 1024) << @as(u6, @truncate(self.log_frag_size)) else @as(u64, 1024) >> @as(u6, @truncate(self.log_frag_size));
     }
 
     pub fn format(
@@ -65,8 +69,10 @@ pub const Superblock = packed struct {
             \\free_blocks_count: {d}
             \\free_inodes_count: {d}
             \\first_data_block: {d}
+            \\block_size: {d}
+            \\frag_size: {d}
         ;
 
-        _ = try writer.print(fmt_str, .{ self.inodes_count, self.blocks_count, self.rsrvd_blocks_count, self.free_blocks_count, self.free_inodes_count, self.first_data_block });
+        _ = try writer.print(fmt_str, .{ self.inodes_count, self.blocks_count, self.rsrvd_blocks_count, self.free_blocks_count, self.free_inodes_count, self.first_data_block, self.getBlockSize(), self.getFragSize() });
     }
 };
