@@ -187,6 +187,12 @@ export fn _start() callconv(.C) noreturn {
         @panic("Ext2 filesystem registration error");
     };
 
+    FileSystem.scanBlockDevices(arena_allocator.allocator(), pcie_bus, fs_reg) catch |err| {
+                    log.err("Filesystem scan error: {}", .{err});
+                    @panic("Filesystem scan error");
+                };
+
+
     //const tst_ns = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl.namespaces.get(1);
     for (pcie_bus.devices.items) |*dev_node| {
         log.warn("Device: {}", .{dev_node});
@@ -195,23 +201,25 @@ export fn _start() callconv(.C) noreturn {
             const block_dev = BlockDevice.fromDevice(dev_node.device);
 
             if (block_dev.kind == .logical) {
-                const streamer = block_dev.streamer();
-                var stream = BlockDevice.Stream(u8).init(streamer);
 
-                // Go to superblock position, always 1024 in the ext2 partition
-                stream.seek(0x400);
+              const streamer = block_dev.streamer();
 
-                //log.debug("admin.identify.IdentifyNamespaceInfo: ptr:{*}, info:{}", .{ ns, ns.info });
+                 var stream = BlockDevice.Stream(u8).init(streamer);
 
-                log.info("Reading from NVMe starts.", .{});
-                const data = stream.read(heap.page_allocator, 128) catch |err| blk: {
-                    log.err("Nvme read error: {}", .{err});
-                    break :blk null;
-                };
-                for (data.?) |d| {
-                    log.warn("Nvme data: {x}", .{d});
-                }
-                if (data) |block| heap.page_allocator.free(block);
+                 // Go to superblock position, always 1024 in the ext2 partition
+                 stream.seek(0x400);
+
+                 //log.debug("admin.identify.IdentifyNamespaceInfo: ptr:{*}, info:{}", .{ ns, ns.info });
+
+                 log.info("Reading from NVMe starts.", .{});
+                 const data = stream.read(heap.page_allocator, 128) catch |err| blk: {
+                     log.err("Nvme read error: {}", .{err});
+                     break :blk null;
+                 };
+                 for (data.?) |d| {
+                     log.warn("Nvme data: {x}", .{d});
+                 }
+                 if (data) |block| heap.page_allocator.free(block);
             } //partition only
         } //block device condition
     } //loop over bus devices
