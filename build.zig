@@ -75,8 +75,8 @@ fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.bu
     compile_kernel_action.root_module.addImport("terminal", terminal_module);
 
     //const utils_module = b.addModule("utils", .{ .root_source_file = .{ .path = "lib/utils/mod.zig" } });
-    const utils_module = b.addModule("utils", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/utils/mod.zig" } } });
-    compile_kernel_action.root_module.addImport("utils", utils_module);
+    const utils_module = b.addModule("mm", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/mm/mod.zig" } } });
+    compile_kernel_action.root_module.addImport("mm", utils_module);
 
     const nvme_module = b.addModule("nvme", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/block/nvme/mod.zig" } } });
     compile_kernel_action.root_module.addImport("nvme", nvme_module);

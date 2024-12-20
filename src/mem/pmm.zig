@@ -1,7 +1,7 @@
 const std = @import("std");
 const math = std.math;
 const limine = @import("limine");
-const utils = @import("utils");
+const mm = @import("mm");
 const zigavl = @import("zigavl");
 const paging = @import("../paging.zig");
 const config = @import("config");
@@ -13,7 +13,7 @@ pub const page_size = config.mem_page_size;
 
 const min_region_size_pow2 = config.mem_page_size << 1; //one frame_size takes bbtree buffer, so to manage only one frame/page we need at least 2 frames
 
-const BuddyAllocatorPreconfigured = utils.BuddyAllocator(config.mem_bit_tree_max_levels, config.mem_page_size);
+const BuddyAllocatorPreconfigured = mm.BuddyAllocator(config.mem_bit_tree_max_levels, config.mem_page_size);
 
 fn usizeCmp(a_size: usize, b_size: usize) math.Order {
     return math.order(a_size, b_size);
