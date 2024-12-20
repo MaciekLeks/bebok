@@ -128,7 +128,7 @@ pub fn init(allocator: std.mem.Allocator, entry: Entry, parent: *BlockDevice) !*
         .parent = parent,
         .partition_type = entry.partition_type,
         .attributes = entry.attributes,
-        .name = try allocator.dupe(u8, entry.name[0..entry.name_len]),
+        .name = try allocator.dupeZ(u8, entry.name[0..entry.name_len]),
     };
 
     return self;

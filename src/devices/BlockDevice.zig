@@ -96,10 +96,9 @@ fn initPartitions(self: *BlockDevice, allocator: std.mem.Allocator, bus: *Bus, p
         var it = scheme.iterator();
         while (it.next()) |partition_entry_opt| {
             if (partition_entry_opt) |partition_entry| {
-                log.debug("Partition start_lba={}, end_lba={}, type={}, name=_s_", .{ partition_entry.start_lba, partition_entry.end_lba, partition_entry.partition_type });
                 const partition = try Partition.init(allocator, partition_entry, self);
 
-                log.debug("Partition slba={}, nlba={}, type={}, name=_s_", .{ partition.block_device.state.slba, partition.block_device.state.nlba, partition_entry.partition_type });
+                log.debug("Partition slba={}, nlba={}, type={}, name='{s}'", .{ partition.block_device.state.slba, partition.block_device.state.nlba, partition.partition_type, partition.name });
                 _ = try bus.addDevice(&partition.block_device.device, parent);
             } else {
                 log.debug("No more partition", .{});
