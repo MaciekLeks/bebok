@@ -160,7 +160,8 @@ pub const Superblock = extern struct {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        const fmt_str =
+        const fmt_base =
+            \\Superblock base fields:
             \\inodes_count: {d}
             \\blocks_count: {d}
             \\rsrvd_blocks_count: {d}
@@ -179,7 +180,11 @@ pub const Superblock = extern struct {
             \\
             \\minor_rev_level: {d}
             \\major_rev_level: {}
-            \\
+            \\  
+        ;
+
+        const fmt_dynamic_rev =
+            \\Superblock extended fields:
             \\first_ino: {d}
             \\inode_size: {d}
             \\block_group_nr: {d}
@@ -189,21 +194,36 @@ pub const Superblock = extern struct {
             \\uuid: {x}
             \\volume_name: {s}
             \\algo_bitmap: {}
+            \\
+        ;
+
+        const fmt_performance_hints =
+            \\Superblock performance hints:
             \\prealloc_blocks: {d}
             \\prealloc_dir_blocks: {d}
+            \\
         ;
-        const fmt_str_ext3 =
+        const fmt_journaling_support =
+            \\Superblock journaling support:
             \\journal_uuid: {x}
             \\journal_inum: {d}
             \\journal_dev: {d}
             \\last_orphan: {d}
             \\hash_seed: {any}
             \\def_hash_version: {d}
+            \\
+        ;
+
+        const fmt_other_options =
+            \\Superblock other options:
             \\default_mount_options: {d}
             \\first_meta_bg: {d}
         ;
 
-        _ = try writer.print(fmt_str, .{ self.inodes_count, self.blocks_count, self.rsrvd_blocks_count, self.free_blocks_count, self.free_inodes_count, self.first_data_block, self.getBlockSize(), self.getFragSize(), self.blocks_per_group, self.frags_per_group, self.inodes_per_group, self.getBlockGroupsCount(), self.state, self.errors, self.minor_rev_level, self.major_rev_level, self.first_ino, self.inode_size, self.block_group_nr, self.feature_compat, self.feature_incompat, self.feature_ro_compat, self.uuid, self.getName(), self.algo_bitmap, self.prealloc_blocks, self.prealloc_dir_blocks });
-        _ = try writer.print(fmt_str_ext3, .{ self.journal_uuid, self.journal_inum, self.journal_dev, self.last_orphan, self.hash_seed, self.def_hash_version, self.default_mount_options, self.first_meta_bg });
+        _ = try writer.print(fmt_base, .{ self.inodes_count, self.blocks_count, self.rsrvd_blocks_count, self.free_blocks_count, self.free_inodes_count, self.first_data_block, self.getBlockSize(), self.getFragSize(), self.blocks_per_group, self.frags_per_group, self.inodes_per_group, self.getBlockGroupsCount(), self.state, self.errors, self.minor_rev_level, self.major_rev_level });
+        _ = try writer.print(fmt_dynamic_rev, .{ self.first_ino, self.inode_size, self.block_group_nr, self.feature_compat, self.feature_incompat, self.feature_ro_compat, self.uuid, self.getName(), self.algo_bitmap });
+        _ = try writer.print(fmt_performance_hints, .{ self.prealloc_blocks, self.prealloc_dir_blocks });
+        _ = try writer.print(fmt_journaling_support, .{ self.journal_uuid, self.journal_inum, self.journal_dev, self.last_orphan, self.hash_seed, self.def_hash_version });
+        _ = try writer.print(fmt_other_options, .{ self.default_mount_options, self.first_meta_bg });
     }
 };
