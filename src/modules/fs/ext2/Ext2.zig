@@ -3,7 +3,7 @@ const std = @import("std");
 const BlockDevice = @import("deps.zig").BlockDevice;
 const Partition = @import("deps.zig").Partition;
 const FileSystem = @import("deps.zig").FileSystem;
-const Superblock = @import("structs.zig").Superblock;
+const Superblock = @import("types.zig").Superblock;
 
 const log = std.log.scoped(.ext2);
 
@@ -18,18 +18,22 @@ pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partitio
     stream.seek(0x400);
 
     var superblock = try allocator.create(Superblock);
-    defer allocator.destroy(superblock); //TODO until we now what to do with it
+    defer allocator.destroy(superblock); //TODO: until we now what to do with it
     try stream.readAll(std.mem.asBytes(superblock));
 
-    log.info("Superblock magic: {x}", .{superblock.magic});
-
     if (!superblock.isMagicValid()) {
+        log.debug("Invalid magic number: {x}", .{superblock.magic});
+        return false;
+    }
+
+    if (!superblock.isMajorValid()) {
+        log.warn("Unsupported major revision level: {}", .{superblock.major_rev_level});
         return false;
     }
 
     log.info("Ext2 filesystem detected", .{});
 
-    log.info("Superblock: {}", .{superblock});
+    log.debug("Superblock: {}", .{superblock});
 
     return true;
 }
