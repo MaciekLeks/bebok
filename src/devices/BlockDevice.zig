@@ -187,6 +187,12 @@ pub fn Stream(comptime T: type) type {
     return struct {
         const Self = @This();
 
+        const SeekMode = enum {
+            start,
+            current,
+            //end,
+        };
+
         streamer: Streamer,
         pos: usize, //in bytes
         alloctr: std.mem.Allocator = heap.page_allocator, //we need to use page aligned allocators
@@ -206,7 +212,7 @@ pub fn Stream(comptime T: type) type {
             // defer self.alloctr.free(data);
             // @memcpy(buf, data);
             // We use a fixed buffer to avoid multiple allocations
-            var fba = std.heap.FixedBufferAllocator.init(buf);
+            var fba = std.heap.FixedBufferAllocator.init(std.mem.sliceAsBytes(buf)); //TODO: ?
             _ = try self.read(fba.allocator(), buf.len);
         }
 
@@ -215,8 +221,15 @@ pub fn Stream(comptime T: type) type {
             self.pos += buf.len * @sizeOf(T);
         }
 
-        pub fn seek(self: *Self, offset: usize) void {
-            self.pos = offset;
+        pub fn seek(self: *Self, offset: usize, mode: SeekMode) void {
+            switch (mode) {
+                SeekMode.start => {
+                    self.pos = offset;
+                },
+                SeekMode.current => {
+                    self.pos += offset;
+                },
+            }
         }
     };
 }

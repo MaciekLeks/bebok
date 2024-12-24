@@ -128,7 +128,7 @@ pub const Gpt = struct {
         defer allocator.free(header_buffer);
 
         var stream = BlockDevice.Stream(u8).init(streamer);
-        stream.seek(lbads);
+        stream.seek(lbads, .start);
 
         _ = try stream.readAll(header_buffer);
 
@@ -141,7 +141,7 @@ pub const Gpt = struct {
         defer allocator.free(entries_buffer);
 
         // Seek to partition entries
-        stream.seek(header.partition_entry_lba * lbads);
+        stream.seek(header.partition_entry_lba * lbads, .start);
         _ = try stream.readAll(entries_buffer);
 
         // Convert buffer to entries

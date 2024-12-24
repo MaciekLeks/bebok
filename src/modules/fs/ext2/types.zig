@@ -227,3 +227,18 @@ pub const Superblock = extern struct {
         _ = try writer.print(fmt_other_options, .{ self.default_mount_options, self.first_meta_bg });
     }
 };
+
+pub const BlockGroupDescriptor = extern struct {
+    block_bitmap_id: u32 align(1), // 0x0 - the block number of the block containing the block bitmap for this group
+    inode_bitmap_id: u32 align(1), // 0x4 - the block number of the block containing the inode bitmap for this group
+    inode_table_id: u32 align(1), // 0x8 - the block number of the block containing the inode table for this group
+    free_blocks_count: u16 align(1), // 0xC - the total number of free blocks in the block group
+    free_inodes_count: u16 align(1), // 0xE - the total number of free inodes in the block group
+    used_dirs_count: u16 align(1), // 0x10 - the total number of inodes allocated to directories in the block group
+    pad: u16 align(1), // 0x12 - padding
+    rsrvd: [12]u8 align(1), // 0x14 - reserved
+    
+    comptime {
+        std.debug.assert(@sizeOf(@This()) == 32);
+    }
+};
