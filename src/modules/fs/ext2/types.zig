@@ -7,7 +7,7 @@ pub const BlockAddressing = struct {
     /// Calculate BGDT offset based on block size
     /// BGDT always starts at the next full block after superblock
     pub fn getBGDTOffset(comptime block_size: usize) usize {
-        return block_size * (getSuperblockStartBlock(block_size) + 1);
+        return block_size * (getSuperblockStartBlockNumber(block_size) + 1);
     }
 
     /// Convert byte offset to block number
@@ -27,7 +27,7 @@ pub const BlockAddressing = struct {
 
     /// Get block number containing superblock
     /// Returns 1 for 1024-byte blocks, 0 for larger blocks
-    pub fn getSuperblockStartBlock(comptime block_size: usize) usize {
+    pub fn getSuperblockStartBlockNumber(comptime block_size: usize) usize {
         if (block_size <= 1024) {
             return 1;
         }
