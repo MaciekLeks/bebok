@@ -5,6 +5,9 @@ const Partition = @import("deps.zig").Partition;
 const FileSystem = @import("deps.zig").FileSystem;
 const Superblock = @import("types.zig").Superblock;
 const BlockGroupDescriptor = @import("types.zig").BlockGroupDescriptor;
+const BlockAddressing = @import("types.zig").BlockAddressing;
+
+const pmm = @import("deps.zig").pmm; //block size should be the same as the page size
 
 const log = std.log.scoped(.ext2);
 
@@ -12,13 +15,11 @@ const Ext2 = @This();
 
 pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partition, streamer: BlockDevice.Streamer) !bool {
     _ = partition;
-    var offset: usize = 0;
 
     log.info("Resolving ext2 filesystem", .{});
     var stream = BlockDevice.Stream(u8).init(streamer);
     // Go to superblock position, always 1024 in the ext2 partition
-    offset = offset + 0x400;
-    stream.seek(offset, .start);
+    stream.seek(BlockAddressing.superblock_offset, .start);
 
     var superblock = try allocator.create(Superblock);
     defer allocator.destroy(superblock); //TODO: until we now what to do with it
@@ -34,20 +35,23 @@ pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partitio
         return false;
     }
 
+    if (!superblock.isBlockSizeValid(pmm.page_size)) {
+        log.warn("Unsupported block size: {}", .{superblock.getBlockSize()});
+        return false;
+    }
+
     log.info("Ext2 filesystem detected", .{});
 
     const bgdt = try allocator.alloc(BlockGroupDescriptor, superblock.getBlockGroupsCount());
     defer allocator.free(bgdt);
-    
+
     var stream_bgdt = BlockDevice.Stream(BlockGroupDescriptor).init(streamer);
-    offset = offset + 0x400;
-    stream_bgdt.seek(offset, .start);
+    stream_bgdt.seek(BlockAddressing.getBGDTOffset(pmm.page_size), .start);
 
     try stream_bgdt.readAll(bgdt);
-    for (bgdt,0..) |*bgd,i| {
-        log.debug("Block Group Descriptor[{d}]:{}", .{i, bgd});
+    for (bgdt, 0..) |*bgd, i| {
+        log.debug("pos:{d} Block Group Descriptor[{d}]:{}", .{ stream.pos, i, bgd });
     }
-
 
     log.debug("Superblock: {}", .{superblock});
 

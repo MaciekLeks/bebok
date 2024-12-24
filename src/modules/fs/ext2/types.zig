@@ -1,8 +1,57 @@
 const std = @import("std");
 
-//const log = std.log.scoped(.ext2_types);
+pub const BlockAddressing = struct {
+    /// Superblock always starts at byte 1024
+    pub const superblock_offset: usize = 1024;
+
+    /// Calculate BGDT offset based on block size
+    /// BGDT always starts at the next full block after superblock
+    pub fn getBGDTOffset(comptime block_size: usize) usize {
+        return block_size * (getSuperblockStartBlock(block_size) + 1);
+    }
+
+    /// Convert byte offset to block number
+    pub fn getBlockNumber(comptime block_size: usize, offset: usize) usize {
+        return offset / block_size;
+    }
+
+    /// Get offset within a block
+    pub fn getOffsetInBlock(comptime block_size: usize, offset: usize) usize {
+        return offset % block_size;
+    }
+
+    /// Convert block number to byte offset
+    pub fn blockToOffset(comptime block_size: usize, block: usize) usize {
+        return block * block_size;
+    }
+
+    /// Get block number containing superblock
+    /// Returns 1 for 1024-byte blocks, 0 for larger blocks
+    pub fn getSuperblockStartBlock(comptime block_size: usize) usize {
+        if (block_size <= 1024) {
+            return 1;
+        }
+        return 0;
+    }
+
+    /// Get block number containing BGDT
+    /// Returns 2 for 1024-byte blocks, 1 for larger blocks
+    pub fn getBGDTStartBlock(comptime block_size: usize) usize {
+        if (block_size <= 1024) {
+            return 2;
+        }
+        return 1;
+    }
+};
 
 pub const Superblock = extern struct {
+    comptime {
+        //@compileLog("Superblock size: {}\n", .{ @sizeOf(@This()) });
+        if (@sizeOf(@This()) != 1024) {
+            @compileError("Superblock size must be 1024 bytes");
+        }
+    }
+
     ///Features that can be safely ignored - filesystem can be mounted (for read/write even if these features are not supported)
     const FeatureCompatFlags = packed struct(u32) {
         dir_prealloc: bool,
@@ -97,6 +146,7 @@ pub const Superblock = extern struct {
     feature_ro_compat: FeatureRoCompatFlags align(1), // 0x64 - the read-only feature set
     uuid: u128 align(1), // 0x68 - the 128-bit uuid for the file system
     volume_name: [16]u8 align(1), // 0x78 - the volume name
+    last_mounted: [64]u8 align(1), // 0x88 - the directory where the file system was last mounted
     algo_bitmap: CompressionAlgorithm align(1), // 0x88 - the compression algorithm used
     //
     // Performance hints
@@ -133,6 +183,10 @@ pub const Superblock = extern struct {
         return self.major_rev_level == .dynamic;
     }
 
+    pub fn isBlockSizeValid(self: *const Superblock, comptime page_size: usize) bool {
+        return self.getBlockSize() == page_size;
+    }
+
     pub fn isRequiredCompat(self: *const Superblock, flags: u32) bool {
         return (self.feature_compat & flags) != 0;
     }
@@ -145,13 +199,20 @@ pub const Superblock = extern struct {
         return if (self.log_frag_size >= 0) @as(u64, 1024) << @as(u6, @truncate(self.log_frag_size)) else @as(u64, 1024) >> @as(u6, @truncate(self.log_frag_size));
     }
 
+    /// Block groups count is a ceiling division of blocks_count by blocks_per_group
     pub fn getBlockGroupsCount(self: *const Superblock) u32 {
-        return self.blocks_count / self.blocks_per_group;
+        return std.math.divCeil(u32, self.blocks_count, self.blocks_per_group) catch blk: {
+            break :blk 0;
+        };
     }
 
     ///ISO Latin-1 (ISO-8859-1) string
     pub fn getName(self: *const Superblock) []const u8 {
         return std.mem.sliceTo(&self.volume_name, 0);
+    }
+
+    pub fn getLastMounted(self: *const Superblock) []const u8 {
+        return std.mem.sliceTo(&self.last_mounted, 0);
     }
 
     pub fn format(
@@ -193,6 +254,7 @@ pub const Superblock = extern struct {
             \\feature_ro_compat: {}
             \\uuid: {x}
             \\volume_name: {s}
+            \\last_mounted: {s}
             \\algo_bitmap: {}
             \\
         ;
@@ -221,7 +283,7 @@ pub const Superblock = extern struct {
         ;
 
         _ = try writer.print(fmt_base, .{ self.inodes_count, self.blocks_count, self.rsrvd_blocks_count, self.free_blocks_count, self.free_inodes_count, self.first_data_block, self.getBlockSize(), self.getFragSize(), self.blocks_per_group, self.frags_per_group, self.inodes_per_group, self.getBlockGroupsCount(), self.state, self.errors, self.minor_rev_level, self.major_rev_level });
-        _ = try writer.print(fmt_dynamic_rev, .{ self.first_ino, self.inode_size, self.block_group_nr, self.feature_compat, self.feature_incompat, self.feature_ro_compat, self.uuid, self.getName(), self.algo_bitmap });
+        _ = try writer.print(fmt_dynamic_rev, .{ self.first_ino, self.inode_size, self.block_group_nr, self.feature_compat, self.feature_incompat, self.feature_ro_compat, self.uuid, self.getName(), self.getLastMounted(), self.algo_bitmap });
         _ = try writer.print(fmt_performance_hints, .{ self.prealloc_blocks, self.prealloc_dir_blocks });
         _ = try writer.print(fmt_journaling_support, .{ self.journal_uuid, self.journal_inum, self.journal_dev, self.last_orphan, self.hash_seed, self.def_hash_version });
         _ = try writer.print(fmt_other_options, .{ self.default_mount_options, self.first_meta_bg });
@@ -237,7 +299,7 @@ pub const BlockGroupDescriptor = extern struct {
     used_dirs_count: u16 align(1), // 0x10 - the total number of inodes allocated to directories in the block group
     pad: u16 align(1), // 0x12 - padding
     rsrvd: [12]u8 align(1), // 0x14 - reserved
-    
+
     comptime {
         std.debug.assert(@sizeOf(@This()) == 32);
     }
