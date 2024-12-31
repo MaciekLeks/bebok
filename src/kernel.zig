@@ -22,7 +22,6 @@ const NvmeDriver = @import("nvme").NvmeDriver;
 const NvmeNamespace = @import("nvme").NvmeNamespace;
 const FilesystemDriversRegistry = @import("fs/Registry.zig");
 const Ext2Driver = @import("ext2").Ext2Driver;
-const fs_scanner = @import("fs/scanner.zig");
 const smp = @import("smp.zig");
 const acpi = @import("acpi.zig");
 
@@ -189,7 +188,7 @@ export fn _start() callconv(.C) noreturn {
         @panic("Ext2 filesystem driver registration error");
     };
 
-    fs_scanner.scanBlockDevices(arena_allocator.allocator(), pcie_bus, fs_reg) catch |err| {
+    Filesystem.scanBlockDevices(arena_allocator.allocator(), pcie_bus, fs_reg) catch |err| {
         log.err("Filesystem scan error: {}", .{err});
         @panic("Filesystem scan error");
     };
