@@ -7,11 +7,11 @@ pub const BlockAddressing = struct {
     /// Calculate BGDT offset based on block size
     /// BGDT always starts at the next full block after superblock
     pub fn getBGDTOffset(comptime block_size: usize) usize {
-        return block_size * (getSuperblockStartBlockNumber(block_size) + 1);
+        return block_size * (getSuperblockStartBlockId(block_size) + 1);
     }
 
     /// Convert byte offset to block number
-    pub fn getBlockNumber(comptime block_size: usize, offset: usize) usize {
+    pub fn getBlockId(comptime block_size: usize, offset: usize) usize {
         return offset / block_size;
     }
 
@@ -21,13 +21,13 @@ pub const BlockAddressing = struct {
     }
 
     /// Convert block number to byte offset
-    pub fn blockToOffset(comptime block_size: usize, block: usize) usize {
-        return block * block_size;
+    pub fn blockIdToOffset(comptime block_size: usize, block_id: usize) usize {
+        return block_id * block_size;
     }
 
     /// Get block number containing superblock
     /// Returns 1 for 1024-byte blocks, 0 for larger blocks
-    pub fn getSuperblockStartBlockNumber(comptime block_size: usize) usize {
+    pub fn getSuperblockStartBlockId(comptime block_size: usize) usize {
         if (block_size <= 1024) {
             return 1;
         }
@@ -36,7 +36,7 @@ pub const BlockAddressing = struct {
 
     /// Get block number containing BGDT
     /// Returns 2 for 1024-byte blocks, 1 for larger blocks
-    pub fn getBGDTStartBlock(comptime block_size: usize) usize {
+    pub fn getBGDTStartBlockId(comptime block_size: usize) usize {
         if (block_size <= 1024) {
             return 2;
         }
@@ -303,4 +303,117 @@ pub const BlockGroupDescriptor = extern struct {
     comptime {
         std.debug.assert(@sizeOf(@This()) == 32);
     }
+};
+
+pub const Inode = extern struct {
+    // const Mode = struct {
+    //     // Access rights (9 bits)
+    //     pub const other_execute: u16 = 0x0001;
+    //     pub const other_write: u16 = 0x0002;
+    //     pub const other_read: u16 = 0x0004;
+    //     pub const group_execute: u16 = 0x0008;
+    //     pub const group_write: u16 = 0x0010;
+    //     pub const group_read: u16 = 0x0020;
+    //     pub const user_execute: u16 = 0x0040;
+    //     pub const user_write: u16 = 0x0080;
+    //     pub const user_read: u16 = 0x0100;
+    //
+    //     // Process execution overrides (3 bits)
+    //     pub const sticky_bit: u16 = 0x0200;
+    //     pub const set_process_gid: u16 = 0x0400;
+    //     pub const set_process_user_id: u16 = 0x0800;
+    //
+    //     // File format (4 bits)
+    //     pub const fifo: u16 = 0x1000;
+    //     pub const character_device: u16 = 0x2000;
+    //     pub const directory: u16 = 0x4000;
+    //     pub const block_device: u16 = 0x6000;
+    //     pub const regular_file: u16 = 0x8000;
+    //     pub const symbolic_link: u16 = 0xA000;
+    //     pub const socket: u16 = 0xC000;
+    //
+    //     // Useful masks
+    //     pub const format_mask: u16 = 0xF000;
+    //     pub const permission_mask: u16 = 0x0FFF;
+    // };
+
+    const Mode = packed struct(u16) {
+        permissions: packed struct(u9) {
+            other_execute: bool,
+            other_write: bool,
+            other_read: bool,
+            group_execute: bool,
+            group_write: bool,
+            group_read: bool,
+            user_execute: bool,
+            user_write: bool,
+            user_read: bool,
+        },
+        process_flags: packed struct(u3) {
+            sticky_bit: bool,
+            set_process_gid: bool,
+            set_process_user_id: bool,
+        },
+        format: enum(u4) {
+            none = 0x0,
+            fifo = 0x1,
+            character_device = 0x2,
+            directory = 0x4,
+            block_device = 0x6,
+            regular_file = 0x8,
+            symbolic_link = 0xA,
+            socket = 0xC,
+            _,
+        },
+    };
+    const Flags = packed struct(u32) {
+        secure_deletion: bool, //0x00000001
+        keep_copy: bool, //0x00000002
+        file_compression: bool, //0x00000004
+        sync_updates: bool, //0x00000008
+        immutable_file: bool, //0x00000010
+        append_only: bool, //0x00000020
+        no_dump: bool, //0x00000040
+        no_atime: bool, //0x00000080
+        //Reserved for compression usage
+        dirty_compression: bool, //0x00000100
+        compress_blocks: bool, //0x00000200
+        no_commpress: bool, //0x00000400
+        error_compress: bool, //0x00000800
+        //Reserved for encryption usage
+        btree: bool, //0x00001000
+        index: bool, //0x00002000
+        afs: bool, //0x00004000
+        journal: bool, //0x00008000
+        rsrvd: u16 = 0,
+    };
+    // Fixed part (128 bytes)
+    mode: Mode align(1), // File mode and permissions
+    uid: u16 align(1), // Owner's user ID
+    size: u32 align(1), // Size in bytes,In revision 1 and later revisions, and only for regular files, this represents the lower 32-bit of the file size; the upper 32-bit is located in the dir_acl.
+    atime: u32 align(1), // The number of seconds since january 1st 1970 of the last time this inode was accessed
+    ctime: u32 align(1), // Creation time, the same alg as for atime
+    mtime: u32 align(1), // Last modification time, the same alg as for atime
+    dtime: u32 align(1), // Deletion time, the same alg as for atime
+    gid: u16 align(1), // The POSIX group ID
+    links_count: u16 align(1), // Number of hard links (value indicating how many times this particular inode is linked. Most files will have a link count of 1. Files with hard links pointing to them will have an additional count for each hard link.)
+    blocks: u32 align(1), // Number of 512-byte blocks [Since this value represents 512-byte blocks and not file system blocks, this value should not be directly used as an index to the i_block array. Rather, the maximum index of the i_block array should be computed from i_blocks / ((1024<<s_log_block_size)/512), or once simplified, i_blocks/(2<<s_log_block_size).]
+    flags: Flags align(1), // Value indicating how the ext2 implementation should behave when accessing the data for this inode
+    osd1: u32 align(1), // OS-specific value
+    block: [15]u32 align(1), // Pointers to data blocks
+    generation: u32 align(1), // File version number
+    file_acl: u32 align(1), // Extended attribute block
+    dir_acl: u32 align(1), // Extended attribute block for directory, In revision 1, for regular files this 32bit value contains the high 32 bits of the 64bit file size.
+    faddr: u32 align(1), // Fragment address,
+    osd2: [3]u32 align(1), // OS-specific values
+
+    // Extended part (size depends on inode size)
+    extra_isize: u16 align(1), // Size of extra fields
+    pad1: u16 align(1), // Padding
+    ctime_extra: u32 align(1), // Extra change time (nanoseconds)
+    mtime_extra: u32 align(1), // Extra modification time (nanoseconds)
+    atime_extra: u32 align(1), // Extra access time (nanoseconds)
+    crtime: u32 align(1), // File creation time
+    crtime_extra: u32 align(1), // Extra creation time (nanoseconds)
+    version_hi: u32 align(1), // High 32 bits for 64-bit version
 };

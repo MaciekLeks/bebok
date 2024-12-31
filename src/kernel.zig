@@ -15,12 +15,13 @@ pub const BlockDevice = @import("devices/mod.zig").BlockDevice;
 pub const PartitionScheme = @import("devices/mod.zig").PartitionScheme;
 pub const Partition = @import("devices/mod.zig").Partition;
 pub const Guid = @import("commons/guid.zig").Guid;
-pub const FileSystem = @import("fs/FileSystem.zig");
+pub const FileSystemDriver = @import("fs/FileSystemDriver.zig");
 const DriverRegistry = @import("drivers/Registry.zig");
 const NvmeDriver = @import("nvme").NvmeDriver;
 const NvmeNamespace = @import("nvme").NvmeNamespace;
-const FileSystemRegistry = @import("fs/Registry.zig");
-const Ext2 = @import("ext2").Ext2;
+const FileSystemDriversRegistry = @import("fs/Registry.zig");
+const Ext2Driver = @import("ext2").Ext2Driver;
+const fs_scanner = @import("fs/scanner.zig");
 const smp = @import("smp.zig");
 const acpi = @import("acpi.zig");
 
@@ -175,19 +176,19 @@ export fn _start() callconv(.C) noreturn {
         @panic("Block device scan error");
     };
 
-    const fs_reg = FileSystemRegistry.init(arena_allocator.allocator()) catch |err| {
-        log.err("Filesystem registry creation error: {}", .{err});
-        @panic("Filesystem registry creation error");
+    const fs_reg = FileSystemDriversRegistry.init(arena_allocator.allocator()) catch |err| {
+        log.err("Filesystem drivers registry creation error: {}", .{err});
+        @panic("Filesystem drivers registry creation error");
     };
     defer fs_reg.deinit();
 
-    var ext2: Ext2 = .{};
-    fs_reg.registerFileSystem(ext2.filesystem()) catch |err| {
-        log.err("Ext2 filesystem registration error: {}", .{err});
-        @panic("Ext2 filesystem registration error");
+    var ext2_driver: Ext2Driver = .{};
+    fs_reg.registerFileSystemDriver(ext2_driver.driver()) catch |err| {
+        log.err("Ext2 filesystem driver registration error: {}", .{err});
+        @panic("Ext2 filesystem driver registration error");
     };
 
-    FileSystem.scanBlockDevices(arena_allocator.allocator(), pcie_bus, fs_reg) catch |err| {
+    fs_scanner.scanBlockDevices(arena_allocator.allocator(), pcie_bus, fs_reg) catch |err| {
         log.err("Filesystem scan error: {}", .{err});
         @panic("Filesystem scan error");
     };

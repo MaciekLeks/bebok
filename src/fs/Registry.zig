@@ -1,32 +1,32 @@
 const std = @import("std");
 
-const FileSystem = @import("FileSystem.zig");
+const FileSystemDriver = @import("FileSystemDriver.zig");
 
 const Registry = @This();
 
 var alloctr: std.mem.Allocator = undefined;
 
-filesystems: std.ArrayList(FileSystem),
+fs_drivers: std.ArrayList(FileSystemDriver),
 
 pub fn init(allocator: std.mem.Allocator) !*Registry {
     alloctr = allocator;
 
     var reg = try alloctr.create(Registry);
 
-    reg.filesystems = std.ArrayList(FileSystem).init(allocator);
+    reg.fs_drivers = std.ArrayList(FileSystemDriver).init(allocator);
 
     return reg;
 }
 
 pub fn deinit(self: *Registry) void {
-    defer self.filesystems.deinit();
-    for (self.filesystems.items) |fs| {
+    defer self.fs_drivers.deinit();
+    for (self.fs_drivers.items) |fs| {
         fs.deinit();
     }
 }
 
-pub fn registerFileSystem(self: *Registry, fs: FileSystem) !void {
-    try self.filesystems.append(fs);
+pub fn registerFileSystemDriver(self: *Registry, fs: FileSystemDriver) !void {
+    try self.fs_drivers.append(fs);
 }
 
 // pub fn findDriverForDevice(self: *Registry, device: *Device) ?FileSystem {

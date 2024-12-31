@@ -1,1 +1,1 @@
-pub const Ext2 = @import("Ext2.zig");
+pub const Ext2Driver = @import("Ext2Driver.zig");
