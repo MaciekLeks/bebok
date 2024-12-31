@@ -13,7 +13,7 @@ ptr: *anyopaque,
 vtable: VTable,
 
 pub const VTable = struct {
-    resolve: *const fn (ctx: *anyopaque, allocator: std.mem.Allocator, partition: *Partition, streamer: BlockDevice.Streamer) anyerror!bool,
+    resolve: *const fn (ctx: *anyopaque, allocator: std.mem.Allocator, partition: *Partition) anyerror!bool,
 };
 
 pub fn init(ctx: *anyopaque, vtable: VTable) FileSystemDriver {
@@ -23,6 +23,6 @@ pub fn init(ctx: *anyopaque, vtable: VTable) FileSystemDriver {
     };
 }
 
-pub fn resolve(self: *const FileSystemDriver, allocator: std.mem.Allocator, partition: *Partition, streamer: BlockDevice.Streamer) anyerror!bool {
-    return @call(.auto, self.vtable.resolve, .{ self.ptr, allocator, partition, streamer });
+pub fn resolve(self: *const FileSystemDriver, allocator: std.mem.Allocator, partition: *Partition) anyerror!bool {
+    return @call(.auto, self.vtable.resolve, .{ self.ptr, allocator, partition });
 }

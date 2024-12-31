@@ -16,7 +16,7 @@ pub fn scanBlockDevices(allocator: std.mem.Allocator, bus: *const Bus, registry:
             const block_dev = BlockDevice.fromDevice(dev_node.device);
             if (block_dev.kind == .logical) {
                 for (registry.fs_drivers.items) |fs| {
-                    const found = fs.resolve(allocator, Partition.fromBlockDevice(block_dev), block_dev.streamer()) catch |err| blk: {
+                    const found = fs.resolve(allocator, Partition.fromBlockDevice(block_dev)) catch |err| blk: {
                         log.err("Filesystem resolve error: {}", .{err});
                         break :blk false;
                     };

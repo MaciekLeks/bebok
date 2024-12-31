@@ -15,10 +15,9 @@ const log = std.log.scoped(.ext2);
 
 const Ext2Driver = @This();
 
-pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partition, streamer: BlockDevice.Streamer) !bool {
-    _ = partition;
-
+pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partition) !bool {
     log.info("Resolving ext2 filesystem", .{});
+    const streamer = partition.block_device.streamer();
     var stream = BlockDevice.Stream(u8).init(streamer);
     // Go to superblock position, always 1024 in the ext2 partition
     stream.seek(BlockAddressing.superblock_offset, .start);
