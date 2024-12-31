@@ -7,6 +7,7 @@ pub const NvmeNamespace = @import("nvme").NvmeNamespace;
 pub const Gpt = @import("gpt").Gpt;
 pub const Guid = @import("../commons/guid.zig").Guid;
 pub const Driver = @import("../drivers/Driver.zig");
+pub const Filesystem = @import("../fs/Filesystem.zig");
 pub const heap = @import("../mem/heap.zig").heap;
 pub const pmm = @import("../mem/pmm.zig");
 pub const paging = @import("../paging.zig");

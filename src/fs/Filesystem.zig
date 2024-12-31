@@ -7,23 +7,28 @@ const Registry = @import("Registry.zig");
 
 const log = std.log.scoped(.file_system_driver);
 
-const FileSystem = @This();
-const FileDescriptor = i32;
+const Filesystem = @This();
+const Descriptor = i32;
 
 ptr: *anyopaque,
 vtable: VTable,
 
 pub const VTable = struct {
-    open: *const fn (ctx: *anyopaque, partition: *Partition) anyerror!FileDescriptor,
+    deinit: *const fn (ctx: *anyopaque) void,
+    open: *const fn (ctx: *anyopaque, partition: *Partition) anyerror!Descriptor,
 };
 
-pub fn init(ctx: *anyopaque, vtable: VTable) FileSystem {
+pub fn init(ctx: *anyopaque, vtable: VTable) Filesystem {
     return .{
         .ptr = ctx,
         .vtable = vtable,
     };
 }
 
-pub fn open(self: *const FileSystem, allocator: std.mem.Allocator, partition: *Partition) anyerror!FileDescriptor {
+pub fn open(self: *const Filesystem, allocator: std.mem.Allocator, partition: *Partition) anyerror!Descriptor {
     return @call(.auto, self.vtable.open, .{ self.ptr, allocator, partition });
+}
+
+pub fn deinit(self: Filesystem) void {
+    return @call(.auto, self.vtable.deinit, .{self.ptr});
 }

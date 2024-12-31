@@ -2,7 +2,7 @@ const std = @import("std");
 
 const BlockDevice = @import("deps.zig").BlockDevice;
 const Partition = @import("deps.zig").Partition;
-const FileSystemDriver = @import("deps.zig").FileSystemDriver;
+const FilesystemDriver = @import("deps.zig").FilesystemDriver;
 const Superblock = @import("types.zig").Superblock;
 const BlockGroupDescriptor = @import("types.zig").BlockGroupDescriptor;
 const BlockAddressing = @import("types.zig").BlockAddressing;
@@ -23,7 +23,7 @@ pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partitio
     stream.seek(BlockAddressing.superblock_offset, .start);
 
     var superblock = try allocator.create(Superblock);
-    defer allocator.destroy(superblock); //TODO: until we now what to do with it
+    errdefer allocator.destroy(superblock); //TODO: until we now what to do with it
     try stream.readAll(std.mem.asBytes(superblock));
 
     if (!superblock.isMagicValid()) {
@@ -44,7 +44,7 @@ pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partitio
     log.info("Ext2 filesystem detected", .{});
 
     const bgdt = try allocator.alloc(BlockGroupDescriptor, superblock.getBlockGroupsCount());
-    defer allocator.free(bgdt);
+    errdefer allocator.free(bgdt);
 
     var stream_bgdt = BlockDevice.Stream(BlockGroupDescriptor).init(streamer);
     stream_bgdt.seek(BlockAddressing.getBGDTOffset(pmm.page_size), .start);
@@ -82,9 +82,9 @@ pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partitio
 //     }
 // }
 //
-pub fn driver(self: *Ext2Driver) FileSystemDriver {
-    const vtable = FileSystemDriver.VTable{
+pub fn driver(self: *Ext2Driver) FilesystemDriver {
+    const vtable = FilesystemDriver.VTable{
         .resolve = resolve,
     };
-    return FileSystemDriver.init(self, vtable);
+    return FilesystemDriver.init(self, vtable);
 }

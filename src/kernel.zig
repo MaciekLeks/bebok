@@ -15,11 +15,11 @@ pub const BlockDevice = @import("devices/mod.zig").BlockDevice;
 pub const PartitionScheme = @import("devices/mod.zig").PartitionScheme;
 pub const Partition = @import("devices/mod.zig").Partition;
 pub const Guid = @import("commons/guid.zig").Guid;
-pub const FileSystemDriver = @import("fs/FileSystemDriver.zig");
+pub const FilesystemDriver = @import("fs/FilesystemDriver.zig");
 const DriverRegistry = @import("drivers/Registry.zig");
 const NvmeDriver = @import("nvme").NvmeDriver;
 const NvmeNamespace = @import("nvme").NvmeNamespace;
-const FileSystemDriversRegistry = @import("fs/Registry.zig");
+const FilesystemDriversRegistry = @import("fs/Registry.zig");
 const Ext2Driver = @import("ext2").Ext2Driver;
 const fs_scanner = @import("fs/scanner.zig");
 const smp = @import("smp.zig");
@@ -176,7 +176,7 @@ export fn _start() callconv(.C) noreturn {
         @panic("Block device scan error");
     };
 
-    const fs_reg = FileSystemDriversRegistry.init(arena_allocator.allocator()) catch |err| {
+    const fs_reg = FilesystemDriversRegistry.init(arena_allocator.allocator()) catch |err| {
         log.err("Filesystem drivers registry creation error: {}", .{err});
         @panic("Filesystem drivers registry creation error");
     };

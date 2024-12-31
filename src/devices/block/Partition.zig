@@ -4,6 +4,7 @@ const Guid = @import("../deps.zig").Guid;
 const Device = @import("../Device.zig");
 const BlockDevice = @import("../BlockDevice.zig");
 const Streamer = BlockDevice.Streamer;
+const Filesystem = @import("../deps.zig").Filesystem;
 
 const log = std.log.scoped("partition");
 
@@ -99,6 +100,7 @@ parent: *BlockDevice, //e.g. NvmeNamespace
 partition_type: Type,
 attributes: Attributes,
 name: []u8,
+filesystem: ?*Filesystem,
 
 // Device interface vtable for NvmeController
 const device_vtable = Device.VTable{
@@ -129,6 +131,7 @@ pub fn init(allocator: std.mem.Allocator, entry: Entry, parent: *BlockDevice) !*
         .partition_type = entry.partition_type,
         .attributes = entry.attributes,
         .name = try allocator.dupeZ(u8, entry.name[0..entry.name_len]),
+        .filesystem = null, //if present, will be set by the filesystem driver
     };
 
     return self;
