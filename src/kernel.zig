@@ -16,6 +16,7 @@ pub const PartitionScheme = @import("devices/mod.zig").PartitionScheme;
 pub const Partition = @import("devices/mod.zig").Partition;
 pub const Guid = @import("commons/guid.zig").Guid;
 pub const FilesystemDriver = @import("fs/FilesystemDriver.zig");
+pub const Filesystem = @import("fs/Filesystem.zig");
 const DriverRegistry = @import("drivers/Registry.zig");
 const NvmeDriver = @import("nvme").NvmeDriver;
 const NvmeNamespace = @import("nvme").NvmeNamespace;

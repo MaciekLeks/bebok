@@ -5,6 +5,8 @@ const Partition = @import("deps.zig").Partition;
 const FilesystemDriver = @import("deps.zig").FilesystemDriver;
 const Superblock = @import("types.zig").Superblock;
 const BlockGroupDescriptor = @import("types.zig").BlockGroupDescriptor;
+
+const Ext2 = @import("Ext2.zig");
 const BlockAddressing = @import("types.zig").BlockAddressing;
 const Inode = @import("types.zig").Inode;
 
@@ -15,6 +17,8 @@ const log = std.log.scoped(.ext2);
 
 const Ext2Driver = @This();
 
+// Resolve ext2 filesystem and attach it to the partition
+// From now on, the partition will be able to use the filesystem and must deinit it later
 pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partition) !bool {
     log.info("Resolving ext2 filesystem", .{});
     const streamer = partition.block_device.streamer();
@@ -56,6 +60,10 @@ pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partitio
     }
 
     log.debug("Superblock: {}", .{superblock});
+
+    // Attach filesystem to the partition
+    const ext_fs = try Ext2.init(allocator, superblock, bgdt);
+    partition.filesystem = ext_fs.filesystem();
 
     return true;
 }

@@ -8,7 +8,7 @@ const Registry = @import("Registry.zig");
 const log = std.log.scoped(.file_system_driver);
 
 const Filesystem = @This();
-const Descriptor = i32;
+pub const Descriptor = i32;
 
 ptr: *anyopaque,
 vtable: VTable,

@@ -22,7 +22,7 @@ superblock: *Superblock,
 block_group_descriptor_table: []BlockGroupDescriptor,
 
 pub fn init(allocator: std.mem.Allocator, superblock: *Superblock, block_group_descriptor_table: []BlockGroupDescriptor) !*Ext2 {
-    const self = allocator.create(Ext2);
+    const self = try allocator.create(Ext2);
     self.* = .{
         .alloctr = allocator,
         .superblock = superblock,
@@ -31,17 +31,18 @@ pub fn init(allocator: std.mem.Allocator, superblock: *Superblock, block_group_d
     return self;
 }
 
+// Should be called by the Parition deinit
 pub fn deinit(ctx: *anyopaque) void {
     const self: *Ext2 = @ptrCast(@alignCast(ctx));
     self.alloctr.destroy(self.superblock);
-    self.allocator.free(self.block_group_descriptor_table);
+    self.alloctr.free(self.block_group_descriptor_table);
     self.alloctr.destroy(self);
 }
 
 pub fn open(ctx: *anyopaque, partition: *Partition) anyerror!Filesystem.Descriptor {
     _ = ctx;
     _ = partition;
-    @compileError("Not implemented");
+    return error.Unimplemented;
 }
 
 pub fn filesystem(self: *Ext2) Filesystem {

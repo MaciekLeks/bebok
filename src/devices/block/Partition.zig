@@ -100,7 +100,7 @@ parent: *BlockDevice, //e.g. NvmeNamespace
 partition_type: Type,
 attributes: Attributes,
 name: []u8,
-filesystem: ?*Filesystem,
+filesystem: ?Filesystem,
 
 // Device interface vtable for NvmeController
 const device_vtable = Device.VTable{
@@ -151,6 +151,7 @@ pub fn deinit(dev: *Device) void {
     const self: *Partition = fromBlockDevice(block_device);
 
     block_device.deinit(); //should be safe here
+    if (self.filesystem) |fs| fs.deinit();
     self.alloctr.free(self.name);
     self.alloctr.destroy(self);
 }
