@@ -24,7 +24,7 @@ pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partitio
     const streamer = partition.block_device.streamer();
     var stream = BlockDevice.Stream(u8).init(streamer);
     // Go to superblock position, always 1024 in the ext2 partition
-    stream.seek(BlockAddressing.superblock_offset, .start);
+    stream.seek(Superblock.offset, .start);
 
     var superblock = try allocator.create(Superblock);
     errdefer allocator.destroy(superblock); //TODO: until we now what to do with it

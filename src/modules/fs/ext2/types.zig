@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub const BlockAddressing = struct {
     /// Superblock always starts at byte 1024
-    pub const superblock_offset: usize = 1024;
+    //pub const superblock_offset: usize = 1024;
 
     /// Calculate BGDT offset based on block size
     /// BGDT always starts at the next full block after superblock
@@ -51,6 +51,10 @@ pub const Superblock = extern struct {
             @compileError("Superblock size must be 1024 bytes");
         }
     }
+
+    //Constants
+    /// Superblock always starts at byte 1024
+    pub const offset: usize = 1024;
 
     ///Features that can be safely ignored - filesystem can be mounted (for read/write even if these features are not supported)
     const FeatureCompatFlags = packed struct(u32) {
