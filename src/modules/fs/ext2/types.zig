@@ -1,48 +1,30 @@
 const std = @import("std");
 
-pub const BlockAddressing = struct {
-    /// Superblock always starts at byte 1024
-    //pub const superblock_offset: usize = 1024;
-
-    /// Calculate BGDT offset based on block size
-    /// BGDT always starts at the next full block after superblock
-    pub fn getBGDTOffset(comptime block_size: usize) usize {
-        return block_size * (getSuperblockStartBlockId(block_size) + 1);
-    }
-
-    /// Convert byte offset to block number
-    pub fn getBlockId(comptime block_size: usize, offset: usize) usize {
-        return offset / block_size;
-    }
-
-    /// Get offset within a block
-    pub fn getOffsetInBlock(comptime block_size: usize, offset: usize) usize {
-        return offset % block_size;
-    }
-
-    /// Convert block number to byte offset
-    pub fn blockIdToOffset(comptime block_size: usize, block_id: usize) usize {
-        return block_id * block_size;
-    }
-
-    /// Get block number containing superblock
-    /// Returns 1 for 1024-byte blocks, 0 for larger blocks
-    pub fn getSuperblockStartBlockId(comptime block_size: usize) usize {
-        if (block_size <= 1024) {
-            return 1;
-        }
-        return 0;
-    }
-
-    /// Get block number containing BGDT
-    /// Returns 2 for 1024-byte blocks, 1 for larger blocks
-    pub fn getBGDTStartBlockId(comptime block_size: usize) usize {
-        if (block_size <= 1024) {
-            return 2;
-        }
-        return 1;
-    }
-};
+// pub const BlockAddressing = struct {
+//     /// Convert byte offset to block number
+//     pub fn getBlockId(comptime block_size: usize, offset: usize) usize {
+//         return offset / block_size;
+//     }
+//
+//     /// Get offset within a block
+//     pub fn getOffsetInBlock(comptime block_size: usize, offset: usize) usize {
+//         return offset % block_size;
+//     }
+//
+//     /// Convert block number to byte offset
+//     pub fn blockIdToOffset(comptime block_size: usize, block_id: usize) usize {
+//         return block_id * block_size;
+//     }
+//
+//     /// Get block number containing BGDT
+//     /// Returns 2 for 1024-byte blocks, 1 for larger blocks
+//     pub fn getBGDTStartBlockId(comptime block_size: usize) usize {
+//         if (block_size <= 1024) {
+//             return 2;
+//         }
+//         return 1;
+//     }
+// };
 
 pub const Superblock = extern struct {
     comptime {
@@ -219,6 +201,15 @@ pub const Superblock = extern struct {
         return std.mem.sliceTo(&self.last_mounted, 0);
     }
 
+    /// Get block number containing superblock
+    /// Returns 1 for 1024-byte blocks, 0 for larger blocks
+    pub fn getBlockNum(comptime block_size: usize) usize {
+        if (block_size <= 1024) {
+            return 1;
+        }
+        return 0;
+    }
+
     pub fn format(
         self: *const @This(),
         comptime _: []const u8,
@@ -295,6 +286,10 @@ pub const Superblock = extern struct {
 };
 
 pub const BlockGroupDescriptor = extern struct {
+    comptime {
+        std.debug.assert(@sizeOf(@This()) == 32);
+    }
+
     block_bitmap_id: u32 align(1), // 0x0 - the block number of the block containing the block bitmap for this group
     inode_bitmap_id: u32 align(1), // 0x4 - the block number of the block containing the inode bitmap for this group
     inode_table_id: u32 align(1), // 0x8 - the block number of the block containing the inode table for this group
@@ -304,8 +299,8 @@ pub const BlockGroupDescriptor = extern struct {
     pad: u16 align(1), // 0x12 - padding
     rsrvd: [12]u8 align(1), // 0x14 - reserved
 
-    comptime {
-        std.debug.assert(@sizeOf(@This()) == 32);
+    pub fn getTableOffset(comptime block_size: usize) usize {
+        return block_size * (Superblock.getBlockNum(block_size) + 1);
     }
 };
 

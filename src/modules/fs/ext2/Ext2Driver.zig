@@ -51,7 +51,7 @@ pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partitio
     errdefer allocator.free(bgdt);
 
     var stream_bgdt = BlockDevice.Stream(BlockGroupDescriptor).init(streamer);
-    stream_bgdt.seek(BlockAddressing.getBGDTOffset(pmm.page_size), .start);
+    stream_bgdt.seek(BlockGroupDescriptor.getTableOffset(pmm.page_size), .start);
 
     try stream_bgdt.readAll(bgdt);
     for (bgdt, 0..) |*bgd, i| {
