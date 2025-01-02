@@ -62,8 +62,13 @@ pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partitio
     log.debug("Superblock: {}", .{superblock});
 
     // Attach filesystem to the partition
-    const ext_fs = try Ext2.init(allocator, superblock, bgdt);
+    const ext_fs = try Ext2.init(allocator, partition, superblock, bgdt);
     partition.filesystem = ext_fs.filesystem();
+
+    //{TODO: remove this
+    _ = try ext_fs.readInode(2); 
+    
+    //}
 
     return true;
 }
