@@ -416,3 +416,23 @@ pub const Inode = extern struct {
     crtime_extra: u32 align(1), // Extra creation time (nanoseconds)
     version_hi: u32 align(1), // High 32 bits for 64-bit version
 };
+
+pub const Directory = packed struct {
+    const FileType = enum(u8) {
+        unknown = 0,
+        regular_file = 1,
+        directory = 2,
+        character_device = 3,
+        block_device = 4,
+        fifo = 5,
+        socket = 6,
+        symbolic_link = 7,
+    };
+
+    inode: u32, // 0x0 - the inode number of the file entry
+    rec_len: u16, // 0x4 - the length of this directory entry
+    name_len: u8, // 0x6 - the length of the file name
+    file_type: FileType, // 0x7 - the type of the file
+    name: []u8, // 0x8 - the name of the file
+
+};

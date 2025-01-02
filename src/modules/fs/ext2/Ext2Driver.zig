@@ -66,8 +66,11 @@ pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partitio
     partition.filesystem = ext_fs.filesystem();
 
     //{TODO: remove this
-    _ = try ext_fs.readInode(2); 
-    
+    const block_buffer = try allocator.alloc(u8, superblock.getBlockSize());
+    defer allocator.free(block_buffer);
+
+    _ = try ext_fs.readInode(2, block_buffer);
+
     //}
 
     return true;

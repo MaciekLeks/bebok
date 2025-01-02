@@ -18,20 +18,20 @@ const Ext2 = @This();
 
 //Fields
 alloctr: std.mem.Allocator,
-partition: * Partition, //owning partition
+partition: *Partition, //owning partition
 superblock: *Superblock,
 block_group_descriptor_table: []BlockGroupDescriptor,
 /// Every thread need own inode buffer
-inode_buffer: []u8, //TOOD: not thread safe
+//block_buffer: []u8, //TOOD: not thread safe
 
-pub fn init(allocator: std.mem.Allocator, partition: * Partition, superblock: *Superblock, block_group_descriptor_table: []BlockGroupDescriptor) !*Ext2 {
+pub fn init(allocator: std.mem.Allocator, partition: *Partition, superblock: *Superblock, block_group_descriptor_table: []BlockGroupDescriptor) !*Ext2 {
     const self = try allocator.create(Ext2);
     self.* = .{
         .alloctr = allocator,
         .partition = partition,
         .superblock = superblock,
         .block_group_descriptor_table = block_group_descriptor_table,
-        .inode_buffer = try allocator.alloc(u8, superblock.inode_size),
+        //.block_buffer = try allocator.alloc(u8, superblock.getBlockSize()),
     };
     return self;
 }
@@ -75,27 +75,29 @@ inline fn getRelBlockNumberFromInodeIdx(self: *const Ext2, inode_idx: usize) usi
 inline fn getInodePosFromInodeNum(self: *const Ext2, inode_num: usize) struct { block_num: usize, offset: usize } {
     const bg_num = getBlockGroupNumFromInodeNum(self, inode_num);
     const inode_idx = getInodeIdxInBlockGroup(self, inode_num);
-    const rel_block_num =  getRelBlockNumberFromInodeIdx(self, inode_idx);
-    return  .{ 
-        .block_num = self.block_group_descriptor_table[bg_num].inode_table_id + rel_block_num,
-        .offset = (inode_idx * self.superblock.inode_size) % self.superblock.getBlockSize() 
-    };
+    const rel_block_num = getRelBlockNumberFromInodeIdx(self, inode_idx);
+    return .{ .block_num = self.block_group_descriptor_table[bg_num].inode_table_id + rel_block_num, .offset = (inode_idx * self.superblock.inode_size) % self.superblock.getBlockSize() };
 }
 
 inline fn getOffsetFromBlockNum(block_num: usize) usize {
     return block_size * block_num;
 }
-//TODO: remove pub qualifier
-pub fn readInode(self: *const Ext2, inode_num: usize) !*const Inode {
-    const inode_pos = getInodePosFromInodeNum(self, inode_num);
-    var stream = BlockDevice.Stream(u8).init(self.partition.block_device.streamer());
-    stream.seek(getOffsetFromBlockNum(inode_pos.block_num) + inode_pos.offset, .start);
 
-    _ = try stream.readAll(self.inode_buffer);
-    
-    const inode: *const Inode = @ptrCast(@alignCast(self.inode_buffer.ptr));
+fn readBlock(self: *const Ext2, block_num: usize, buffer: []u8) !void {
+    var stream = BlockDevice.Stream(u8).init(self.partition.block_device.streamer());
+    stream.seek(getOffsetFromBlockNum(block_num), .start);
+    _ = try stream.readAll(buffer);
+}
+
+//TODO: remove pub qualifier
+/// Read inode from the disk using existing block_bffer to not alloc memory each time
+pub fn readInode(self: *const Ext2, inode_num: usize, block_buffer: []u8) !Inode {
+    const inode_pos = getInodePosFromInodeNum(self, inode_num);
+
+    try readBlock(self, inode_pos.block_num, block_buffer);
+
+    const inode: *const Inode = @ptrCast(@alignCast(block_buffer.ptr + inode_pos.offset));
 
     log.debug("Inode[{d}]: {}", .{ inode_num, inode.* });
-    return inode;
-} 
-
+    return inode.*;
+}
