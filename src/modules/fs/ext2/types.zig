@@ -417,7 +417,8 @@ pub const Inode = extern struct {
     version_hi: u32 align(1), // High 32 bits for 64-bit version
 };
 
-pub const Directory = packed struct {
+pub const LinkedDirectoryEntry = struct {
+    const Self = @This();
     const FileType = enum(u8) {
         unknown = 0,
         regular_file = 1,
@@ -429,10 +430,39 @@ pub const Directory = packed struct {
         symbolic_link = 7,
     };
 
-    inode: u32, // 0x0 - the inode number of the file entry
-    rec_len: u16, // 0x4 - the length of this directory entry
-    name_len: u8, // 0x6 - the length of the file name
-    file_type: FileType, // 0x7 - the type of the file
-    name: []u8, // 0x8 - the name of the file
+    const Header = packed struct {
+        inode: u32, // 0x0 - the inode number of the file entry
+        rec_len: u16, // 0x4 - the length of this directory entry
+        name_len: u8, // 0x6 - the length of the file name
+        file_type: FileType, // 0x7 - the type of the file
+    };
 
+    header: Header, // 0x0 - the header of the directory entry
+    name_buffer: []u8, // 0x8 - the name of the file
+
+    pub inline fn getRecordLength(self: *const Self) u16 {
+        return self.header.rec_len;
+    }
+
+    pub fn getName(self: *const Self) []const u8 {
+        return self.name_buffer[0..self.header.name_len];
+    }
+
+    pub fn readFrom(reader: anytype, name_buffer: []u8) !LinkedDirectoryEntry {
+        //Read the constant part of the directory entry
+        const header = try reader.readStructEndian(Header, .little);
+
+        //Check space in the buffer
+        if (name_buffer.len < header.name_len) return error.BufferToSmall;
+
+        //Read the name
+        const name_len = try reader.readAll(name_buffer[0..header.name_len]);
+        if (name_len != header.name_len) return error.UnexpectedEOF;
+
+        //Read padding (every record is multiple of 4 bytes)
+        const padding = header.rec_len - header.name_len - @sizeOf(Header);
+        try reader.skipBytes(padding, .{});
+
+        return LinkedDirectoryEntry{ .header = header, .name_buffer = name_buffer[0..header.name_len] };
+    }
 };

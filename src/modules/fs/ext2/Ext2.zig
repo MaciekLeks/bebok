@@ -8,6 +8,7 @@ const Superblock = @import("types.zig").Superblock;
 const BlockGroupDescriptor = @import("types.zig").BlockGroupDescriptor;
 const BlockAddressing = @import("types.zig").BlockAddressing;
 const Inode = @import("types.zig").Inode;
+const LinkedDirectoryEntry = @import("types.zig").LinkedDirectoryEntry;
 
 const pmm = @import("deps.zig").pmm; //block size should be the same as the page size
 const block_size = pmm.page_size;
@@ -101,3 +102,51 @@ pub fn readInode(self: *const Ext2, inode_num: usize, block_buffer: []u8) !Inode
     log.debug("Inode[{d}]: {}", .{ inode_num, inode.* });
     return inode.*;
 }
+
+pub fn linkedDirectoryIterator(self: *const Ext2, inode: *const Inode, block_buffer: []u8) LinkedDirectoryIterator {
+    return LinkedDirectoryIterator{
+        .ext2 = self,
+        .inode = inode,
+        .block_buffer = block_buffer,
+    };
+}
+
+//--- Iterators
+const LinkedDirectoryIterator = struct {
+    const Self = @This();
+    inode: *const Inode,
+    ext2: *const Ext2,
+    block_buffer: []u8,
+    dir_pos: usize = 0, //current position in the all direcotry's blocks in bytes
+    dir_block: ?usize = null, //current block index [0..14] in the inode.block table
+
+    /// Return next directory entry
+    /// name_buffer: at least 255 bytes for the directory entry name
+    pub fn next(self: *Self, name_buffer: []u8) !?LinkedDirectoryEntry {
+        if (self.inode.flags.index) return error.IndexedDirectoryNotSupported;
+
+        const cur_dir_block = self.dir_pos / self.ext2.superblock.getBlockSize();
+
+        if (self.dir_block == null or cur_dir_block != self.dir_block) {
+            self.dir_block = cur_dir_block;
+            if (self.inode.block[self.dir_block.?] == 0) return null; //0 means no more data
+            switch (self.dir_block.?) {
+                0...11 => try readBlock(self.ext2, self.inode.block[self.dir_block.?], self.block_buffer),
+                12...14 => return error.Unimplemented, //TODO: implement indirect blocks
+                else => return error.Unreachable,
+            }
+        }
+
+        const block_offset = self.dir_pos % self.ext2.superblock.getBlockSize();
+        var fbs = std.io.fixedBufferStream(self.block_buffer[block_offset..]);
+        const reader = fbs.reader();
+
+        //Read directory entry
+        var entry = try LinkedDirectoryEntry.readFrom(reader, name_buffer);
+
+        //Update position
+        self.dir_pos += entry.getRecordLength();
+
+        return entry;
+    }
+};

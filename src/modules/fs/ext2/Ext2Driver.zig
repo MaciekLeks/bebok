@@ -69,10 +69,17 @@ pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partitio
     const block_buffer = try allocator.alloc(u8, superblock.getBlockSize());
     defer allocator.free(block_buffer);
 
-    _ = try ext_fs.readInode(2, block_buffer);
-
-    //}
-
+    const inode = try ext_fs.readInode(2, block_buffer);
+    var diter = ext_fs.linkedDirectoryIterator(&inode, block_buffer);
+    var name_buffer: [256]u8 = undefined;
+    while (diter.next(&name_buffer)) |opt_entry| {
+        if (opt_entry) |entry|
+            log.debug("Entry: header: {} name: {s}", .{ entry.header, entry.getName() })
+        else
+            break;
+    } else |err| {
+        log.err("Error: {}", .{err});
+    }
     return true;
 }
 
