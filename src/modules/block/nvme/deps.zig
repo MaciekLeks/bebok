@@ -8,6 +8,7 @@ pub const PhysDevice = @import("root").PhysDevice;
 pub const AdminDevice = @import("root").AdminDevice;
 pub const BlockDevice = @import("root").BlockDevice;
 pub const PartitionScheme = @import("root").PartitionScheme;
+pub const DummyMutex = @import("root").DummyMutex;
 
 pub const heap = @import("root").heap;
 pub const pmm = @import("root").pmm;

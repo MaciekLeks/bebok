@@ -19,6 +19,7 @@ const BusDeviceAddress = @import("deps.zig").BusDeviceAddress;
 const BlockDevice = @import("deps.zig").BlockDevice;
 const Device = @import("deps.zig").Device;
 const PhysDevice = @import("deps.zig").PhysDevice;
+const DummyMutex = @import("deps.zig").DummyMutex;
 
 const NvmeController = @This();
 
@@ -57,7 +58,10 @@ sq: [nvme_nsqr]NvmeDriver.com.Queue(NvmeDriver.com.SQEntry) = undefined, //+1 fo
 //ns_info_map: NvmeDriver.NsInfoMap = undefined,
 namespaces: NamespaceMap = undefined,
 
-mutex: bool = false, //TODO: implement real mutex
+//mutex: bool = false, //TODO: implement real mutex
+mutex: DummyMutex = .{},
+irqs_count: u8 = 0,
+command_sequence_id: u16 = 0,
 
 // Device interface vtable for NvmeController
 const device_vtable = Device.VTable{
@@ -154,4 +158,9 @@ fn toggleMsix(ctrl: *NvmeController, enable: bool) !void {
 
 pub fn enableMsix(ctrl: *NvmeController) !void {
     try toggleMsix(ctrl, true);
+}
+
+pub fn nextComandId(self: *NvmeController) u16 {
+    self.command_sequence_id +%= 1;
+    return self.command_sequence_id;
 }

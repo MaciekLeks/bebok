@@ -15,6 +15,7 @@ pub const BlockDevice = @import("devices/mod.zig").BlockDevice;
 pub const PartitionScheme = @import("devices/mod.zig").PartitionScheme;
 pub const Partition = @import("devices/mod.zig").Partition;
 pub const Guid = @import("commons/guid.zig").Guid;
+pub const DummyMutex = @import("commons/thread.zig").DummyMutex;
 pub const FilesystemDriver = @import("fs/FilesystemDriver.zig");
 pub const Filesystem = @import("fs/Filesystem.zig");
 const DriverRegistry = @import("drivers/Registry.zig");

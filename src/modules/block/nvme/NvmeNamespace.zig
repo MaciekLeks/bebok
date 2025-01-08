@@ -203,7 +203,7 @@ pub fn readInternal(ctx: *const anyopaque, allocator: std.mem.Allocator, slba: u
         .read = .{
             .cdw0 = .{
                 .opc = .read,
-                .cid = 255, //our id
+                .cid = self.ctrl.nextComandId(), //our id
             },
             .nsid = self.nsid,
             .elbst_eilbst_a = 0, //no extended LBA
@@ -334,7 +334,7 @@ pub fn writeInternal(ctx: *const anyopaque, allocator: std.mem.Allocator, slba: 
         .write = .{
             .cdw0 = .{
                 .opc = .write,
-                .cid = 256, //our id
+                .cid = self.ctrl.nextComandId(), //our id
             },
             .nsid = self.nsid,
             .lbst_ilbst_a = 0, //no extended LBA

@@ -17,7 +17,10 @@ pub fn configureMsix(ctrl: *NvmeController, msix_table_idx: u11, int_vec_no: u8)
 // TODO move to a separate module
 pub fn handleInterrupt(ctx: ?*anyopaque) !void {
     var ctrl: *NvmeController = @ptrCast(@alignCast(ctx));
-    ctrl.mutex = true;
+    //ctrl.mutex = true;
+    ctrl.mutex.lock();
+    ctrl.irqs_count += 1;
+    ctrl.mutex.unlock();
     // Never use log inside the interrupt handler
     //log.warn("apic : MSI-X : We've got it: NVMe interrupt handled.", .{});
 }
