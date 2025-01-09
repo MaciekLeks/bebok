@@ -16,15 +16,14 @@ pub const PathError = error{
     InvalidPath,
 } || Allocator.Error;
 
-pub const PathPartType = enum {
-    Directory, // for directories
-    Unknown, // for last element (could be file or directory)
-};
-
 pub const PathPart = struct {
+    const Type = enum {
+        Directory, // for directories
+        Unknown, // for last element (could be file or directory)
+    };
     part: ?[]const u8,
     next: ?*PathPart,
-    part_type: PathPartType,
+    type: Type,
     is_absolute: bool, // new field to indicate if this is part of absolute path
     allocator: Allocator,
 
@@ -32,7 +31,7 @@ pub const PathPart = struct {
         return PathPart{
             .part = null,
             .next = null,
-            .part_type = .Unknown,
+            .type = .Unknown,
             .is_absolute = false,
             .allocator = allocator,
         };
@@ -54,7 +53,7 @@ pub fn parse(allocator: Allocator, path: []const u8) PathError!*PathPart {
         result.* = PathPart{
             .part = null,
             .next = null,
-            .part_type = .Directory,
+            .type = .Directory,
             .is_absolute = true,
             .allocator = allocator,
         };
@@ -74,7 +73,7 @@ pub fn parse(allocator: Allocator, path: []const u8) PathError!*PathPart {
         result.* = PathPart{
             .part = null,
             .next = null,
-            .part_type = .Directory,
+            .type = .Directory,
             .is_absolute = is_absolute,
             .allocator = allocator,
         };
@@ -98,7 +97,7 @@ pub fn parse(allocator: Allocator, path: []const u8) PathError!*PathPart {
     result.* = PathPart{
         .part = path[start..part_end],
         .next = if (has_more) try parse(allocator, path[next_start..]) else null,
-        .part_type = if (has_more or next_start > i) .Directory else .Unknown,
+        .type = if (has_more or next_start > i) .Directory else .Unknown,
         .is_absolute = is_absolute,
         .allocator = allocator,
     };
