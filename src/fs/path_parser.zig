@@ -8,21 +8,22 @@ const log = std.log.scoped(.file_system_path_parser);
 pub const PathPart = struct {
     part: ?[]const u8,
     next: ?*PathPart,
-    allocator: std.mem.Allocator,
+    alloctr: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) PathPart {
         return PathPart{
             .part = null,
             .next = null,
-            .allocator = allocator,
+            .alloctr = allocator,
         };
     }
 
     pub fn deinit(self: *PathPart) void {
         if (self.next) |next| {
             next.deinit();
-            self.allocator.destroy(next);
+            self.alloctr.destroy(next);
         }
+        self.alloctr.destroy(self);
     }
 };
 
@@ -40,7 +41,7 @@ pub fn parse(allocator: std.mem.Allocator, path: []const u8) !*PathPart {
         result.* = PathPart{
             .part = path[0..1],
             .next = try parse(allocator, path[1..]),
-            .allocator = allocator,
+            .alloctr = allocator,
         };
         return result;
     }
@@ -60,7 +61,7 @@ pub fn parse(allocator: std.mem.Allocator, path: []const u8) !*PathPart {
             try parse(allocator, path[next_slash..])
         else
             try allocator.create(PathPart),
-        .allocator = allocator,
+        .alloctr = allocator,
     };
 
     // If there is no next slash, create empty part
