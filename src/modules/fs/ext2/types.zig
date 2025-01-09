@@ -305,38 +305,18 @@ pub const BlockGroupDescriptor = extern struct {
 };
 
 pub const Inode = extern struct {
-    // const Mode = struct {
-    //     // Access rights (9 bits)
-    //     pub const other_execute: u16 = 0x0001;
-    //     pub const other_write: u16 = 0x0002;
-    //     pub const other_read: u16 = 0x0004;
-    //     pub const group_execute: u16 = 0x0008;
-    //     pub const group_write: u16 = 0x0010;
-    //     pub const group_read: u16 = 0x0020;
-    //     pub const user_execute: u16 = 0x0040;
-    //     pub const user_write: u16 = 0x0080;
-    //     pub const user_read: u16 = 0x0100;
-    //
-    //     // Process execution overrides (3 bits)
-    //     pub const sticky_bit: u16 = 0x0200;
-    //     pub const set_process_gid: u16 = 0x0400;
-    //     pub const set_process_user_id: u16 = 0x0800;
-    //
-    //     // File format (4 bits)
-    //     pub const fifo: u16 = 0x1000;
-    //     pub const character_device: u16 = 0x2000;
-    //     pub const directory: u16 = 0x4000;
-    //     pub const block_device: u16 = 0x6000;
-    //     pub const regular_file: u16 = 0x8000;
-    //     pub const symbolic_link: u16 = 0xA000;
-    //     pub const socket: u16 = 0xC000;
-    //
-    //     // Useful masks
-    //     pub const format_mask: u16 = 0xF000;
-    //     pub const permission_mask: u16 = 0x0FFF;
-    // };
-
     const Mode = packed struct(u16) {
+        pub const Format = enum(u4) {
+            none = 0x0,
+            fifo = 0x1,
+            character_device = 0x2,
+            directory = 0x4,
+            block_device = 0x6,
+            regular_file = 0x8,
+            symbolic_link = 0xA,
+            socket = 0xC,
+            _,
+        };
         permissions: packed struct(u9) {
             other_execute: bool,
             other_write: bool,
@@ -353,17 +333,7 @@ pub const Inode = extern struct {
             set_process_gid: bool,
             set_process_user_id: bool,
         },
-        format: enum(u4) {
-            none = 0x0,
-            fifo = 0x1,
-            character_device = 0x2,
-            directory = 0x4,
-            block_device = 0x6,
-            regular_file = 0x8,
-            symbolic_link = 0xA,
-            socket = 0xC,
-            _,
-        },
+        format: Format,
     };
     const Flags = packed struct(u32) {
         secure_deletion: bool, //0x00000001
@@ -415,6 +385,10 @@ pub const Inode = extern struct {
     crtime: u32 align(1), // File creation time
     crtime_extra: u32 align(1), // Extra creation time (nanoseconds)
     version_hi: u32 align(1), // High 32 bits for 64-bit version
+
+    pub fn isDirectory(self: *const Inode) bool {
+        return self.mode.format == Mode.Format.directory;
+    }
 };
 
 pub const LinkedDirectoryEntry = struct {

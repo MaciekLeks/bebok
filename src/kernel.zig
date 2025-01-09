@@ -18,6 +18,7 @@ pub const Guid = @import("commons/guid.zig").Guid;
 pub const DummyMutex = @import("commons/thread.zig").DummyMutex;
 pub const FilesystemDriver = @import("fs/FilesystemDriver.zig");
 pub const Filesystem = @import("fs/Filesystem.zig");
+pub const pathparser = @import("fs/pathparser.zig");
 const DriverRegistry = @import("drivers/Registry.zig");
 const NvmeDriver = @import("nvme").NvmeDriver;
 const NvmeNamespace = @import("nvme").NvmeNamespace;

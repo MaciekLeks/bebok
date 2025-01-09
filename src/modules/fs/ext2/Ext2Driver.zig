@@ -80,6 +80,13 @@ pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partitio
     } else |err| {
         log.err("Error: {}", .{err});
     }
+
+    //_ = ext_fs.findInodeByPath("/test-file1.txt", null) catch |err| {
+    //_ = ext_fs.findInodeByPath("/", null) catch |err| {
+    _ = ext_fs.findInodeByPath("/no-file-there", null) catch |err| {
+        log.err("findInodeByPath error: {any}", .{err});
+    };
+
     return true;
 }
 

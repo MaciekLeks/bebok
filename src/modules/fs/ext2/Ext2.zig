@@ -10,7 +10,9 @@ const BlockAddressing = @import("types.zig").BlockAddressing;
 const Inode = @import("types.zig").Inode;
 const LinkedDirectoryEntry = @import("types.zig").LinkedDirectoryEntry;
 
+const pathparser = @import("deps.zig").pathparser;
 const pmm = @import("deps.zig").pmm; //block size should be the same as the page size
+const heap = @import("deps.zig").heap;
 const block_size = pmm.page_size;
 
 const log = std.log.scoped(.ext2);
@@ -92,7 +94,7 @@ fn readBlock(self: *const Ext2, block_num: usize, buffer: []u8) !void {
 
 //TODO: remove pub qualifier
 /// Read inode from the disk using existing block_bffer to not alloc memory each time
-pub fn readInode(self: *const Ext2, inode_num: usize, block_buffer: []u8) !Inode {
+pub fn readInode(self: *const Ext2, inode_num: u32, block_buffer: []u8) !Inode {
     const inode_pos = getInodePosFromInodeNum(self, inode_num);
 
     try readBlock(self, inode_pos.block_num, block_buffer);
@@ -125,10 +127,10 @@ const LinkedDirectoryIterator = struct {
     pub fn next(self: *Self, name_buffer: []u8) !?LinkedDirectoryEntry {
         if (self.inode.flags.index) return error.IndexedDirectoryNotSupported;
 
-        const cur_dir_block = self.dir_pos / self.ext2.superblock.getBlockSize();
+        const curr_dir_block = self.dir_pos / self.ext2.superblock.getBlockSize();
 
-        if (self.dir_block == null or cur_dir_block != self.dir_block) {
-            self.dir_block = cur_dir_block;
+        if (self.dir_block == null or curr_dir_block != self.dir_block) {
+            self.dir_block = curr_dir_block;
             if (self.inode.block[self.dir_block.?] == 0) return null; //0 means no more data
             switch (self.dir_block.?) {
                 0...11 => try readBlock(self.ext2, self.inode.block[self.dir_block.?], self.block_buffer),
@@ -150,3 +152,72 @@ const LinkedDirectoryIterator = struct {
         return entry;
     }
 };
+
+// Helper functions
+pub fn findInodeByPath(self: *const Ext2, path: []const u8, start_dir_inode: ?u32) !u32 {
+    log.debug("findInodeByPath: {s}", .{path});
+
+    var arena = std.heap.ArenaAllocator.init(heap.page_allocator);
+    defer arena.deinit();
+
+    const alloctr = arena.allocator();
+
+    const path_parts = try pathparser.parse(alloctr, path);
+
+    // Start from root if path is absolute, otherwise use provided start_inode
+    var curr_inode_num = if (path_parts.is_absolute and start_dir_inode == null) 2 // root inode
+    else if (!path_parts.is_absolute and start_dir_inode != null) start_dir_inode.? else return pathparser.PathError.InvalidPath;
+
+    defer log.debug("findInodeByPath: res={d}", .{curr_inode_num});
+
+    const name_buffer = try alloctr.alloc(u8, 256); //file name buffer
+    const block_buffer = try alloctr.alloc(u8, self.superblock.getBlockSize());
+
+    // Walk through the path
+    var curr_part = path_parts;
+
+    while (true) {
+        // Skip empty parts (like root with null part)
+        if (curr_part.part == null) {
+            if (curr_part.next) |next| {
+                curr_part = next;
+                continue;
+            }
+            break;
+        }
+
+        const curr_inode = try self.readInode(curr_inode_num, block_buffer);
+
+        // If this is a directory part, verify the current inode is actually a directory
+        if (curr_part.part_type == .Directory and !curr_inode.isDirectory()) {
+            return pathparser.PathError.InvalidPath;
+        }
+
+        var dir_iter = self.linkedDirectoryIterator(&curr_inode, block_buffer);
+        var found = false;
+
+        while (dir_iter.next(name_buffer)) |opt_entry| {
+            if (opt_entry) |entry| {
+                if (std.mem.eql(u8, entry.getName(), curr_part.part.?)) {
+                    curr_inode_num = entry.header.inode;
+                    found = true;
+                    break;
+                }
+            } else break;
+        } else |err| {
+            return err;
+        }
+
+        if (!found) {
+            return pathparser.PathError.NotFound;
+        }
+
+        if (curr_part.next) |next| {
+            curr_part = next;
+        } else {
+            break;
+        }
+    }
+
+    return curr_inode_num;
+}
