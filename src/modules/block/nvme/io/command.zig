@@ -131,23 +131,34 @@ fn execIoCommand(CDw0Type: type, dev: *NvmeController, cmd: com.SQEntry, sqn: u1
             //Qemu sends FLUSH every new cycle, this commands ends with sc=11, sct=0 then the right command is executed
             //successfully and there is no new entry in cq (should be 2, one for flush and one for my readRegister),
             //so we need to check if the command is executed successfully
-            //pci_nvme_io_cmd cid 8 nsid 0x1 sqid 1 opc 0x2 opname 'NVME_NVM_CMD_READ'
-            //pci_nvme_read cid 8 nsid 1 nlb 1 count 512 lba 0x802
-            //pci_nvme_map_prp trans_len 512 len 512 prp1 0x131000 prp2 0x0 num_prps 1
-            //pci_nvme_map_addr addr 0x131000 len 512
-            //pci_nvme_io_cmd cid 0 nsid 0x0 sqid 1 opc 0x0 opname 'NVME_NVM_CMD_FLUSH'
-            //pci_nvme_enqueue_req_completion cid 0 cqid 1 dw0 0x0 dw1 0x0 status 0x400b
-            //pci_nvme_err_req_status cid 0 nsid 0 status 0x400b opc 0x0
+            // pci_nvme_mmio_write addr 0x1008 data 0x0 size 4
+            // pci_nvme_mmio_doorbell_sq sqid 1 new_tail 0
+            // pci_nvme_io_cmd cid 8 nsid 0x1 sqid 1 opc 0x2 opname 'NVME_NVM_CMD_READ'
+            // pci_nvme_read cid 8 nsid 1 nlb 1 count 512 lba 0x802
+            // pci_nvme_map_prp trans_len 512 len 512 prp1 0x144000 prp2 0x0 num_prps 1
+            // pci_nvme_map_addr addr 0x144000 len 512
+            // pci_nvme_io_cmd cid 0 nsid 0x0 sqid 1 opc 0x0 opname 'NVME_NVM_CMD_FLUSH'
+            // pci_nvme_enqueue_req_completion cid 0 cqid 1 dw0 0x0 dw1 0x0 status 0x400b
+            // pci_nvme_err_req_status cid 0 nsid 0 status 0x400b opc 0x0
+            // pci_nvme_irq_msix raising MSI-X IRQ vector 1
+            // apic_deliver_irq dest 0 dest_mode 0 delivery_mode 0 vector 33 trigger_mode 0
+            // pci_nvme_rw_cb cid 8 blk 'drv0'
+            // pci_nvme_rw_complete_cb cid 8 blk 'drv0'
+            // pci_nvme_enqueue_req_completion cid 8 cqid 1 dw0 0x0 dw1 0x0 status 0x0
+            // pci_nvme_irq_msix raising MSI-X IRQ vector 1
+            // apic_deliver_irq dest 0 dest_mode 0 delivery_mode 0 vector 33 trigger_mode 0
+            // pic_register_write register 0x0b = 0x0
             // The Workaraound:
-            // if (cq_entry_ptr.cmd_id == 0 and cq_entry_ptr.status.sc == 11) {
-            //     log.debug("Workaround: Command executed successfully: CDw0: {}, CQEntry = {}", .{ cdw0, cq_entry_ptr.* });
-            //     dev.mutex.lock();
-            //     dev.irqs_count = 0;
-            //     dev.mutex.unlock();
-            //     return cq_entry_ptr.*;
-            // }
+            if (cq_entry_ptr.cmd_id == 0 and cq_entry_ptr.status.sc == 11) {
+                log.debug("Workaround: Command executed successfully: CDw0: {}, CQEntry = {}", .{ cdw0, cq_entry_ptr.* });
+                //dev.mutex.lock();
+                //dev.irqs_count = 0;
+                //dev.mutex.unlock();
+                @atomicStore(u8, &dev.req_ints_count, 0, .monotonic);
+                return cq_entry_ptr.*;
+            }
             //The code that should work but it's doesn't:
-            continue;
+            //continue;
         }
 
         if (cq_entry_ptr.status.sc != 0) {

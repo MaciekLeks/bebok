@@ -216,6 +216,8 @@ fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, debug: bool, bios_path
             //qemu_iso_action.addArgs(&.{ "-d", "int,guest_errors,cpu_reset" });
             qemu_iso_action.addArgs(&.{ "-d", "guest_errors,cpu_reset" });
             //qemu_iso_action.addArgs(&.{ "-D", "qemu-logs.txt" });
+            //qemu_iso_action.addArgs(&.{ "-display", "gtk", "-vga", "virtio" });
+            qemu_iso_action.addArgs(&.{ "-display", "gtk", "-vga", "std" });
             if (debug) {
                 qemu_iso_action.addArgs(&.{
                     "-s",
