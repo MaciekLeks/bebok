@@ -125,6 +125,7 @@ const LinkedDirectoryIterator = struct {
     /// Return next directory entry
     /// name_buffer: at least 255 bytes for the directory entry name
     pub fn next(self: *Self, name_buffer: []u8) !?LinkedDirectoryEntry {
+        if (!self.inode.isDirectory()) return error.NotDirectory;
         if (self.inode.flags.index) return error.IndexedDirectoryNotSupported;
 
         const curr_dir_block = self.dir_pos / self.ext2.superblock.getBlockSize();
@@ -156,60 +157,44 @@ const LinkedDirectoryIterator = struct {
 // Helper functions
 pub fn findInodeByPath(self: *const Ext2, path: []const u8, start_dir_inode: ?u32) !u32 {
     log.debug("findInodeByPath: {s}", .{path});
-
     var arena = std.heap.ArenaAllocator.init(heap.page_allocator);
     defer arena.deinit();
 
     const alloctr = arena.allocator();
-
     const path_parts = try pathparser.parse(alloctr, path);
 
-    // Start from root if path is absolute, otherwise use provided start_inode
-    var curr_inode_num = if (path_parts.is_absolute and start_dir_inode == null) 2 // root inode
-    else if (!path_parts.is_absolute and start_dir_inode != null) start_dir_inode.? else return pathparser.PathError.InvalidPath;
+    var curr_inode_num = if (path_parts.is_absolute and start_dir_inode == null) 2 else if (!path_parts.is_absolute and start_dir_inode != null) start_dir_inode.? else return pathparser.PathError.InvalidPath;
 
     defer log.debug("findInodeByPath: res={d}", .{curr_inode_num});
 
-    const name_buffer = try alloctr.alloc(u8, 256); //file name buffer
+    const name_buffer = try alloctr.alloc(u8, 256);
     const block_buffer = try alloctr.alloc(u8, self.superblock.getBlockSize());
 
-    // Walk through the path
     var curr_part = path_parts;
-
     while (true) {
-        // Skip empty parts (like root with null part)
-        if (curr_part.part == null) {
-            if (curr_part.next) |next| {
-                curr_part = next;
-                continue;
+        if (curr_part.part) |name| {
+            const curr_inode = try self.readInode(curr_inode_num, block_buffer);
+
+            if (!curr_inode.isDirectory()) {
+                return error.NotDirectory;
             }
-            break;
-        }
 
-        const curr_inode = try self.readInode(curr_inode_num, block_buffer);
+            var dir_iter = self.linkedDirectoryIterator(&curr_inode, block_buffer);
+            var found = false;
 
-        // If this is a directory part, verify the current inode is actually a directory
-        if (curr_part.part_type == .Directory and !curr_inode.isDirectory()) {
-            return pathparser.PathError.InvalidPath;
-        }
+            while (dir_iter.next(name_buffer)) |opt_entry| {
+                if (opt_entry) |entry| {
+                    if (std.mem.eql(u8, entry.getName(), name)) {
+                        curr_inode_num = entry.header.inode;
+                        found = true;
+                        break;
+                    }
+                } else break;
+            } else |err| return err;
 
-        var dir_iter = self.linkedDirectoryIterator(&curr_inode, block_buffer);
-        var found = false;
-
-        while (dir_iter.next(name_buffer)) |opt_entry| {
-            if (opt_entry) |entry| {
-                if (std.mem.eql(u8, entry.getName(), curr_part.part.?)) {
-                    curr_inode_num = entry.header.inode;
-                    found = true;
-                    break;
-                }
-            } else break;
-        } else |err| {
-            return err;
-        }
-
-        if (!found) {
-            return pathparser.PathError.NotFound;
+            if (!found) {
+                return pathparser.PathError.NotFound;
+            }
         }
 
         if (curr_part.next) |next| {

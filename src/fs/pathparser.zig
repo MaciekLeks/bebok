@@ -184,7 +184,7 @@ test "path with trailing slash" {
     try testing.expect(result.part_type == .Directory);
     try testing.expect(result.next.?.part_type == .Directory);
     try testing.expect(result.is_absolute);
-    try testing.expect(!result.next.?.is_absolute); //why absolute?
+    try testing.expect(!result.next.?.is_absolute);
 }
 
 test "path with double slash" {
