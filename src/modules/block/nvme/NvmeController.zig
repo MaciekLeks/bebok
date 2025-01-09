@@ -59,8 +59,9 @@ sq: [nvme_nsqr]NvmeDriver.com.Queue(NvmeDriver.com.SQEntry) = undefined, //+1 fo
 namespaces: NamespaceMap = undefined,
 
 //mutex: bool = false, //TODO: implement real mutex
-mutex: DummyMutex = .{},
-irqs_count: u8 = 0,
+//?mutex: DummyMutex = .{},
+//?irqs_count: u8 = 0,
+req_ints_count: u8 = 0, //number of interrupts requested
 command_sequence_id: u16 = 0,
 
 // Device interface vtable for NvmeController

@@ -64,18 +64,19 @@ fn execIoCommand(CDw0Type: type, dev: *NvmeController, cmd: com.SQEntry, sqn: u1
         // }
         // dev.mutex = false;
 
-        dev.mutex.lock();
-        const irqs = dev.irqs_count;
-        dev.mutex.unlock();
+        //dev.mutex.lock();
+        //const irqs = dev.irqs_count;
+        //dev.mutex.unlock();
+        const req_ints = @atomicLoad(u8, &dev.req_ints_count, .monotonic);
 
-        log.debug("commented out /5.0 irqs={d}", .{irqs});
+        log.debug("commented out /5.0 irqs={d}", .{req_ints});
 
-        if (irqs == 0) {
+        if (req_ints == 0) {
             cpu.halt();
             continue;
         }
 
-        log.debug("commented out /5.1 irqs={d}, cq_entry_ptr={}, expected_phase={}", .{ irqs, cq_entry_ptr, dev.cq[cqn].expected_phase });
+        log.debug("commented out /5.1 irqs={d}, cq_entry_ptr={}, expected_phase={}", .{ req_ints, cq_entry_ptr, dev.cq[cqn].expected_phase });
 
         while (cq_entry_ptr.phase != dev.cq[cqn].expected_phase) {
             const csts = regs.readRegister(regs.CSTSRegister, dev.bar, .csts);
@@ -118,9 +119,10 @@ fn execIoCommand(CDw0Type: type, dev: *NvmeController, cmd: com.SQEntry, sqn: u1
             return e.NvmeError.InvalidCommandSequence;
         }
 
-        dev.mutex.lock();
-        dev.irqs_count -= 1;
-        dev.mutex.unlock();
+        //dev.mutex.lock();
+        //dev.irqs_count -= 1;
+        //dev.mutex.unlock();
+        _ = @atomicRmw(u8, &dev.req_ints_count, .Sub, 1, .monotonic);
 
         //?
         if (cdw0.cid != cq_entry_ptr.cmd_id) {

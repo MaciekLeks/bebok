@@ -18,9 +18,10 @@ pub fn configureMsix(ctrl: *NvmeController, msix_table_idx: u11, int_vec_no: u8)
 pub fn handleInterrupt(ctx: ?*anyopaque) !void {
     var ctrl: *NvmeController = @ptrCast(@alignCast(ctx));
     //ctrl.mutex = true;
-    ctrl.mutex.lock();
-    ctrl.irqs_count += 1;
-    ctrl.mutex.unlock();
+    //ctrl.mutex.lock();
+    //ctrl.irqs_count += 1;
+    //ctrl.mutex.unlock();
+    _ = @atomicRmw(u8, &ctrl.req_ints_count, .Add, 1, .monotonic);
     // Never use log inside the interrupt handler
     //log.warn("apic : MSI-X : We've got it: NVMe interrupt handled.", .{});
 }
