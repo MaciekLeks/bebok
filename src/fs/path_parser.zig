@@ -47,25 +47,25 @@ pub fn parse(allocator: std.mem.Allocator, path: []const u8) !*PathPart {
     }
 
     // Find next slash
-    const next_slash = std.mem.indexOfScalar(u8, path, '/') orelse path.len;
+    const next_slash_or_eof = std.mem.indexOfScalar(u8, path, '/') orelse path.len;
 
     // Check file name length
-    if (next_slash > File.max_name_len) {
+    if (next_slash_or_eof > File.max_name_len) {
         return error.FileNameToLong;
     }
 
     // Create part
     result.* = PathPart{
-        .part = path[0..next_slash],
-        .next = if (next_slash < path.len)
-            try parse(allocator, path[next_slash..])
+        .part = path[0..next_slash_or_eof],
+        .next = if (next_slash_or_eof < path.len)
+            try parse(allocator, path[next_slash_or_eof..])
         else
             try allocator.create(PathPart),
         .alloctr = allocator,
     };
 
     // If there is no next slash, create empty part
-    if (next_slash == path.len) {
+    if (next_slash_or_eof == path.len) {
         result.next.?.* = PathPart.init(allocator);
     }
 
