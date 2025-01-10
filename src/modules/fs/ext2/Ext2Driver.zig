@@ -81,12 +81,12 @@ pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partitio
         log.err("Error: {}", .{err});
     }
 
-    _ = ext_fs.findInodeByPath("/dir01/test-file2.txt", null) catch |err| {
-        //_ = ext_fs.findInodeByPath("/dir01/", null) catch |err| {
-        //_ = ext_fs.findInodeByPath("test-file2.txt", 16385) catch |err| { //16385 is the inode number of the dir01 directory
-        //_ = ext_fs.findInodeByPath("/test-file1.txt", null) catch |err| {
-        //_ = ext_fs.findInodeByPath("/", null) catch |err| {
-        //_ = ext_fs.findInodeByPath("/no-file-there", null) catch |err| {
+    // _ = ext_fs.findInodeByPath("/dir01/test-file2.txt", null) catch |err| {
+    //_ = ext_fs.findInodeByPath("/dir01/", null) catch |err| {
+    // _ = ext_fs.findInodeByPath("test-file2.txt", 16385) catch |err| { //16385 is the inode number of the dir01 directory
+    // _ = ext_fs.findInodeByPath("/test-file1.txt", null) catch |err| {
+    //_ = ext_fs.findInodeByPath("/", null) catch |err| {
+    _ = ext_fs.findInodeByPath("/no-file-there", null) catch |err| {
         log.err("findInodeByPath error: {any}", .{err});
     };
 

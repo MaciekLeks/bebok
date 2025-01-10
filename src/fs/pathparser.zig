@@ -14,188 +14,153 @@ pub const PathError = error{
     NotFound,
     /// Path string is malformed or contains invalid characters
     InvalidPath,
+    /// Not a directory
+    NotDirectory,
 } || Allocator.Error;
 
-pub const PathPart = struct {
-    const Type = enum {
-        Directory, // for directories
-        Unknown, // for last element (could be file or directory)
-    };
-    part: ?[]const u8,
-    next: ?*PathPart,
-    type: Type,
-    is_absolute: bool, // new field to indicate if this is part of absolute path
-    allocator: Allocator,
+pub const PathParser = struct {
+    segments: std.ArrayList([]const u8),
+    is_absolute: bool,
 
-    pub fn init(allocator: Allocator) PathPart {
-        return PathPart{
-            .part = null,
-            .next = null,
-            .type = .Unknown,
+    pub fn init(allocator: Allocator) PathParser {
+        return .{
+            .segments = std.ArrayList([]const u8).init(allocator),
             .is_absolute = false,
-            .allocator = allocator,
         };
+    }
+
+    pub fn deinit(self: *PathParser) void {
+        self.segments.deinit();
+    }
+
+    pub fn parse(self: *PathParser, path: []const u8) PathError!void {
+        self.segments.clearRetainingCapacity();
+        self.is_absolute = path.len > 0 and path[0] == '/';
+
+        if (self.is_absolute) {
+            try self.segments.append("/");
+        }
+
+        var it = std.mem.splitScalar(u8, path, '/');
+        while (it.next()) |segment| {
+            if (segment.len == 0) continue;
+            if (segment.len > File.max_name_len) return error.FileNameToLong;
+            try self.segments.append(segment);
+        }
+    }
+
+    pub fn iterator(self: *const PathParser) PathIterator {
+        return PathIterator{ .parser = self, .index = 0 };
+    }
+
+    pub fn isRoot(self: *const PathParser) bool {
+        return self.is_absolute and self.segments.items.len == 1;
+    }
+
+    pub fn isAbsolute(self: *const PathParser) bool {
+        return self.is_absolute;
     }
 };
 
-pub fn parse(allocator: Allocator, path: []const u8) PathError!*PathPart {
-    const result = try allocator.create(PathPart);
-    errdefer allocator.destroy(result);
+pub const PathIterator = struct {
+    parser: *const PathParser,
+    index: usize,
 
-    // Handle empty path
-    if (path.len == 0) {
-        result.* = PathPart.init(allocator);
-        return result;
+    pub fn next(self: *PathIterator) ?[]const u8 {
+        if (self.index >= self.parser.segments.items.len) return null;
+        const segment = self.parser.segments.items[self.index];
+        self.index += 1;
+        return segment;
     }
+};
 
-    // Handle root path
-    if (path.len == 1 and path[0] == '/') {
-        result.* = PathPart{
-            .part = null,
-            .next = null,
-            .type = .Directory,
-            .is_absolute = true,
-            .allocator = allocator,
-        };
-        return result;
-    }
-
-    var start: usize = 0;
-    const is_absolute = path[0] == '/';
-
-    if (is_absolute) {
-        start = 1;
-    }
-
-    // Skip empty parts (multiple slashes)
-    while (start < path.len and path[start] == '/') : (start += 1) {}
-    if (start == path.len) {
-        result.* = PathPart{
-            .part = null,
-            .next = null,
-            .type = .Directory,
-            .is_absolute = is_absolute,
-            .allocator = allocator,
-        };
-        return result;
-    }
-
-    // Find next part
-    var i = start;
-    while (i < path.len and path[i] != '/') : (i += 1) {
-        if (i - start > File.max_name_len) return error.FileNameToLong;
-    }
-
-    const part_end = i;
-
-    // Skip trailing slashes
-    var next_start = i;
-    while (next_start < path.len and path[next_start] == '/') : (next_start += 1) {}
-
-    const has_more = next_start < path.len;
-
-    result.* = PathPart{
-        .part = path[start..part_end],
-        .next = if (has_more) try parse(allocator, path[next_start..]) else null,
-        .type = if (has_more or next_start > i) .Directory else .Unknown,
-        .is_absolute = is_absolute,
-        .allocator = allocator,
-    };
-
-    return result;
-}
-
-test "empty path" {
+test "path parser - absolute path" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const result = try parse(allocator, "");
-    try testing.expect(result.part == null);
-    try testing.expect(result.next == null);
-    try testing.expect(result.part_type == .Unknown);
-    try testing.expect(!result.is_absolute);
+    var parser = PathParser.init(allocator);
+    defer parser.deinit();
+
+    try parser.parse("/usr/local/bin");
+    try std.testing.expect(parser.isAbsolute());
+    try std.testing.expectEqual(@as(usize, 4), parser.segments.items.len);
+    try std.testing.expectEqualStrings("/", parser.segments.items[0]);
+    try std.testing.expectEqualStrings("usr", parser.segments.items[1]);
+    try std.testing.expectEqualStrings("local", parser.segments.items[2]);
+    try std.testing.expectEqualStrings("bin", parser.segments.items[3]);
 }
 
-test "root path" {
+test "path parser - relative path" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const result = try parse(allocator, "/");
-    try testing.expect(result.part == null);
-    try testing.expect(result.next == null);
-    try testing.expect(result.part_type == .Directory);
-    try testing.expect(result.is_absolute);
+    var parser = PathParser.init(allocator);
+    defer parser.deinit();
+
+    try parser.parse("local/bin");
+    try std.testing.expect(!parser.isAbsolute());
+    try std.testing.expectEqual(@as(usize, 2), parser.segments.items.len);
+    try std.testing.expectEqualStrings("local", parser.segments.items[0]);
+    try std.testing.expectEqualStrings("bin", parser.segments.items[1]);
 }
 
-test "absolute path with single element" {
+test "path parser - root path" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const result = try parse(allocator, "/bin");
-    try testing.expectEqualStrings("bin", result.part.?);
-    try testing.expect(result.next == null);
-    try testing.expect(result.part_type == .Unknown);
-    try testing.expect(result.is_absolute);
+    var parser = PathParser.init(allocator);
+    defer parser.deinit();
+
+    try parser.parse("/");
+    try std.testing.expect(parser.isRoot());
+    try std.testing.expectEqual(@as(usize, 1), parser.segments.items.len);
+    try std.testing.expectEqualStrings("/", parser.segments.items[0]);
 }
 
-test "absolute path with multiple elements" {
+test "path parser - iterator test" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const result = try parse(allocator, "/usr/local/bin");
-    try testing.expectEqualStrings("usr", result.part.?);
-    try testing.expectEqualStrings("local", result.next.?.part.?);
-    try testing.expectEqualStrings("bin", result.next.?.next.?.part.?);
-    try testing.expect(result.next.?.next.?.next == null);
-    try testing.expect(result.part_type == .Directory);
-    try testing.expect(result.next.?.part_type == .Directory);
-    try testing.expect(result.next.?.next.?.part_type == .Unknown);
-    try testing.expect(result.is_absolute);
+    var parser = PathParser.init(allocator);
+    defer parser.deinit();
+
+    try parser.parse("/usr/local/bin");
+    var it = parser.iterator();
+    try std.testing.expectEqualStrings("/", it.next().?);
+    try std.testing.expectEqualStrings("usr", it.next().?);
+    try std.testing.expectEqualStrings("local", it.next().?);
+    try std.testing.expectEqualStrings("bin", it.next().?);
+    try std.testing.expect(it.next() == null);
 }
 
-test "relative path" {
+test "path parser - empty path" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const result = try parse(allocator, "local/bin");
-    try testing.expectEqualStrings("local", result.part.?);
-    try testing.expectEqualStrings("bin", result.next.?.part.?);
-    try testing.expect(result.next.?.next == null);
-    try testing.expect(result.part_type == .Directory);
-    try testing.expect(result.next.?.part_type == .Unknown);
-    try testing.expect(!result.is_absolute);
+    var parser = PathParser.init(allocator);
+    defer parser.deinit();
+
+    try parser.parse("");
+    try std.testing.expect(!parser.isAbsolute());
+    try std.testing.expectEqual(@as(usize, 0), parser.segments.items.len);
 }
 
-test "path with trailing slash" {
+test "path parser - single segment absolute path" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const result = try parse(allocator, "/usr/bin/");
-    try testing.expectEqualStrings("usr", result.part.?);
-    try testing.expectEqualStrings("bin", result.next.?.part.?);
-    try testing.expect(result.next.?.next == null);
-    try testing.expect(result.part_type == .Directory);
-    try testing.expect(result.next.?.part_type == .Directory);
-    try testing.expect(result.is_absolute);
-    try testing.expect(!result.next.?.is_absolute);
-}
+    var parser = PathParser.init(allocator);
+    defer parser.deinit();
 
-test "path with double slash" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    const result = try parse(allocator, "/usr//bin");
-    try testing.expectEqualStrings("usr", result.part.?);
-    try testing.expectEqualStrings("bin", result.next.?.part.?);
-    try testing.expect(result.next.?.next == null);
-    try testing.expect(result.part_type == .Directory);
-    try testing.expect(result.next.?.part_type == .Unknown);
-    try testing.expect(result.is_absolute);
+    try parser.parse("/bin");
+    try std.testing.expect(parser.isAbsolute());
+    try std.testing.expectEqual(@as(usize, 2), parser.segments.items.len);
+    try std.testing.expectEqualStrings("/", parser.segments.items[0]);
+    try std.testing.expectEqualStrings("bin", parser.segments.items[1]);
 }

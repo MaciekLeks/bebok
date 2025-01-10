@@ -9,6 +9,7 @@ const BlockGroupDescriptor = @import("types.zig").BlockGroupDescriptor;
 const BlockAddressing = @import("types.zig").BlockAddressing;
 const Inode = @import("types.zig").Inode;
 const LinkedDirectoryEntry = @import("types.zig").LinkedDirectoryEntry;
+const File = @import("deps.zig").File;
 
 const pathparser = @import("deps.zig").pathparser;
 const pmm = @import("deps.zig").pmm; //block size should be the same as the page size
@@ -159,48 +160,52 @@ pub fn findInodeByPath(self: *const Ext2, path: []const u8, start_dir_inode: ?u3
     log.debug("findInodeByPath: {s}", .{path});
     var arena = std.heap.ArenaAllocator.init(heap.page_allocator);
     defer arena.deinit();
-
     const alloctr = arena.allocator();
-    const path_parts = try pathparser.parse(alloctr, path);
 
-    var curr_inode_num = if (path_parts.is_absolute and start_dir_inode == null) 2 else if (!path_parts.is_absolute and start_dir_inode != null) start_dir_inode.? else return pathparser.PathError.InvalidPath;
+    var parser = pathparser.PathParser.init(alloctr);
+    defer parser.deinit();
+    try parser.parse(path);
+
+    // Determine starting inode
+    var curr_inode_num = if (parser.isAbsolute() and start_dir_inode == null)
+        2 // root inode
+    else if (!parser.isAbsolute() and start_dir_inode != null)
+        start_dir_inode.?
+    else
+        return pathparser.PathError.InvalidPath;
 
     defer log.debug("findInodeByPath: res={d}", .{curr_inode_num});
 
     const name_buffer = try alloctr.alloc(u8, 256);
     const block_buffer = try alloctr.alloc(u8, self.superblock.getBlockSize());
 
-    var curr_part = path_parts;
-    while (true) {
-        if (curr_part.part) |name| {
-            const curr_inode = try self.readInode(curr_inode_num, block_buffer);
+    var it = parser.iterator();
+    // Skip root segment if path is absolute
+    if (parser.isAbsolute()) _ = it.next();
 
-            if (!curr_inode.isDirectory()) {
-                return error.NotDirectory;
-            }
+    // Iterate through path segments
+    while (it.next()) |name| {
+        const curr_inode = try self.readInode(curr_inode_num, block_buffer);
 
-            var dir_iter = self.linkedDirectoryIterator(&curr_inode, block_buffer);
-            var found = false;
-
-            while (dir_iter.next(name_buffer)) |opt_entry| {
-                if (opt_entry) |entry| {
-                    if (std.mem.eql(u8, entry.getName(), name)) {
-                        curr_inode_num = entry.header.inode;
-                        found = true;
-                        break;
-                    }
-                } else break;
-            } else |err| return err;
-
-            if (!found) {
-                return pathparser.PathError.NotFound;
-            }
+        if (!curr_inode.isDirectory()) {
+            return pathparser.PathError.NotDirectory;
         }
 
-        if (curr_part.next) |next| {
-            curr_part = next;
-        } else {
-            break;
+        var dir_iter = self.linkedDirectoryIterator(&curr_inode, block_buffer);
+        var found = false;
+
+        while (dir_iter.next(name_buffer)) |opt_entry| {
+            if (opt_entry) |entry| {
+                if (std.mem.eql(u8, entry.getName(), name)) {
+                    curr_inode_num = entry.header.inode;
+                    found = true;
+                    break;
+                }
+            } else break;
+        } else |err| return err;
+
+        if (!found) {
+            return File.Error.NotFound;
         }
     }
 
