@@ -12,6 +12,7 @@ const Inode = @import("types.zig").Inode;
 
 const pmm = @import("deps.zig").pmm; //block size should be the same as the page size
 const block_size = pmm.page_size;
+const heap = @import("deps.zig").heap;
 
 const log = std.log.scoped(.ext2);
 
@@ -66,11 +67,13 @@ pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partitio
     partition.filesystem = ext_fs.filesystem();
 
     //{TODO: remove this
-    const block_buffer = try allocator.alloc(u8, superblock.getBlockSize());
-    defer allocator.free(block_buffer);
+    var tmp_arena = std.heap.ArenaAllocator.init(heap.page_allocator);
+    defer tmp_arena.deinit();
+    const tmp_alloc = tmp_arena.allocator();
+    const block_buffer = try tmp_alloc.alloc(u8, superblock.getBlockSize());
 
     const inode = try ext_fs.readInode(2, block_buffer);
-    var diter = ext_fs.linkedDirectoryIterator(&inode, block_buffer);
+    var diter = try ext_fs.linkedDirectoryIterator(tmp_alloc, &inode);
     var name_buffer: [256]u8 = undefined;
     while (diter.next(&name_buffer)) |opt_entry| {
         if (opt_entry) |entry|
@@ -81,12 +84,11 @@ pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partitio
         log.err("Error: {}", .{err});
     }
 
-    // _ = ext_fs.findInodeByPath("/dir01/test-file2.txt", null) catch |err| {
     //_ = ext_fs.findInodeByPath("/dir01/", null) catch |err| {
-    // _ = ext_fs.findInodeByPath("test-file2.txt", 16385) catch |err| { //16385 is the inode number of the dir01 directory
-    // _ = ext_fs.findInodeByPath("/test-file1.txt", null) catch |err| {
-    //_ = ext_fs.findInodeByPath("/", null) catch |err| {
-    _ = ext_fs.findInodeByPath("/no-file-there", null) catch |err| {
+    //_ = ext_fs.findInodeByPath("test-file2.txt", 16385) catch |err| { //16385 is the inode number of the dir01 directory
+    _ = ext_fs.findInodeByPath("/test-file1.txt", null) catch |err| {
+        //_ = ext_fs.findInodeByPath("/", null) catch |err| {
+        //? _ = ext_fs.findInodeByPath("/no-file-there", null) catch |err| {
         log.err("findInodeByPath error: {any}", .{err});
     };
 

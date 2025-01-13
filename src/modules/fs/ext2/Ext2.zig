@@ -106,52 +106,151 @@ pub fn readInode(self: *const Ext2, inode_num: u32, block_buffer: []u8) !Inode {
     return inode.*;
 }
 
-pub fn linkedDirectoryIterator(self: *const Ext2, inode: *const Inode, block_buffer: []u8) LinkedDirectoryIterator {
-    return LinkedDirectoryIterator{
-        .ext2 = self,
-        .inode = inode,
-        .block_buffer = block_buffer,
-    };
+pub fn linkedDirectoryIterator(self: *const Ext2, allocator: std.mem.Allocator, inode: *const Inode) !LinkedDirectoryIterator {
+    return LinkedDirectoryIterator.init(allocator, self, inode);
 }
 
 //--- Iterators
 const LinkedDirectoryIterator = struct {
     const Self = @This();
+    alloctr: std.mem.Allocator,
     inode: *const Inode,
+    block_iterator: InodeBlockIterator,
     ext2: *const Ext2,
-    block_buffer: []u8,
-    dir_pos: usize = 0, //current position in the all direcotry's blocks in bytes
-    dir_block: ?usize = null, //current block index [0..14] in the inode.block table
+    block_buffer: []u8 = undefined,
+    dir_pos: usize = 0,
+
+    pub fn init(allocator: std.mem.Allocator, ext2: *const Ext2, inode: *const Inode) !Self {
+        if (!inode.isDirectory()) return error.NotDirectory;
+        if (inode.flags.index) return error.IndexedDirectoryNotSupported;
+
+        return Self{
+            .alloctr = allocator,
+            .inode = inode,
+            .block_iterator = InodeBlockIterator.init(allocator, ext2, inode),
+            .ext2 = ext2,
+            .block_buffer = try allocator.alloc(u8, ext2.superblock.getBlockSize()),
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.allopctr.free(self.block_buffer);
+        self.block_iterator.deinit();
+    }
 
     /// Return next directory entry
     /// name_buffer: at least 255 bytes for the directory entry name
     pub fn next(self: *Self, name_buffer: []u8) !?LinkedDirectoryEntry {
-        if (!self.inode.isDirectory()) return error.NotDirectory;
-        if (self.inode.flags.index) return error.IndexedDirectoryNotSupported;
-
-        const curr_dir_block = self.dir_pos / self.ext2.superblock.getBlockSize();
-
-        if (self.dir_block == null or curr_dir_block != self.dir_block) {
-            self.dir_block = curr_dir_block;
-            if (self.inode.block[self.dir_block.?] == 0) return null; //0 means no more data
-            switch (self.dir_block.?) {
-                0...11 => try readBlock(self.ext2, self.inode.block[self.dir_block.?], self.block_buffer),
-                12...14 => return error.Unimplemented, //TODO: implement indirect blocks
-                else => return error.Unreachable,
+        // Wczytaj pierwszy blok lub następny gdy przekroczono rozmiar aktualnego
+        if (self.dir_pos == 0 or self.dir_pos >= self.block_buffer.len) {
+            if (try self.block_iterator.next()) |block_num| {
+                _ = try readBlock(self.ext2, block_num, self.block_buffer);
+                self.dir_pos = 0;
+            } else {
+                return null;
             }
         }
 
-        const block_offset = self.dir_pos % self.ext2.superblock.getBlockSize();
-        var fbs = std.io.fixedBufferStream(self.block_buffer[block_offset..]);
+        var fbs = std.io.fixedBufferStream(self.block_buffer[self.dir_pos..]);
         const reader = fbs.reader();
 
-        //Read directory entry
+        // Read directory entry
         var entry = try LinkedDirectoryEntry.readFrom(reader, name_buffer);
 
-        //Update position
+        // Update position
         self.dir_pos += entry.getRecordLength();
-
         return entry;
+    }
+};
+
+const InodeBlockIterator = struct {
+    const Self = @This();
+    alloctr: std.mem.Allocator,
+    ext2: *const Ext2,
+    inode: *const Inode,
+    current_block: u32 = 0,
+    stack: [3]struct {
+        buffer: ?[]u32,
+        idx: u32,
+    } = undefined,
+    depth: u32 = 0,
+
+    pub fn init(allocator: std.mem.Allocator, ext2: *const Ext2, inode: *const Inode) Self {
+        return .{
+            .alloctr = allocator,
+            .ext2 = ext2,
+            .inode = inode,
+        };
+    }
+
+    pub fn deinit(self: *InodeBlockIterator) void {
+        for (self.stack) |stack| {
+            if (stack.buffer != null) {
+                self.alloctr.free(stack.buffer);
+            }
+        }
+    }
+
+    fn processIndirectBlock(self: *Self, block_num: u32, level: u32) !?u32 {
+        const curr_level = level - 1;
+
+        if (self.stack[curr_level].idx == 0) {
+            if (self.stack[curr_level].buffer == null) {
+                self.stack[curr_level].buffer = try self.alloctr.alloc(u32, self.ext2.superblock.getBlockSize() / 4);
+            }
+            const u8slice = std.mem.sliceAsBytes(self.stack[curr_level].buffer.?);
+            _ = try readBlock(self.ext2, block_num, u8slice);
+        }
+
+        const buffer = self.stack[curr_level].buffer.?;
+        defer self.stack[curr_level].idx += 1;
+
+        if (self.stack[curr_level].idx >= buffer.len) return null;
+
+        if (curr_level == 0) {
+            return buffer[self.stack[curr_level].idx];
+        }
+
+        self.stack[curr_level - 1].idx = 0;
+        return self.processIndirectBlock(buffer[self.stack[curr_level].idx], curr_level);
+    }
+
+    pub fn next(self: *Self) !?u32 {
+        // Direct blocks (0-11)
+        if (self.current_block < 12) {
+            defer self.current_block += 1;
+            const block_num = self.inode.block[self.current_block];
+            return if (block_num == 0) null else block_num;
+        }
+
+        // Indirect blocks (12-14)
+        const indirect_blocks = [_]struct {
+            index: u32,
+            level: u32,
+        }{
+            .{ .index = 12, .level = 1 }, // singly indirect
+            .{ .index = 13, .level = 2 }, // doubly indirect
+            .{ .index = 14, .level = 3 }, // triply indirect
+        };
+
+        if (self.depth == 0) {
+            self.depth = 1;
+            self.current_block = 12;
+        }
+
+        for (indirect_blocks) |block| {
+            if (self.current_block == block.index) {
+                if (try self.processIndirectBlock(self.inode.block[block.index], block.level)) |result| {
+                    return result;
+                } else {
+                    self.current_block += 1;
+                    self.depth = block.level + 1;
+                    for (0..3) |lvl| self.stack[lvl].idx = 0;
+                }
+            }
+        }
+
+        return null;
     }
 };
 
@@ -191,7 +290,7 @@ pub fn findInodeByPath(self: *const Ext2, path: []const u8, start_dir_inode: ?u3
             return pathparser.PathError.NotDirectory;
         }
 
-        var dir_iter = self.linkedDirectoryIterator(&curr_inode, block_buffer);
+        var dir_iter = try self.linkedDirectoryIterator(alloctr, &curr_inode);
         var found = false;
 
         while (dir_iter.next(name_buffer)) |opt_entry| {
