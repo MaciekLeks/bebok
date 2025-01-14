@@ -231,6 +231,15 @@ fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, debug: bool, bios_path
     return qemu_iso_action;
 }
 
+fn testTask(b: *Build) *const Build.Step {
+    const test_action = b.addTest(.{ .name = "unit-test", .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/tests.zig" } }, .target = b.standardTargetOptions(.{}) });
+    b.installArtifact(test_action);
+    const run_test_action = b.addRunArtifact(test_action);
+    const run_test_task = b.step("unit-test", "Run unit tests");
+    run_test_task.dependOn(&run_test_action.step);
+    return run_test_task;
+}
+
 pub fn build(b: *Build) !void {
     b.enable_qemu = true;
 
@@ -297,6 +306,9 @@ pub fn build(b: *Build) !void {
     qemu_iso_debug_task.dependOn(install_kernel_task); //to be able to debug in gdb
     const qemu_iso_debug_stage = b.step("iso-qemu-debug", "Run the ISO in QEMU with debug mode enabled");
     qemu_iso_debug_stage.dependOn(qemu_iso_debug_task);
+
+    //Test task
+    _ = testTask(b);
 
     b.default_step = iso_stage;
 }

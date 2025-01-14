@@ -4,5 +4,5 @@ const testing = @import("std").testing;
 test "test" {
     const md1 = mockdevices.MockBlockDevice;
     const md2 = mockdevices.MockBlockDevice;
-    testing.expectEqual(md1.kind, md2.kind);
+    try testing.expectEqual(md1.kind, md2.kind);
 }

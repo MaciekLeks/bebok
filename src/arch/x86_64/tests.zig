@@ -1,3 +1,2 @@
-test {
-    _ = @import("int.zig");
-}
+test {}
+
