@@ -257,6 +257,6 @@ test {
     _ = @import("tests.zig");
 }
 
-comptime {
-    @compileLog("Loading kernel.zig as root");
-}
+// comptime {
+//     @compileLog("Loading kernel.zig as root");
+// }

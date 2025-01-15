@@ -68,6 +68,12 @@ fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.bu
     compile_kernel_action.out_filename = "kernel.elf";
     compile_kernel_action.pie = false; //TODO: ?
 
+    //{Core modules
+    // const drivers_module = b.addModule("drivers", .{ .root_source_file = b.path("src/drivers/mod.zig") });
+    // compile_kernel_action.root_module.addImport("drivers", drivers_module);
+    //
+    //Core modules}
+
     //{Modules
     //const terminal_module = b.addModule("terminal", .{ .root_source_file = .{ .path = "lib/terminal/mod.zig" } });
     const terminal_module = b.addModule("terminal", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/terminal/mod.zig" } } });
