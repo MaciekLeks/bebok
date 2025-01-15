@@ -1,5 +1,5 @@
-const Device = @import("../../Device.zig");
-const BlockDevice = @import("../../BlockDevice.zig");
+const Device = @import("../../deps.zig").Device;
+const BlockDevice = @import("../../deps.zig").BlockDevice;
 
 fn mockDeviceDeinit(_: *Device) void {
     // noop

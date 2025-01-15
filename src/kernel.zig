@@ -90,7 +90,7 @@ pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     cpu.halt();
 }
 
-export fn _start() callconv(.C) noreturn {
+export fn __start() callconv(.C) noreturn {
     // Ensure the bootloader actually understands our base revision (see spec).
     if (!base_revision.is_supported()) {
         cpu.halt();
@@ -252,3 +252,11 @@ fn testISR0(_: ?*anyopaque) !void {
 //     log.warn("apic: 1----->>>>!!!!", .{});
 // }
 //
+//
+test {
+    _ = @import("tests.zig");
+}
+
+comptime {
+    @compileLog("Loading kernel.zig as root");
+}

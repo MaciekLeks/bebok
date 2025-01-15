@@ -1,3 +1,4 @@
+pub const Device = @import("root").Device;
 pub const BlockDevice = @import("root").BlockDevice;
 pub const Partition = @import("root").Partition;
 pub const FilesystemDriver = @import("root").FilesystemDriver;

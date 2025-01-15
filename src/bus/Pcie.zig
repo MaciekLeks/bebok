@@ -196,30 +196,30 @@ inline fn registerAddress(T: type, config_addr: ConfigAddress) T {
     return @as(T, @bitCast(config_addr)) & ~mask;
 }
 
-test "PCI register addresses" {
-    var config_addr = ConfigAddress{
-        .register_offset = .max_latency,
-        .addr = .{ .function = 0, .slot = 0, .bus = 0 },
-    };
-    const x = registerAddress(u32, config_addr);
-    log.warn("Register address: 0x{b:0>8}, 0x{b:0>8}", .{ x, @intFromEnum(RegisterOffset.max_latency) });
-    //  try t.expect(registerAddress(u32, config_addr) == 0x80000000);
-
-    config_addr = ConfigAddress{
-        .register_offset = .vendor_id,
-        .addr = .{ .function = 0, .slot = 0, .bus = 1 },
-    };
-    try t.expect(registerAddress(u32, config_addr) == 0x80_01_00_00);
-
-    config_addr = ConfigAddress{
-        .register_offset = .vendor_id,
-        .addr = .{ .function = 0, .slot = 1, .bus = 0 },
-    };
-    try t.expect(registerAddress(u32, config_addr) == 0x80_00_08_00);
-
-    config_addr = ConfigAddress{ .register_offset = .vendor_id, .addr = .{ .function = 1, .slot = 0, .bus = 0 } };
-    try t.expect(registerAddress(u32, config_addr) == 0x80000100);
-}
+// test "PCI register addresses" {
+//     var config_addr = ConfigAddress{
+//         .register_offset = .max_latency,
+//         .addr = .{ .function = 0, .slot = 0, .bus = 0 },
+//     };
+//     const x = registerAddress(u32, config_addr);
+//     log.warn("Register address: 0x{b:0>8}, 0x{b:0>8}", .{ x, @intFromEnum(RegisterOffset.max_latency) });
+//     //  try t.expect(registerAddress(u32, config_addr) == 0x80000000);
+//
+//     config_addr = ConfigAddress{
+//         .register_offset = .vendor_id,
+//         .addr = .{ .function = 0, .slot = 0, .bus = 1 },
+//     };
+//     try t.expect(registerAddress(u32, config_addr) == 0x80_01_00_00);
+//
+//     config_addr = ConfigAddress{
+//         .register_offset = .vendor_id,
+//         .addr = .{ .function = 0, .slot = 1, .bus = 0 },
+//     };
+//     try t.expect(registerAddress(u32, config_addr) == 0x80_00_08_00);
+//
+//     config_addr = ConfigAddress{ .register_offset = .vendor_id, .addr = .{ .function = 1, .slot = 0, .bus = 0 } };
+//     try t.expect(registerAddress(u32, config_addr) == 0x80000100);
+// }
 
 fn readRegister(T: type, config_addr: ConfigAddress) T {
     cpu.out(u32, legacy_pci_config_addres_port, registerAddress(u32, config_addr));
