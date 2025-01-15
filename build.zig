@@ -232,12 +232,71 @@ fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, debug: bool, bios_path
 }
 
 fn testTask(b: *Build) *const Build.Step {
-    const test_action = b.addTest(.{ .name = "unit-test", .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/tests.zig" } }, .target = b.standardTargetOptions(.{}) });
+    const test_action = b.addTest(.{
+        .name = "unit-test",
+        .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/tests.zig" } },
+        //.root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/kernel.zig" } },
+        .target = b.standardTargetOptions(.{}),
+    });
+
+    // ext2 module tests
+    const ext2_module = b.addModule("ext2", .{
+        .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/fs/ext2/test/tests.zig" } },
+        // .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/fs/ext2/mod.zig" } },
+    });
+    test_action.root_module.addImport("ext2", ext2_module);
+
     b.installArtifact(test_action);
     const run_test_action = b.addRunArtifact(test_action);
-    const run_test_task = b.step("unit-test", "Run unit tests");
+    const run_test_task = b.step("tests", "Run unit tests");
     run_test_task.dependOn(&run_test_action.step);
+
     return run_test_task;
+}
+
+fn fullTestAction(b: *Build, options: *Build.Step.Options, limine_zig_mod: *Build.Module, zigavl_mod: *Build.Module) *Build.Step.Compile {
+    const target = b.standardTargetOptions(.{});
+    const test_action = b.addTest(.{
+        .name = "unit-test",
+        .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/kernel.zig" } },
+        .target = target,
+    });
+
+    test_action.root_module.addOptions("config", options);
+
+    test_action.root_module.addImport("limine", limine_zig_mod);
+    test_action.root_module.addImport("zigavl", zigavl_mod);
+    //compile_kernel_action.setLinkerScript(.{ .path = b.fmt("linker-{s}.ld", .{@tagName(target.result.cpu.arch)}) });
+    //test_action.setLinkerScript(.{ .src_path = .{ .owner = b, .sub_path = b.fmt("linker-{s}.ld", .{@tagName(target.result.cpu.arch)}) } });
+    // test_action.out_filename = "kernel.elf";
+    // test_action.pie = false; //TODO: ?
+
+    //{Modules
+    //const terminal_module = b.addModule("terminal", .{ .root_source_file = .{ .path = "lib/terminal/mod.zig" } });
+    const terminal_module = b.addModule("terminal", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/terminal/mod.zig" } } });
+    terminal_module.addImport("limine", limine_zig_mod); //we need limine there
+    test_action.root_module.addImport("terminal", terminal_module);
+
+    //const utils_module = b.addModule("utils", .{ .root_source_file = .{ .path = "lib/utils/mod.zig" } });
+    const utils_module = b.addModule("mm", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/mm/mod.zig" } } });
+    test_action.root_module.addImport("mm", utils_module);
+
+    const nvme_module = b.addModule("nvme", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/block/nvme/mod.zig" } } });
+    test_action.root_module.addImport("nvme", nvme_module);
+
+    const gpt_module = b.addModule("gpt", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/block/gpt/mod.zig" } } });
+    test_action.root_module.addImport("gpt", gpt_module);
+
+    const ext2_module = b.addModule("ext2", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/fs/ext2/mod.zig" } } });
+    test_action.root_module.addImport("ext2", ext2_module);
+    //}Modules
+
+    b.installArtifact(test_action);
+    const run_test_action = b.addRunArtifact(test_action);
+    const run_test_task = b.step("full-tests", "Run unit tests");
+    run_test_task.dependOn(&run_test_action.step);
+
+    return test_action;
 }
 
 pub fn build(b: *Build) !void {
@@ -309,6 +368,7 @@ pub fn build(b: *Build) !void {
 
     //Test task
     _ = testTask(b);
+    //_ = fullTestAction(b, options, limine_zig_mod, zigavl_mod);
 
     b.default_step = iso_stage;
 }
