@@ -4,9 +4,9 @@ const Pcie = @import("Pcie.zig");
 const usb = @import("usb.zig");
 const log = std.log.scoped(.bus);
 
-const Device = @import("deps.zig").Device; //re-export for the all in the directory
-const Driver = @import("deps.zig").Driver; //re-export for the all in the directory
-const Registry = @import("deps.zig").Registry; //re-export for the all in the directory
+const Device = @import("devices").Device; //re-export for the all in the directory
+const Driver = @import("drivers").Driver; //re-export for the all in the directory
+const Registry = @import("drivers").Registry; //re-export for the all in the directory
 
 pub const BusType = enum {
     pcie,

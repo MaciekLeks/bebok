@@ -1,16 +1,16 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const Device = @import("deps.zig").Device;
-const PhysDevice = @import("deps.zig").PhysDevice;
-const Driver = @import("deps.zig").Driver;
-const Registry = @import("deps.zig").Registry;
-const cpu = @import("deps.zig").cpu;
-const heap = @import("deps.zig").heap;
-const paging = @import("deps.zig").paging;
+const Device = @import("devices").Device;
+const PhysDevice = @import("devices").PhysDevice;
+const Driver = @import("drivers").Driver;
+const Registry = @import("drivers").Registry;
+const cpu = @import("core").cpu;
+const heap = @import("core").heap;
+const paging = @import("core").paging;
 
 const Bus = @import("bus.zig").Bus;
-const NvmeDriver = @import("mod.zig").NvmeDriver;
+//const NvmeDriver = @import("mod.zig").NvmeDriver;
 
 const log = std.log.scoped(.pci);
 
