@@ -1,5 +1,5 @@
-const Pcie = @import("deps.zig").Pcie;
-const int = @import("deps.zig").int;
+const Pcie = @import("bus").Pcie;
+const int = @import("core").int;
 
 const NvmeController = @import("NvmeController.zig");
 

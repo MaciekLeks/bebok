@@ -1,7 +1,7 @@
 const std = @import("std");
 
-const cpu = @import("../deps.zig").cpu;
-const Pcie = @import("../deps.zig").Pcie;
+const cpu = @import("core").cpu;
+const Pcie = @import("bus").Pcie;
 
 const NvmeController = @import("../NvmeController.zig");
 const e = @import("../errors.zig");

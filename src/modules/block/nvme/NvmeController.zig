@@ -1,10 +1,10 @@
 const std = @import("std");
 const math = std.math;
 
-const pmm = @import("deps.zig").pmm;
-const paging = @import("deps.zig").paging;
-const heap = @import("deps.zig").heap;
-const Pcie = @import("deps.zig").Pcie;
+const pmm = @import("mem").pmm;
+const paging = @import("core").paging;
+const heap = @import("mem").heap;
+const Pcie = @import("bus").Pcie;
 
 const NvmeDriver = @import("NvmeDriver.zig");
 const NvmeNamespace = @import("NvmeNamespace.zig");
@@ -15,11 +15,11 @@ const id = @import("admin/identify.zig");
 const e = @import("errors.zig");
 const regs = @import("registers.zig");
 
-const BusDeviceAddress = @import("deps.zig").BusDeviceAddress;
-const BlockDevice = @import("deps.zig").BlockDevice;
-const Device = @import("deps.zig").Device;
-const PhysDevice = @import("deps.zig").PhysDevice;
-const DummyMutex = @import("deps.zig").DummyMutex;
+const BusDeviceAddress = @import("bus").BusDeviceAddress;
+const BlockDevice = @import("devices").BlockDevice;
+const Device = @import("devices").Device;
+const PhysDevice = @import("devices").PhysDevice;
+const DummyMutex = @import("commons").DummyMutex;
 
 const NvmeController = @This();
 

@@ -4,7 +4,7 @@ const cpu = @import("./cpu.zig");
 const gdt = @import("./gdt.zig");
 const testing = @import("testing");
 const apic = @import("./apic.zig");
-const InterruptPool = @import("deps.zig").InterruptPool;
+const InterruptPool = @import("commons").InterruptPool;
 
 const log = std.log.scoped(.init_x86_64);
 

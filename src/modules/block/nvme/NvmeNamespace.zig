@@ -1,14 +1,14 @@
 const std = @import("std");
 const math = std.math;
 
-const pmm = @import("deps.zig").pmm;
-const paging = @import("deps.zig").paging;
-const heap = @import("deps.zig").heap; //TODO:rmv
+const pmm = @import("mem").pmm;
+const paging = @import("core").paging;
+const heap = @import("mem").heap; //TODO:rmv
 
-const Device = @import("deps.zig").Device;
-const BlockDevice = @import("deps.zig").BlockDevice;
-const Streamer = @import("deps.zig").BlockDevice.Streamer;
-const PartitionScheme = @import("deps.zig").PartitionScheme;
+const Device = @import("devices").Device;
+const BlockDevice = @import("devices").BlockDevice;
+const Streamer = @import("devices").BlockDevice.Streamer;
+const PartitionScheme = @import("devices").PartitionScheme;
 
 const id = @import("admin/identify.zig");
 const e = @import("errors.zig");

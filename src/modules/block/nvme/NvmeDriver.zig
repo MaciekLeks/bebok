@@ -3,18 +3,18 @@ const log = std.log.scoped(.nvme_driver);
 const math = std.math;
 
 //const apic_test = @import("../arch/x86_64/apic.zig");
-const cpu = @import("deps.zig").cpu;
-const int = @import("deps.zig").int;
-const pmm = @import("deps.zig").pmm;
-const paging = @import("deps.zig").paging;
-const heap = @import("deps.zig").heap;
+const cpu = @import("core").cpu;
+const int = @import("core").int;
+const pmm = @import("mem").pmm;
+const paging = @import("core").paging;
+const heap = @import("mem").heap;
 
-const Device = @import("deps.zig").Device;
-const Driver = @import("deps.zig").Driver;
-const Bus = @import("deps.zig").Bus;
-const BusDeviceAddress = @import("deps.zig").BusDeviceAddress;
-const BlockDevice = @import("deps.zig").BlockDevice;
-const Pcie = @import("deps.zig").Pcie;
+const Device = @import("devices").Device;
+const Driver = @import("drivers").Driver;
+const Bus = @import("bus").Bus;
+const BusDeviceAddress = @import("bus").BusDeviceAddress;
+const BlockDevice = @import("devices").BlockDevice;
+const Pcie = @import("bus").Pcie;
 
 const NvmeController = @import("NvmeController.zig");
 const msix = @import("msix.zig");
