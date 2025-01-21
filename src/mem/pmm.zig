@@ -3,7 +3,7 @@ const math = std.math;
 const limine = @import("limine");
 const mm = @import("mm");
 const zigavl = @import("zigavl");
-const paging = @import("../paging.zig");
+const paging = @import("core").paging;
 const config = @import("config");
 const log = std.log.scoped(.pmm);
 

@@ -1,5 +1,5 @@
-const gdt = @import("gdt.zig");
-const idt = @import("int.zig");
+const gdt = @import("./gdt.zig");
+const idt = @import("./int.zig");
 
 pub fn halt() noreturn {
     while (true) {

@@ -1,3 +1,3 @@
-pub const BlockDevice = @import("root").BlockDevice;
-pub const Guid = @import("root").Guid;
-pub const Partition = @import("root").Partition;
+pub const BlockDevice = @import("devices").BlockDevice;
+pub const Guid = @import("commons").Guid;
+pub const Partition = @import("devices").Partition;

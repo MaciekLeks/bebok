@@ -1,7 +1,7 @@
 const std = @import("std");
-const cpu = @import("cpu.zig");
-const paging = @import("paging.zig");
-const limine = @import("smp.zig");
+const cpu = @import("./cpu.zig");
+const paging = @import("./paging.zig");
+const limine = @import("./smp.zig");
 
 const log = std.log.scoped(.apic);
 

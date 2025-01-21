@@ -1,6 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
-const InterruptPool = @import("commons/int.zig").InterruptPool;
+const InterruptPool = @import("commons").InterruptPool;
 
 const log = std.log.scoped(.int);
 const Int = @This();
@@ -86,7 +86,6 @@ pub fn acquireAnyInterrupt() !u8 {
 pub fn acquireInterrupt(interrupt: u8) !u8 {
     return try pool.acquire(interrupt);
 }
-
 
 pub fn releaseInterrupt(interrupt: u8) void {
     pool.release(interrupt);

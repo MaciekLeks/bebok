@@ -17,7 +17,7 @@
 
 const limine = @import("limine");
 const std = @import("std");
-const cpu = @import("cpu.zig");
+const cpu = @import("./cpu.zig");
 const config = @import("config");
 
 const log = std.log.scoped(.paging);
@@ -72,8 +72,8 @@ const PAT = struct {
         }
         if (pat_idx) |pi| {
             return .{ .page_pat = @truncate(pi >> 2), .page_pcd = (pi & 0b010) >> 1 == 1, .page_pwt = pi & 0b001 == 1 };
-        } 
-        
+        }
+
         @panic("PAT type not found");
     }
 };

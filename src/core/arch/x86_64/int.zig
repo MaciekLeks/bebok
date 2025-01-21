@@ -1,9 +1,9 @@
 const std = @import("std");
-const dpl = @import("dpl.zig");
-const cpu = @import("cpu.zig");
-const gdt = @import("gdt.zig");
+const dpl = @import("./dpl.zig");
+const cpu = @import("./cpu.zig");
+const gdt = @import("./gdt.zig");
 const testing = @import("testing");
-const apic = @import("apic.zig");
+const apic = @import("./apic.zig");
 const InterruptPool = @import("deps.zig").InterruptPool;
 
 const log = std.log.scoped(.init_x86_64);

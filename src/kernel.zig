@@ -3,39 +3,44 @@ const builtin = @import("builtin");
 const limine = @import("limine");
 const config = @import("config");
 //const start = @import("start.zig");
-const segmentation = @import("segmentation.zig");
 const term = @import("terminal");
 
-pub const Bus = @import("bus/bus.zig").Bus;
-pub const BusDeviceAddress = @import("bus/bus.zig").BusDeviceAddress;
-pub const Driver = @import("drivers/Driver.zig");
-pub const Device = @import("devices/Device.zig");
-pub const PhysDevice = @import("devices/PhysDevice.zig");
-pub const BlockDevice = @import("devices/mod.zig").BlockDevice;
-pub const PartitionScheme = @import("devices/mod.zig").PartitionScheme;
-pub const Partition = @import("devices/mod.zig").Partition;
-pub const Guid = @import("commons/guid.zig").Guid;
-pub const DummyMutex = @import("commons/thread.zig").DummyMutex;
-pub const FilesystemDriver = @import("fs/FilesystemDriver.zig");
-pub const Filesystem = @import("fs/Filesystem.zig");
-pub const pathparser = @import("fs/pathparser.zig");
-pub const File = @import("fs/File.zig");
-const DriverRegistry = @import("drivers/Registry.zig");
+//pub const Bus = @import("bus/bus.zig").Bus;
+//pub const BusDeviceAddress = @import("bus/bus.zig").BusDeviceAddress;
+//pub const Driver = @import("drivers/Driver.zig");
+const DriverRegistry = @import("drivers").Registry;
+const devices = @import("devices");
+const Device = devices.Device;
+// const PhysDevice = @import("devices/PhysDevice.zig");
+const BlockDevice = devices.BlockDevice;
+// const PartitionScheme = @import("devices/mod.zig").PartitionScheme;
+// const Partition = @import("devices/mod.zig").Partition;
+// const Guid = @import("commons/guid.zig").Guid;
+// const DummyMutex = @import("commons/thread.zig").DummyMutex;
+// const File = @import("fs/File.zig");
 const NvmeDriver = @import("nvme").NvmeDriver;
-const NvmeNamespace = @import("nvme").NvmeNamespace;
-const FilesystemDriversRegistry = @import("fs/Registry.zig");
+// const NvmeNamespace = @import("nvme").NvmeNamespace;
+const fs = @import("fs");
+const pathparser = fs.pathparser;
+const FilesystemDriver = fs.FilesystemDriver;
+const Filesystem = fs.Filesystem;
+const FilesystemDriversRegistry = fs.Registry;
 const Ext2Driver = @import("ext2").Ext2Driver;
-const smp = @import("smp.zig");
-const acpi = @import("acpi.zig");
+//
+const core = @import("core");
+// const acpi = core.acpi;
+const cpu = core.cpu;
+const int = core.int;
+const paging = core.paging;
+const smp = core.smp;
+const segmentation = core.segmentation;
+const mem = @import("mem");
+const pmm = mem.pmm;
+const heap = mem.heap;
+//
 
-pub const bus = @import("bus/mod.zig");
-pub const cpu = @import("cpu.zig");
-pub const int = @import("int.zig");
-pub const paging = @import("paging.zig");
-pub const pmm = @import("mem/pmm.zig");
-pub const heap = @import("mem/heap.zig").heap;
-
-const apic_test = @import("arch/x86_64/apic.zig");
+pub const bus = @import("bus");
+//?const apic_test = @import("core/arch/x86_64/apic.zig");
 
 const log = std.log.scoped(.kernel);
 
@@ -90,7 +95,7 @@ pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     cpu.halt();
 }
 
-export fn __start() callconv(.C) noreturn {
+export fn _start() callconv(.C) noreturn {
     // Ensure the bootloader actually understands our base revision (see spec).
     if (!base_revision.is_supported()) {
         cpu.halt();

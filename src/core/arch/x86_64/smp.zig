@@ -1,6 +1,6 @@
 const std = @import("std");
-const cpu = @import("cpu.zig");
-const paging = @import("paging.zig");
+const cpu = @import("./cpu.zig");
+const paging = @import("./paging.zig");
 const limine = @import("limine");
 
 const log = std.log.scoped(.smp);

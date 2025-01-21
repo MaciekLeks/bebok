@@ -1,6 +1,6 @@
 const std = @import("std");
-const cpu = @import("cpu.zig");
-const dpl = @import("dpl.zig");
+const cpu = @import("./cpu.zig");
+const dpl = @import("./dpl.zig");
 
 const log = std.log.scoped(.gdt);
 
@@ -64,8 +64,6 @@ const GdtEntry = packed struct(u64) {
             system = 0,
             code_data = 1,
         };
-
-
     };
 };
 
@@ -274,5 +272,5 @@ pub fn init() void {
 
     logDebugInfo();
 
-    cpu.lgdt(&gdtd, segment_selectors.kernel_code_x64,segment_selectors.kernel_data_x64);
+    cpu.lgdt(&gdtd, segment_selectors.kernel_code_x64, segment_selectors.kernel_data_x64);
 }

@@ -17,7 +17,8 @@ const log = std.log.scoped(.pci);
 const Pcie = @This();
 
 pub usingnamespace switch (builtin.cpu.arch) {
-    .x86_64 => @import("../arch/x86_64/pcie.zig"),
+    //.x86_64 => @import("../arch/x86_64/pcie.zig"),
+    .x86_64 => @import("arch/x86_64/pcie.zig"),
     else => |other| @compileError("Unimplemented for " ++ @tagName(other)),
 };
 

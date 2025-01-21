@@ -1,8 +1,8 @@
 const std = @import("std");
 
 const Device = @import("deps.zig").Device;
-const Bus = @import("deps.zig").bus.Bus;
-const BusDeviceAddress = @import("deps.zig").bus.BusDeviceAddress;
+const Bus = @import("deps.zig").Bus;
+const BusDeviceAddress = @import("deps.zig").BusDeviceAddress;
 
 const Driver = @This();
 

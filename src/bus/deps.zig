@@ -1,8 +1,8 @@
-pub const Device = @import("../devices/Device.zig"); //re-export for the all in the directory
-pub const PhysDevice = @import("../devices/PhysDevice.zig"); //re-export for the all in the directory
-pub const Driver = @import("../drivers/Driver.zig"); //re-export for the all in the directory
-pub const Registry = @import("../drivers/Registry.zig"); //re-export for the all in the directory
+pub const Device = @import("devices").Device;
+pub const PhysDevice = @import("devices").PhysDevice;
+pub const Driver = @import("drivers").Driver;
+pub const Registry = @import("drivers").Registry;
 
-pub const cpu = @import("../cpu.zig");
-pub const heap = @import("../mem/heap.zig");
-pub const paging = @import("../paging.zig");
+pub const cpu = @import("core").cpu;
+pub const heap = @import("core").heap;
+pub const paging = @import("core").paging;
