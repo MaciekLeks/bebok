@@ -1,8 +1,8 @@
 const std = @import("std");
 
-const BlockDevice = @import("deps.zig").BlockDevice;
-const Partition = @import("deps.zig").Partition;
-const FilesystemDriver = @import("deps.zig").FilesystemDriver;
+const BlockDevice = @import("devices").BlockDevice;
+const Partition = @import("devices").Partition;
+const FilesystemDriver = @import("fs").FilesystemDriver;
 const Superblock = @import("types.zig").Superblock;
 const BlockGroupDescriptor = @import("types.zig").BlockGroupDescriptor;
 
@@ -10,9 +10,9 @@ const Ext2 = @import("Ext2.zig");
 const BlockAddressing = @import("types.zig").BlockAddressing;
 const Inode = @import("types.zig").Inode;
 
-const pmm = @import("deps.zig").pmm; //block size should be the same as the page size
+const pmm = @import("mem").pmm; //block size should be the same as the page size
 const block_size = pmm.page_size;
-const heap = @import("deps.zig").heap;
+const heap = @import("mem").heap;
 
 const log = std.log.scoped(.ext2);
 

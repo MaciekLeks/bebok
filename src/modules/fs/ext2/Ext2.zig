@@ -1,20 +1,20 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const BlockDevice = @import("deps.zig").BlockDevice;
-const Partition = @import("deps.zig").Partition;
-const Filesystem = @import("deps.zig").Filesystem;
-const FileDescriptor = @import("deps.zig").FileDescriptor;
+const BlockDevice = @import("devices").BlockDevice;
+const Partition = @import("devices").Partition;
+const Filesystem = @import("fs").Filesystem;
+const FileDescriptor = @import("fs").FileDescriptor;
 const Superblock = @import("types.zig").Superblock;
 const BlockGroupDescriptor = @import("types.zig").BlockGroupDescriptor;
 const BlockAddressing = @import("types.zig").BlockAddressing;
 const Inode = @import("types.zig").Inode;
 const LinkedDirectoryEntry = @import("types.zig").LinkedDirectoryEntry;
-const File = @import("deps.zig").File;
+const File = @import("fs").File;
 
-const pathparser = @import("deps.zig").pathparser;
-const pmm = @import("deps.zig").pmm; //block size should be the same as the page size
-const heap = @import("deps.zig").heap;
+const pathparser = @import("fs").pathparser;
+const pmm = @import("mem").pmm; //block size should be the same as the page size
+const heap = @import("mem").heap;
 const block_size = pmm.page_size;
 
 const log = std.log.scoped(.ext2);
