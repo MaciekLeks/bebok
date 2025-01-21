@@ -1,9 +1,9 @@
 const std = @import("std");
 
-const Device = @import("deps.zig").Device;
-const BlockDevice = @import("deps.zig").BlockDevice;
-const Partition = @import("deps.zig").Partition;
-const Bus = @import("deps.zig").Bus;
+const Device = @import("devices").Device;
+const BlockDevice = @import("devices").BlockDevice;
+const Partition = @import("devices").Partition;
+const Bus = @import("bus").Bus;
 const Registry = @import("Registry.zig");
 
 const log = std.log.scoped(.file_system_driver);
