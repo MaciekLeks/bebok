@@ -46,60 +46,174 @@ fn resolveTarget(b: *Build, arch: Target.Cpu.Arch) !Build.ResolvedTarget {
 
 /// Main compilation units
 /// Add here all modules that should be compiled into the kernel
-fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, options: *Build.Step.Options, limine_zig_mod: *Build.Module, zigavl_mod: *Build.Module) *Build.Step.Compile {
+// fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, options: *Build.Step.Options, limine_zig_mod: *Build.Module, zigavl_mod: *Build.Module) *Build.Step.Compile {
+//     const compile_kernel_action = b.addExecutable(.{
+//         .name = "kernel.elf",
+//         // .root_source_file = .{ .path = "src/kernel.zig" },
+//         .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/kernel.zig" } },
+//         .target = target,
+//         .optimize = optimize,
+//         .single_threaded = true,
+//         .code_model = .kernel,
+//         .pic = false, //TODO: check if this is needed
+//     });
+//
+//     // Pass options to the code, we can't use addOptions cause it creates module each call to that function
+//     //compile_kernel_action.root_module.addOptions("config", options);
+//     const options_module = options.createModule();
+//     compile_kernel_action.root_module.addImport("config", options_module);
+//
+//     compile_kernel_action.root_module.addImport("limine", limine_zig_mod);
+//
+//     //compile_kernel_action.setLinkerScript(.{ .path = b.fmt("linker-{s}.ld", .{@tagName(target.result.cpu.arch)}) });
+//     compile_kernel_action.setLinkerScript(.{ .src_path = .{ .owner = b, .sub_path = b.fmt("linker-{s}.ld", .{@tagName(target.result.cpu.arch)}) } });
+//     compile_kernel_action.out_filename = "kernel.elf";
+//     compile_kernel_action.pie = false; //TODO: ?
+//
+//     //{Prerequisites modules
+//     const utils_module = b.addModule("mm", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/mm/mod.zig" } } });
+//     compile_kernel_action.root_module.addImport("mm", utils_module);
+//
+//     const gpt_module = b.addModule("gpt", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/block/gpt/mod.zig" } } });
+//     compile_kernel_action.root_module.addImport("gpt", gpt_module);
+//
+//     const fs_module = b.addModule("fs", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/fs/mod.zig" } } });
+//     compile_kernel_action.root_module.addImport("fs", fs_module);
+//
+//     const mem_module = b.addModule("mem", .{ .root_source_file = b.path("src/mem/mod.zig") });
+//     compile_kernel_action.root_module.addImport("mem", mem_module);
+//
+//     //{Core modules
+//     const commons_module = b.addModule("commons", .{ .root_source_file = b.path("src/commons/mod.zig") });
+//     compile_kernel_action.root_module.addImport("commons", commons_module);
+//
+//     const core_module = b.addModule("core", .{ .root_source_file = b.path("src/core/mod.zig") });
+//     core_module.addImport("limine", limine_zig_mod); //we need limine there
+//     core_module.addImport("config", options_module); //we config for paging
+//     core_module.addImport("commons", commons_module);
+//     compile_kernel_action.root_module.addImport("core", core_module);
+//
+//     const drivers_module = b.addModule("drivers", .{ .root_source_file = b.path("src/drivers/mod.zig") });
+//     const bus_module = b.addModule("bus", .{ .root_source_file = b.path("src/bus/mod.zig") });
+//     const devices_module = b.addModule("devices", .{ .root_source_file = b.path("src/devices/mod.zig") });
+//     compile_kernel_action.root_module.addImport("devices", devices_module);
+//     compile_kernel_action.root_module.addImport("bus", bus_module);
+//     bus_module.addImport("core", core_module);
+//     bus_module.addImport("devices", devices_module);
+//     bus_module.addImport("drivers", drivers_module);
+//     drivers_module.addImport("bus", bus_module);
+//     devices_module.addImport("bus", bus_module);
+//     devices_module.addImport("gpt", gpt_module);
+//     devices_module.addImport("commons", commons_module);
+//     devices_module.addImport("fs", fs_module);
+//     devices_module.addImport("mem", mem_module);
+//     gpt_module.addImport("devices", devices_module);
+//     gpt_module.addImport("commons", commons_module);
+//     fs_module.addImport("bus", bus_module);
+//     fs_module.addImport("devices", devices_module);
+//
+//     compile_kernel_action.root_module.addImport("drivers", drivers_module);
+//
+//     mem_module.addImport("limine", limine_zig_mod);
+//     mem_module.addImport("core", core_module);
+//     mem_module.addImport("mm", utils_module);
+//     mem_module.addImport("config", options_module);
+//     mem_module.addImport("zigavl", zigavl_mod);
+//
+//     //Core modules}
+//
+//     //{Modules
+//     //const terminal_module = b.addModule("terminal", .{ .root_source_file = .{ .path = "lib/terminal/mod.zig" } });
+//     const terminal_module = b.addModule("terminal", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/terminal/mod.zig" } } });
+//     terminal_module.addImport("limine", limine_zig_mod); //we need limine there
+//     compile_kernel_action.root_module.addImport("terminal", terminal_module);
+//
+//     const nvme_module = b.addModule("nvme", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/block/nvme/mod.zig" } } });
+//     nvme_module.addImport("drivers", drivers_module);
+//     compile_kernel_action.root_module.addImport("nvme", nvme_module);
+//     nvme_module.addImport("core", core_module);
+//     nvme_module.addImport("mem", mem_module);
+//     nvme_module.addImport("bus", bus_module);
+//     nvme_module.addImport("devices", devices_module);
+//
+//     const ext2_module = b.addModule("ext2", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/fs/ext2/mod.zig" } } });
+//     compile_kernel_action.root_module.addImport("ext2", ext2_module);
+//     ext2_module.addImport("mem", mem_module);
+//     ext2_module.addImport("devices", devices_module);
+//     ext2_module.addImport("fs", fs_module);
+//
+//     //}Modules
+//
+//     return compile_kernel_action;
+// }
+
+fn compileKernelAction(
+    b: *Build,
+    target: Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    options: *Build.Step.Options,
+    limine_zig_mod: *Build.Module,
+    zigavl_mod: *Build.Module,
+) *Build.Step.Compile {
     const compile_kernel_action = b.addExecutable(.{
         .name = "kernel.elf",
-        // .root_source_file = .{ .path = "src/kernel.zig" },
         .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/kernel.zig" } },
         .target = target,
         .optimize = optimize,
         .single_threaded = true,
         .code_model = .kernel,
-        .pic = false, //TODO: check if this is needed
+        .pic = false,
     });
 
-    // Pass options to the code, we can't use addOptions cause it creates module each call to that function
-    //compile_kernel_action.root_module.addOptions("config", options);
-    const options_module = options.createModule();
-    compile_kernel_action.root_module.addImport("config", options_module);
-
-    compile_kernel_action.root_module.addImport("limine", limine_zig_mod);
-    //??? we added them into the mem module
-    //????compile_kernel_action.root_module.addImport("zigavl", zigavl_mod);
-
-    //compile_kernel_action.setLinkerScript(.{ .path = b.fmt("linker-{s}.ld", .{@tagName(target.result.cpu.arch)}) });
+    // Linker configuration
     compile_kernel_action.setLinkerScript(.{ .src_path = .{ .owner = b, .sub_path = b.fmt("linker-{s}.ld", .{@tagName(target.result.cpu.arch)}) } });
     compile_kernel_action.out_filename = "kernel.elf";
-    compile_kernel_action.pie = false; //TODO: ?
+    compile_kernel_action.pie = false;
 
-    //{Prerequisites modules
-    const utils_module = b.addModule("mm", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/mm/mod.zig" } } });
-    compile_kernel_action.root_module.addImport("mm", utils_module);
+    configureDependencies(b, compile_kernel_action, options, limine_zig_mod, zigavl_mod);
+    return compile_kernel_action;
+}
 
-    const gpt_module = b.addModule("gpt", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/block/gpt/mod.zig" } } });
-    compile_kernel_action.root_module.addImport("gpt", gpt_module);
+fn configureDependencies(
+    b: *Build,
+    compile_action: *Build.Step.Compile,
+    options: *Build.Step.Options,
+    limine_zig_mod: *Build.Module,
+    zigavl_mod: *Build.Module,
+) void {
+    // Base modules setup
+    const options_module = options.createModule();
+    compile_action.root_module.addImport("config", options_module);
+    compile_action.root_module.addImport("limine", limine_zig_mod);
 
-    const fs_module = b.addModule("fs", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/fs/mod.zig" } } });
-    compile_kernel_action.root_module.addImport("fs", fs_module);
-
-    const mem_module = b.addModule("mem", .{ .root_source_file = b.path("src/mem/mod.zig") });
-    compile_kernel_action.root_module.addImport("mem", mem_module);
-
-    //{Core modules
-    const commons_module = b.addModule("commons", .{ .root_source_file = b.path("src/commons/mod.zig") });
-    compile_kernel_action.root_module.addImport("commons", commons_module);
-
+    // Core system modules
     const core_module = b.addModule("core", .{ .root_source_file = b.path("src/core/mod.zig") });
-    core_module.addImport("limine", limine_zig_mod); //we need limine there
-    core_module.addImport("config", options_module); //we config for paging
-    core_module.addImport("commons", commons_module);
-    compile_kernel_action.root_module.addImport("core", core_module);
-
+    const commons_module = b.addModule("commons", .{ .root_source_file = b.path("src/commons/mod.zig") });
     const drivers_module = b.addModule("drivers", .{ .root_source_file = b.path("src/drivers/mod.zig") });
     const bus_module = b.addModule("bus", .{ .root_source_file = b.path("src/bus/mod.zig") });
     const devices_module = b.addModule("devices", .{ .root_source_file = b.path("src/devices/mod.zig") });
-    compile_kernel_action.root_module.addImport("devices", devices_module);
-    compile_kernel_action.root_module.addImport("bus", bus_module);
+
+    // Memory management modules
+    const mem_module = b.addModule("mem", .{ .root_source_file = b.path("src/mem/mod.zig") });
+    const utils_module = b.addModule("mm", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/mm/mod.zig" } } });
+
+    // Filesystem modules
+    const fs_module = b.addModule("fs", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/fs/mod.zig" } } });
+    const ext2_module = b.addModule("ext2", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/fs/ext2/mod.zig" } } });
+
+    // Storage modules
+    const gpt_module = b.addModule("gpt", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/block/gpt/mod.zig" } } });
+    const nvme_module = b.addModule("nvme", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/block/nvme/mod.zig" } } });
+
+    // UI modules
+    const terminal_module = b.addModule("terminal", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/terminal/mod.zig" } } });
+
+    // Core module dependencies
+    core_module.addImport("limine", limine_zig_mod);
+    core_module.addImport("config", options_module);
+    core_module.addImport("commons", commons_module);
+
+    // Bus and device dependencies
     bus_module.addImport("core", core_module);
     bus_module.addImport("devices", devices_module);
     bus_module.addImport("drivers", drivers_module);
@@ -109,48 +223,46 @@ fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.bu
     devices_module.addImport("commons", commons_module);
     devices_module.addImport("fs", fs_module);
     devices_module.addImport("mem", mem_module);
-    gpt_module.addImport("devices", devices_module);
-    gpt_module.addImport("commons", commons_module);
-    fs_module.addImport("bus", bus_module);
-    fs_module.addImport("devices", devices_module);
 
-    compile_kernel_action.root_module.addImport("drivers", drivers_module);
-
+    // Memory management dependencies
     mem_module.addImport("limine", limine_zig_mod);
     mem_module.addImport("core", core_module);
     mem_module.addImport("mm", utils_module);
     mem_module.addImport("config", options_module);
     mem_module.addImport("zigavl", zigavl_mod);
 
-    //Core modules}
-
-    //{Modules
-    //const terminal_module = b.addModule("terminal", .{ .root_source_file = .{ .path = "lib/terminal/mod.zig" } });
-    const terminal_module = b.addModule("terminal", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/terminal/mod.zig" } } });
-    terminal_module.addImport("limine", limine_zig_mod); //we need limine there
-    compile_kernel_action.root_module.addImport("terminal", terminal_module);
-
-    //const utils_module = b.addModule("utils", .{ .root_source_file = .{ .path = "lib/utils/mod.zig" } });
-    //const utils_module = b.addModule("mm", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/mm/mod.zig" } } });
-    // compile_kernel_action.root_module.addImport("mm", utils_module);
-
-    const nvme_module = b.addModule("nvme", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/block/nvme/mod.zig" } } });
+    // Storage dependencies
+    gpt_module.addImport("devices", devices_module);
+    gpt_module.addImport("commons", commons_module);
     nvme_module.addImport("drivers", drivers_module);
-    compile_kernel_action.root_module.addImport("nvme", nvme_module);
     nvme_module.addImport("core", core_module);
     nvme_module.addImport("mem", mem_module);
     nvme_module.addImport("bus", bus_module);
     nvme_module.addImport("devices", devices_module);
 
-    const ext2_module = b.addModule("ext2", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/fs/ext2/mod.zig" } } });
-    compile_kernel_action.root_module.addImport("ext2", ext2_module);
+    // Filesystem dependencies
+    fs_module.addImport("bus", bus_module);
+    fs_module.addImport("devices", devices_module);
     ext2_module.addImport("mem", mem_module);
     ext2_module.addImport("devices", devices_module);
     ext2_module.addImport("fs", fs_module);
 
-    //}Modules
+    // UI dependencies
+    terminal_module.addImport("limine", limine_zig_mod);
 
-    return compile_kernel_action;
+    // Root module imports
+    compile_action.root_module.addImport("core", core_module);
+    compile_action.root_module.addImport("commons", commons_module);
+    compile_action.root_module.addImport("drivers", drivers_module);
+    compile_action.root_module.addImport("devices", devices_module);
+    compile_action.root_module.addImport("bus", bus_module);
+    compile_action.root_module.addImport("mm", utils_module);
+    compile_action.root_module.addImport("gpt", gpt_module);
+    compile_action.root_module.addImport("fs", fs_module);
+    compile_action.root_module.addImport("mem", mem_module);
+    compile_action.root_module.addImport("terminal", terminal_module);
+    compile_action.root_module.addImport("nvme", nvme_module);
+    compile_action.root_module.addImport("ext2", ext2_module);
 }
 
 fn installKernelAction(b: *Build, compile_action: *Build.Step.Compile) *Build.Step.InstallArtifact {
