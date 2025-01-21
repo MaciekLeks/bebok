@@ -414,7 +414,7 @@ fn testTask(b: *Build) *const Build.Step {
 
     // ext2 module tests
     const ext2_module = b.addModule("ext2", .{
-        .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/fs/ext2/test/tests.zig" } },
+        .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/fs/ext2/tests.zig" } },
         // .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/fs/ext2/mod.zig" } },
     });
     test_action.root_module.addImport("ext2", ext2_module);
@@ -435,34 +435,7 @@ fn fullTestAction(b: *Build, options: *Build.Step.Options, limine_zig_mod: *Buil
         .target = target,
     });
 
-    test_action.root_module.addOptions("config", options);
-
-    test_action.root_module.addImport("limine", limine_zig_mod);
-    test_action.root_module.addImport("zigavl", zigavl_mod);
-    //compile_kernel_action.setLinkerScript(.{ .path = b.fmt("linker-{s}.ld", .{@tagName(target.result.cpu.arch)}) });
-    //test_action.setLinkerScript(.{ .src_path = .{ .owner = b, .sub_path = b.fmt("linker-{s}.ld", .{@tagName(target.result.cpu.arch)}) } });
-    // test_action.out_filename = "kernel.elf";
-    // test_action.pie = false; //TODO: ?
-
-    //{Modules
-    //const terminal_module = b.addModule("terminal", .{ .root_source_file = .{ .path = "lib/terminal/mod.zig" } });
-    const terminal_module = b.addModule("terminal", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/terminal/mod.zig" } } });
-    terminal_module.addImport("limine", limine_zig_mod); //we need limine there
-    test_action.root_module.addImport("terminal", terminal_module);
-
-    //const utils_module = b.addModule("utils", .{ .root_source_file = .{ .path = "lib/utils/mod.zig" } });
-    const utils_module = b.addModule("mm", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/mm/mod.zig" } } });
-    test_action.root_module.addImport("mm", utils_module);
-
-    const nvme_module = b.addModule("nvme", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/block/nvme/mod.zig" } } });
-    test_action.root_module.addImport("nvme", nvme_module);
-
-    const gpt_module = b.addModule("gpt", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/block/gpt/mod.zig" } } });
-    test_action.root_module.addImport("gpt", gpt_module);
-
-    const ext2_module = b.addModule("ext2", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/fs/ext2/mod.zig" } } });
-    test_action.root_module.addImport("ext2", ext2_module);
-    //}Modules
+    configureDependencies(b, test_action, options, limine_zig_mod, zigavl_mod);
 
     b.installArtifact(test_action);
     const run_test_action = b.addRunArtifact(test_action);
@@ -540,8 +513,8 @@ pub fn build(b: *Build) !void {
     qemu_iso_debug_stage.dependOn(qemu_iso_debug_task);
 
     //Test task
-    _ = testTask(b);
-    //_ = fullTestAction(b, options, limine_zig_mod, zigavl_mod);
+    //_ = testTask(b);
+    _ = fullTestAction(b, options, limine_zig_mod, zigavl_mod);
 
     b.default_step = iso_stage;
 }
