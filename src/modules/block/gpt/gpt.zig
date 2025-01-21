@@ -1,8 +1,8 @@
 const std = @import("std");
 
-const BlockDevice = @import("deps.zig").BlockDevice;
-const Guid = @import("deps.zig").Guid;
-const Partition = @import("deps.zig").Partition;
+const BlockDevice = @import("devices").BlockDevice;
+const Guid = @import("commons").Guid;
+const Partition = @import("devices").Partition;
 
 //TODO: add code to read GPT header and entries from the mirror
 
