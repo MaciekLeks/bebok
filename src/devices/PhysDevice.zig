@@ -4,7 +4,7 @@ const log = std.log.scoped(.device);
 
 const Device = @import("Device.zig");
 
-const BusDeviceAddress = @import("deps.zig").BusDeviceAddress;
+const BusDeviceAddress = @import("bus").BusDeviceAddress;
 
 const PhysDevice = @This();
 

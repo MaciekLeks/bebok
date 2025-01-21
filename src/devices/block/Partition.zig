@@ -1,10 +1,10 @@
 const std = @import("std");
 
-const Guid = @import("../deps.zig").Guid;
+const Guid = @import("commons").Guid;
 const Device = @import("../Device.zig");
 const BlockDevice = @import("../BlockDevice.zig");
 const Streamer = BlockDevice.Streamer;
-const Filesystem = @import("../deps.zig").Filesystem;
+const Filesystem = @import("fs").Filesystem;
 
 const log = std.log.scoped("partition");
 

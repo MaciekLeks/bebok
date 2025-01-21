@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Gpt = @import("../deps.zig").Gpt;
+const Gpt = @import("gpt").Gpt;
 const BlockDevice = @import("../BlockDevice.zig");
 const Partition = @import("Partition.zig");
 

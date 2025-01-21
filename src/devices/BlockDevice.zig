@@ -1,13 +1,11 @@
 const std = @import("std");
-//const NvmeController = @import("deps.zig").NvmeController;
-const NvmeNamespace = @import("deps.zig").NvmeNamespace;
 const Device = @import("Device.zig");
 
 const PartitionScheme = @import("block/PartitionScheme.zig");
 const Partition = @import("block/Partition.zig");
-const Bus = @import("deps.zig").Bus;
+const Bus = @import("bus").Bus;
 
-const heap = @import("deps.zig").heap; //TODO: tbd
+const heap = @import("mem").heap; //TODO: tbd
 const log = std.log.scoped(.block_device);
 
 const BlockDevice = @This();
