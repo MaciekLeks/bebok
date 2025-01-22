@@ -431,7 +431,7 @@ fn fullTestAction(b: *Build, options: *Build.Step.Options, limine_zig_mod: *Buil
     const target = b.standardTargetOptions(.{});
     const test_action = b.addTest(.{
         .name = "unit-test",
-        .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/kernel.zig" } },
+        .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/kernel_test.zig" } },
         .target = target,
     });
 

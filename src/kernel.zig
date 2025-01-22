@@ -25,7 +25,8 @@ const pathparser = fs.pathparser;
 const FilesystemDriver = fs.FilesystemDriver;
 const Filesystem = fs.Filesystem;
 const FilesystemDriversRegistry = fs.Registry;
-const Ext2Driver = @import("ext2").Ext2Driver;
+const ext2 = @import("ext2");
+const Ext2Driver = ext2.Ext2Driver;
 //
 const core = @import("core");
 // const acpi = core.acpi;
@@ -95,7 +96,14 @@ pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     cpu.halt();
 }
 
-export fn _start() callconv(.C) noreturn {
+comptime {
+    if (!builtin.is_test) {
+        @export(&_start, .{ .name = "_start", .linkage = .strong });
+    }
+}
+
+fn _start() callconv(.C) noreturn {
+    //export fn _start() callconv(.C) noreturn {
     // Ensure the bootloader actually understands our base revision (see spec).
     if (!base_revision.is_supported()) {
         cpu.halt();
@@ -258,8 +266,12 @@ fn testISR0(_: ?*anyopaque) !void {
 // }
 //
 //
+
+test "a" {}
 test {
-    _ = @import("tests.zig");
+    //_ = @import("tests.zig");
+    _ = @import("ext2");
+    std.testing.refAllDecls(@This());
 }
 
 // comptime {
