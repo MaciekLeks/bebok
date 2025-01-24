@@ -406,3 +406,6 @@ pub fn findInodeByPath(self: *const Ext2, path: []const u8, start_dir_inode: ?u3
 
     return curr_inode_num;
 }
+
+// test
+test "ext2_a" {}

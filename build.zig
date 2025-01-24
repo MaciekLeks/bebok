@@ -438,9 +438,19 @@ fn fullTestAction(b: *Build, options: *Build.Step.Options, limine_zig_mod: *Buil
     configureDependencies(b, test_action, options, limine_zig_mod, zigavl_mod);
 
     b.installArtifact(test_action);
+
     const run_test_action = b.addRunArtifact(test_action);
     const run_test_task = b.step("full-tests", "Run unit tests");
     run_test_task.dependOn(&run_test_action.step);
+
+    const install_test_action = b.addInstallArtifact(test_action, .{
+        .dest_dir = .{
+            .override = .prefix, //do not install inside bin subdirectory
+        },
+    }); //instal an exe for debugging
+    b.getInstallStep().dependOn(&install_test_action.step);
+    const install_test_task = b.step("full-tests-install", "Install unit tests");
+    install_test_task.dependOn(&install_test_action.step);
 
     return test_action;
 }
@@ -458,8 +468,8 @@ pub fn build(b: *Build) !void {
     const target = try resolveTarget(b, build_options.arch);
 
     const optimize = b.standardOptimizeOption(.{
-        .preferred_optimize_mode = .ReleaseSafe, //tODO: uncomment
-        // .preferred_optimize_mode = .Debug,
+        //.preferred_optimize_mode = .ReleaseSafe, //tODO: uncomment
+        .preferred_optimize_mode = .Debug,
     });
 
     const limine_zig_dep = b.dependency("limine_zig", .{});

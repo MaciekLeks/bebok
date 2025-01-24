@@ -523,7 +523,7 @@ pub fn readCapability(comptime TCap: type, addr: PcieAddress) !TCap {
     var val: TCap = undefined;
 
     const cap_id_field = std.meta.fieldInfo(TCap, .cid);
-    const default_val_ptr = cap_id_field.default_value orelse @compileError("TCap.id must have a default value");
+    const default_val_ptr = cap_id_field.default_value_ptr orelse @compileError("TCap.id must have a default value");
     const cap_id_ptr: *const u8 = @ptrCast(default_val_ptr);
 
     const cap_offset = try findCapabilityOffset(cap_id_ptr.*, addr);
@@ -545,7 +545,7 @@ pub fn readCapability(comptime TCap: type, addr: PcieAddress) !TCap {
 
 pub fn writeCapability(comptime TCap: type, val: TCap, addr: PcieAddress) !void {
     const cap_id_field = std.meta.fieldInfo(TCap, .cid);
-    const default_val_ptr = cap_id_field.default_value orelse @compileError("TCap.id must have a default value");
+    const default_val_ptr = cap_id_field.default_value_ptr orelse @compileError("TCap.id must have a default value");
     const cap_id_ptr: *const u8 = @ptrCast(default_val_ptr);
 
     const cap_offset = try findCapabilityOffset(cap_id_ptr.*, addr);
