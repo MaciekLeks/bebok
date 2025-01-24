@@ -427,7 +427,7 @@ fn testTask(b: *Build) *const Build.Step {
     return run_test_task;
 }
 
-fn fullTestAction(b: *Build, options: *Build.Step.Options, limine_zig_mod: *Build.Module, zigavl_mod: *Build.Module) *Build.Step.Compile {
+fn fullTest(b: *Build, options: *Build.Step.Options, limine_zig_mod: *Build.Module, zigavl_mod: *Build.Module) *Build.Step.Compile {
     const target = b.standardTargetOptions(.{});
     const test_action = b.addTest(.{
         .name = "unit-test",
@@ -437,7 +437,7 @@ fn fullTestAction(b: *Build, options: *Build.Step.Options, limine_zig_mod: *Buil
 
     configureDependencies(b, test_action, options, limine_zig_mod, zigavl_mod);
 
-    b.installArtifact(test_action);
+    //b.installArtifact(test_action);
 
     const run_test_action = b.addRunArtifact(test_action);
     const run_test_task = b.step("full-tests", "Run unit tests");
@@ -524,7 +524,7 @@ pub fn build(b: *Build) !void {
 
     //Test task
     //_ = testTask(b);
-    _ = fullTestAction(b, options, limine_zig_mod, zigavl_mod);
+    _ = fullTest(b, options, limine_zig_mod, zigavl_mod);
 
     b.default_step = iso_stage;
 }
