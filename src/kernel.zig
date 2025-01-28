@@ -267,13 +267,6 @@ fn testISR0(_: ?*anyopaque) !void {
 //
 //
 
-test "a" {}
-test {
-    //_ = @import("tests.zig");
-    _ = @import("ext2");
-    std.testing.refAllDecls(@This());
-}
-
 // comptime {
 //     @compileLog("Loading kernel.zig as root");
 // }
