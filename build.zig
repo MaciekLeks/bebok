@@ -194,7 +194,7 @@ pub fn build(b: *Build) !void {
     };
 
     const kernel_target = try resolveTarget(b, build_options.arch);
-    const test_target = b.standardTargetOptions(.{});
+    const ut_target = b.standardTargetOptions(.{});
 
     const optimize = b.standardOptimizeOption(.{
         .preferred_optimize_mode = .Debug,
@@ -223,7 +223,7 @@ pub fn build(b: *Build) !void {
     });
     const kernel_ut_mod = b.createModule(.{
         .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/kernel_ut.zig" } },
-        .target = test_target,
+        .target = ut_target,
     });
 
     const kernel = b.addExecutable(.{
@@ -241,44 +241,44 @@ pub fn build(b: *Build) !void {
 
     // Core system modules
     const core_mod = b.addModule("core", .{ .root_source_file = b.path("src/core/mod.zig"), .target = kernel_target });
-    const core_ut_mod = b.addModule("core", .{ .root_source_file = b.path("src/core/mod_ut.zig"), .target = test_target });
+    const core_ut_mod = b.addModule("core", .{ .root_source_file = b.path("src/core/mod_ut.zig"), .target = ut_target });
 
     const commons_mod = b.addModule("commons", .{ .root_source_file = b.path("src/commons/mod.zig"), .target = kernel_target });
-    const commons_ut_mod = b.addModule("commons", .{ .root_source_file = b.path("src/commons/mod_ut.zig"), .target = test_target });
+    const commons_ut_mod = b.addModule("commons", .{ .root_source_file = b.path("src/commons/mod_ut.zig"), .target = ut_target });
 
     const drivers_mod = b.addModule("drivers", .{ .root_source_file = b.path("src/drivers/mod.zig"), .target = kernel_target });
-    const drivers_ut_mod = b.addModule("drivers", .{ .root_source_file = b.path("src/drivers/mod_ut.zig"), .target = test_target });
+    const drivers_ut_mod = b.addModule("drivers", .{ .root_source_file = b.path("src/drivers/mod_ut.zig"), .target = ut_target });
 
     const bus_mod = b.addModule("bus", .{ .root_source_file = b.path("src/bus/mod.zig"), .target = kernel_target });
-    const bus_ut_mod = b.addModule("bus", .{ .root_source_file = b.path("src/bus/mod_ut.zig"), .target = test_target });
+    const bus_ut_mod = b.addModule("bus", .{ .root_source_file = b.path("src/bus/mod_ut.zig"), .target = ut_target });
 
     const devices_mod = b.addModule("devices", .{ .root_source_file = b.path("src/devices/mod.zig"), .target = kernel_target });
-    const devices_ut_mod = b.addModule("devices", .{ .root_source_file = b.path("src/devices/mod_ut.zig"), .target = test_target });
+    const devices_ut_mod = b.addModule("devices", .{ .root_source_file = b.path("src/devices/mod_ut.zig"), .target = ut_target });
 
     // Memory management modules
     const mem_mod = b.addModule("mem", .{ .root_source_file = b.path("src/mem/mod.zig"), .target = kernel_target });
-    const mem_ut_mod = b.addModule("mem", .{ .root_source_file = b.path("src/mem/mod_ut.zig"), .target = test_target });
+    const mem_ut_mod = b.addModule("mem", .{ .root_source_file = b.path("src/mem/mod_ut.zig"), .target = ut_target });
 
     const utils_mod = b.addModule("mm", .{ .root_source_file = b.path("src/modules/mm/mod.zig"), .target = kernel_target });
-    const utils_ut_mod = b.addModule("mm", .{ .root_source_file = b.path("src/modules/mm/mod_ut.zig"), .target = test_target });
+    const utils_ut_mod = b.addModule("mm", .{ .root_source_file = b.path("src/modules/mm/mod_ut.zig"), .target = ut_target });
 
     // Filesystem modules
     const fs_mod = b.addModule("fs", .{ .root_source_file = b.path("src/fs/mod.zig"), .target = kernel_target });
-    const fs_ut_mod = b.addModule("fs", .{ .root_source_file = b.path("src/fs/mod_ut.zig"), .target = test_target });
+    const fs_ut_mod = b.addModule("fs", .{ .root_source_file = b.path("src/fs/mod_ut.zig"), .target = ut_target });
 
     const ext2_mod = b.addModule("ext2", .{ .root_source_file = b.path("src/modules/fs/ext2/mod.zig"), .target = kernel_target });
-    const ext2_ut_mod = b.addModule("ext2", .{ .root_source_file = b.path("src/modules/fs/ext2/mod_ut.zig"), .target = test_target });
+    const ext2_ut_mod = b.addModule("ext2", .{ .root_source_file = b.path("src/modules/fs/ext2/mod_ut.zig"), .target = ut_target });
 
     // Storage modules
     const gpt_mod = b.addModule("gpt", .{ .root_source_file = b.path("src/modules/block/gpt/mod.zig"), .target = kernel_target });
-    const gpt_ut_mod = b.addModule("gpt", .{ .root_source_file = b.path("src/modules/block/gpt/mod_ut.zig"), .target = test_target });
+    const gpt_ut_mod = b.addModule("gpt", .{ .root_source_file = b.path("src/modules/block/gpt/mod_ut.zig"), .target = ut_target });
 
     const nvme_mod = b.addModule("nvme", .{ .root_source_file = b.path("src/modules/block/nvme/mod.zig"), .target = kernel_target });
-    const nvme_ut_mod = b.addModule("nvme", .{ .root_source_file = b.path("src/modules/block/nvme/mod_ut.zig"), .target = test_target });
+    const nvme_ut_mod = b.addModule("nvme", .{ .root_source_file = b.path("src/modules/block/nvme/mod_ut.zig"), .target = ut_target });
 
     // UI modules
     const terminal_mod = b.addModule("terminal", .{ .root_source_file = b.path("src/modules/terminal/mod.zig"), .target = kernel_target });
-    const terminal_ut_mod = b.addModule("terminal", .{ .root_source_file = b.path("src/modules/terminal/mod_ut.zig"), .target = test_target });
+    const terminal_ut_mod = b.addModule("terminal", .{ .root_source_file = b.path("src/modules/terminal/mod_ut.zig"), .target = ut_target });
 
     // Core module dependencies
     core_mod.addImport("limine", limine_zig_mod);
