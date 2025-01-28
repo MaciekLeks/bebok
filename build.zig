@@ -110,11 +110,6 @@ fn addBuildIso(b: *Build, kernel: *Build.Step.Compile) *Build.Step.Run {
     return xorriso;
 }
 
-fn injectLimineStages(limine_run_action: *Build.Step.Run, iso_file: Build.LazyPath) void {
-    limine_run_action.addArg("bios-install");
-    limine_run_action.addFileArg(iso_file);
-}
-
 fn addInstallIso(b: *Build, iso_step: *Build.Step, iso_file: Build.LazyPath) *Build.Step.InstallFile {
     const files = b.addWriteFiles();
     files.step.dependOn(iso_step);
@@ -349,7 +344,10 @@ pub fn build(b: *Build) !void {
 
     const iso_run = addBuildIso(b, kernel);
     const iso_run_out = iso_run.addOutputFileArg(bebok_iso_filename);
-    injectLimineStages(limine_run, iso_run_out);
+
+    //inject limine args
+    limine_run.addArg("bios-install");
+    limine_run.addFileArg(iso_run_out);
 
     const iso_ins_file = addInstallIso(b, &iso_run.step, iso_run_out);
     const iso_step = b.step("iso-install", "Build the ISO");
