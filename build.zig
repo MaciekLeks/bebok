@@ -254,8 +254,8 @@ pub fn build(b: *Build) !void {
     const mem_mod = b.addModule("mem", .{ .root_source_file = b.path("src/mem/mod.zig"), .target = kernel_target });
     const mem_ut_mod = b.addModule("mem", .{ .root_source_file = b.path("src/mem/mod_ut.zig"), .target = ut_target });
 
-    const utils_mod = b.addModule("mm", .{ .root_source_file = b.path("src/modules/mm/mod.zig"), .target = kernel_target });
-    const utils_ut_mod = b.addModule("mm", .{ .root_source_file = b.path("src/modules/mm/mod_ut.zig"), .target = ut_target });
+    const mm_mod = b.addModule("mm", .{ .root_source_file = b.path("src/modules/mm/mod.zig"), .target = kernel_target });
+    const mm_ut_mod = b.addModule("mm", .{ .root_source_file = b.path("src/modules/mm/mod_ut.zig"), .target = ut_target });
 
     // Filesystem modules
     const fs_mod = b.addModule("fs", .{ .root_source_file = b.path("src/fs/mod.zig"), .target = kernel_target });
@@ -294,7 +294,7 @@ pub fn build(b: *Build) !void {
     // Memory management dependencies
     mem_mod.addImport("limine", limine_zig_mod);
     mem_mod.addImport("core", core_mod);
-    mem_mod.addImport("mm", utils_mod);
+    mem_mod.addImport("mm", mm_mod);
     mem_mod.addImport("config", options_mod);
     mem_mod.addImport("zigavl", zigavl_mod);
 
@@ -311,7 +311,10 @@ pub fn build(b: *Build) !void {
     fs_mod.addImport("bus", bus_mod);
     fs_mod.addImport("devices", devices_mod);
     ext2_mod.addImport("mem", mem_mod);
+
     ext2_mod.addImport("devices", devices_mod);
+    ext2_ut_mod.addImport("devices", devices_ut_mod);
+
     ext2_mod.addImport("fs", fs_mod);
 
     // UI dependencies
@@ -323,7 +326,7 @@ pub fn build(b: *Build) !void {
     kernel_mod.addImport("drivers", drivers_mod);
     kernel_mod.addImport("devices", devices_mod);
     kernel_mod.addImport("bus", bus_mod);
-    kernel_mod.addImport("mm", utils_mod);
+    kernel_mod.addImport("mm", mm_mod);
     kernel_mod.addImport("gpt", gpt_mod);
     kernel_mod.addImport("fs", fs_mod);
     kernel_mod.addImport("mem", mem_mod);
@@ -368,66 +371,79 @@ pub fn build(b: *Build) !void {
 
     //Unit Test task
     const kernel_ut = b.addTest(.{
+        .name = "kernel",
         .root_module = kernel_ut_mod,
     });
     const kernel_ut_run = b.addRunArtifact(kernel_ut);
 
     const core_ut = b.addTest(.{
+        .name = "core",
         .root_module = core_ut_mod,
     });
     const core_ut_run = b.addRunArtifact(core_ut);
 
     const commons_ut = b.addTest(.{
+        .name = "commons",
         .root_module = commons_ut_mod,
     });
     const commons_ut_run = b.addRunArtifact(commons_ut);
 
     const drivers_ut = b.addTest(.{
+        .name = "drivers",
         .root_module = drivers_ut_mod,
     });
     const drivers_ut_run = b.addRunArtifact(drivers_ut);
 
     const bus_ut = b.addTest(.{
+        .name = "bus",
         .root_module = bus_ut_mod,
     });
     const bus_ut_run = b.addRunArtifact(bus_ut);
 
     const devices_ut = b.addTest(.{
+        .name = "devices",
         .root_module = devices_ut_mod,
     });
     const devices_ut_run = b.addRunArtifact(devices_ut);
 
     const mem_ut = b.addTest(.{
+        .name = "mem",
         .root_module = mem_ut_mod,
     });
     const mem_ut_run = b.addRunArtifact(mem_ut);
 
-    const utils_ut = b.addTest(.{
-        .root_module = utils_ut_mod,
+    const mm_ut = b.addTest(.{
+        .name = "mm",
+        .root_module = mm_ut_mod,
     });
-    const utils_ut_run = b.addRunArtifact(utils_ut);
+    const mm_ut_run = b.addRunArtifact(mm_ut);
 
     const fs_ut = b.addTest(.{
+        .name = "fs",
         .root_module = fs_ut_mod,
     });
     const fs_ut_run = b.addRunArtifact(fs_ut);
 
     const ext2_ut = b.addTest(.{
+        .name = "ext2",
         .root_module = ext2_ut_mod,
     });
     const ext2_ut_run = b.addRunArtifact(ext2_ut);
 
     const gpt_ut = b.addTest(.{
+        .name = "gpt",
         .root_module = gpt_ut_mod,
     });
     const gpt_ut_run = b.addRunArtifact(gpt_ut);
 
     const nvme_ut = b.addTest(.{
+        .name = "nvme",
         .root_module = nvme_ut_mod,
     });
     const nvme_ut_run = b.addRunArtifact(nvme_ut);
 
     const terminal_ut = b.addTest(.{
+        .name = "terminal",
         .root_module = terminal_ut_mod,
     });
     const terminal_ut_run = b.addRunArtifact(terminal_ut);
@@ -440,7 +456,7 @@ pub fn build(b: *Build) !void {
     ut_step.dependOn(&bus_ut_run.step);
     ut_step.dependOn(&devices_ut_run.step);
     ut_step.dependOn(&mem_ut_run.step);
-    ut_step.dependOn(&utils_ut_run.step);
+    ut_step.dependOn(&mm_ut_run.step);
     ut_step.dependOn(&fs_ut_run.step);
     ut_step.dependOn(&ext2_ut_run.step);
     ut_step.dependOn(&gpt_ut_run.step);

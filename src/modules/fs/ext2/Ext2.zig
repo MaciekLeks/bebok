@@ -5,6 +5,7 @@ const BlockDevice = @import("devices").BlockDevice;
 const Partition = @import("devices").Partition;
 const Filesystem = @import("fs").Filesystem;
 const FileDescriptor = @import("fs").FileDescriptor;
+const BlockNum = @import("types.zig").BlockNum;
 const Superblock = @import("types.zig").Superblock;
 const BlockGroupDescriptor = @import("types.zig").BlockGroupDescriptor;
 const BlockAddressing = @import("types.zig").BlockAddressing;
@@ -172,12 +173,12 @@ const LinkedDirectoryIterator = struct {
 const InodeBlockIterator = struct {
     const Self = @This();
     alloctr: std.mem.Allocator,
-    ext2: *const Ext2,
-    inode: *const Inode,
-    curr_block_idx: u32 = 0, //0-11 direct blocks, 12-14 indirect blocks
+    curr_block_idx: u8 = 0, //0-11 direct blocks, 12-14 indirect blocks
+    curr_block_level: u8 = 0,
     stack: [3]struct {
-        buffer: ?[]u32,
+        buffer: ?[]u8,
         idx: u32,
+        needs_load: bool,
     },
 
     pub fn init(allocator: std.mem.Allocator, ext2: *const Ext2, inode: *const Inode) Self {
@@ -201,153 +202,70 @@ const InodeBlockIterator = struct {
         }
     }
 
-    pub fn next(self: *Self) !?u32 {
+    pub fn next(self: *Self) !?BlockNum {
         // Handle direct blocks (0-11)
         if (self.curr_block_idx < 12) {
             defer self.curr_block_idx += 1;
-            const res = self.inode.block[self.curr_block_idx];
-            return if (res == 0) null else res;
+            const block_num = self.inode.block[self.curr_block_idx];
+            if (block_num != 0) return block_num;
         }
 
-        // Handle indirect blocks (12-14)
-        return switch (self.curr_block_idx) {
-            12 => try self.processIndirectBlockLevel(0), // single indirect
-            13 => try self.processIndirectBlockLevel(1), // double indirect
-            14 => try self.processIndirectBlockLevel(2), // triple indirect
-            else => null,
-        };
-    }
+        while (self.curr_block_idx <= 14) {
+            const block_num = self.inode.block[self.curr_block_idx];
+            if (block_num == 0) break;
 
-    fn processIndirectBlockLevel(self: *Self, comptime level: u8) !?u32 {
-        // Initialize the highest level buffer if needed
-        if (self.stack[level].buffer == null) {
-            self.stack[level].buffer = try self.alloctr.alloc(u32, self.ext2.superblock.getBlockSize() / 4);
-            try readBlock(self.ext2, self.inode.block[12 + level], std.mem.sliceAsBytes(self.stack[level].buffer.?));
-            self.stack[level].idx = 0;
-        }
+            var current_level = self.curr_block_idx - 12; //0-12th, 1-13th, 2-14th
+            var base_block = block_num;
 
-        // Check if we've exhausted the highest level buffer
-        if (self.stack[level].idx >= self.stack[level].buffer.?.len) {
-            self.curr_block_idx += 1;
-            return null;
-        }
-
-        // Process intermediate levels
-        comptime var i = 0;
-        inline while (i < level) : (i += 1) {
-            const curr_level = level - i - 1;
-
-            // Initialize or refresh lower level buffers when needed
-            if (self.stack[curr_level].buffer == null or self.stack[curr_level].idx >= self.stack[curr_level].buffer.?.len) {
-                if (self.stack[curr_level].buffer == null) {
-                    self.stack[curr_level].buffer = try self.alloctr.alloc(u32, self.ext2.superblock.getBlockSize() / 4);
+            while (true) {
+                // Allocate buffer if needed
+                if (self.stack[current_level].buffer == null) {
+                    self.stack[current_level].buffer = try self.alloctr.alloc(BlockNum, self.ext2.superblock.getBlockSize() / @sizeOf(BlockNum));
+                    self.stack[current_level].needs_load = true;
+                    self.stack[current_level].idx = 0;
                 }
-                try readBlock(self.ext2, self.stack[curr_level].buffer.?[self.stack[curr_level].idx], std.mem.sliceAsBytes(self.stack[curr_level].buffer.?));
-                self.stack[curr_level].idx = 0;
-                self.stack[curr_level + 1].idx += 1;
+
+                // Load data into buffer
+                if (self.stack[current_level].needs_load) {
+                    try readBlock(base_block, self.stack[current_level].buffer.?);
+                    self.stack[current_level].needs_load = false;
+                }
+
+                const buffer = self.stack[current_level].buffer.?;
+                if (self.stack[current_level].idx >= buffer.len) {
+                    self.stack[current_level].idx = 0;
+                    if (current_level == self.curr_block_idx) {
+                        self.curr_block_idx += 1;
+                        break;
+                    } else {
+                        current_level += 1;
+                        self.stack[current_level].idx += 1;
+                        continue;
+                    }
+                }
+
+                if (current_level == 0) {
+                    const result = buffer[self.stack[0].idx];
+                    self.stack[0].idx += 1;
+                    if (result != 0) {
+                        return result;
+                    }
+                }
+
+                base_block = buffer[self.stack[current_level].idx];
+                if (base_block == 0) {
+                    self.stack[current_level].idx += 1;
+                    continue;
+                }
+
+                if (current_level > 0) {
+                    current_level -= 1;
+                    self.stack[current_level].needs_load = true;
+                }
             }
         }
-
-        // Return the next block number from the lowest level
-        defer self.stack[0].idx += 1;
-        const res = self.stack[0].buffer.?[self.stack[0].idx];
-        return if (res == 0) null else res;
+        return null;
     }
-
-    // pub fn next(self: *Self) !?u32 {
-    //     // Direct blocks (0-11)
-    //     if (self.curr_block_idx < 12) {
-    //         defer self.curr_block_idx += 1;
-    //         const res = self.inode.block[self.curr_block_idx];
-    //         return if (res == 0) null else res;
-    //     }
-    //
-    //     // Indirect blocks (12-14)
-    //     switch (self.curr_block_idx) {
-    //         12 => return try self.processIndirectBlock(),
-    //         13 => return try self.processDoubleIndirectBlock(),
-    //         14 => return try self.processTripleIndirectBlock(),
-    //         else => return null,
-    //     }
-    // }
-    //
-    // fn processIndirectBlock(self: *Self) !?u32 {
-    //     if (self.stack[0].buffer == null) {
-    //         self.stack[0].buffer = try self.alloctr.alloc(u32, self.ext2.superblock.getBlockSize() / 4);
-    //         try readBlock(self.ext2, self.inode.block[12], std.mem.sliceAsBytes(self.stack[0].buffer.?));
-    //         self.stack[0].idx = 0;
-    //     }
-    //
-    //     if (self.stack[0].idx >= self.stack[0].buffer.?.len) {
-    //         self.curr_block_idx += 1;
-    //         return null;
-    //     }
-    //
-    //     defer self.stack[0].idx += 1;
-    //     const res = self.stack[0].buffer.?[self.stack[0].idx];
-    //     return if (res == 0) null else res;
-    // }
-    //
-    // fn processDoubleIndirectBlock(self: *Self) !?u32 {
-    //     if (self.stack[1].buffer == null) {
-    //         self.stack[1].buffer = try self.alloctr.alloc(u32, self.ext2.superblock.getBlockSize() / 4);
-    //         try readBlock(self.ext2, self.inode.block[13], std.mem.sliceAsBytes(self.stack[1].buffer.?));
-    //         self.stack[1].idx = 0;
-    //     }
-    //
-    //     if (self.stack[1].idx >= self.stack[1].buffer.?.len) {
-    //         self.curr_block_idx += 1;
-    //         return null;
-    //     }
-    //
-    //     if (self.stack[0].buffer == null or self.stack[0].idx >= self.stack[0].buffer.?.len) {
-    //         if (self.stack[0].buffer == null) {
-    //             self.stack[0].buffer = try self.alloctr.alloc(u32, self.ext2.superblock.getBlockSize() / 4);
-    //         }
-    //         try readBlock(self.ext2, self.stack[0].buffer.?[self.stack[0].idx], std.mem.sliceAsBytes(self.stack[0].buffer.?));
-    //         self.stack[0].idx = 0;
-    //         self.stack[1].idx += 1;
-    //     }
-    //
-    //     defer self.stack[0].idx += 1;
-    //     const res = self.stack[0].buffer.?[self.stack[0].idx];
-    //     return if (res == 0) null else res;
-    // }
-    //
-    // fn processTripleIndirectBlock(self: *Self) !?u32 {
-    //     if (self.stack[2].buffer == null) {
-    //         self.stack[2].buffer = try self.alloctr.alloc(u32, self.ext2.superblock.getBlockSize() / 4);
-    //         try readBlock(self.ext2, self.inode.block[14], std.mem.sliceAsBytes(self.stack[2].buffer.?));
-    //         self.stack[2].idx = 0;
-    //     }
-    //
-    //     if (self.stack[2].idx >= self.stack[2].buffer.?.len) {
-    //         self.curr_block_idx += 1;
-    //         return null;
-    //     }
-    //
-    //     if (self.stack[1].buffer == null or self.stack[1].idx >= self.stack[1].buffer.?.len) {
-    //         if (self.stack[1].buffer == null) {
-    //             self.stack[1].buffer = try self.alloctr.alloc(u32, self.ext2.superblock.getBlockSize() / 4);
-    //         }
-    //         try readBlock(self.ext2, self.stack[1].buffer.?[self.stack[1].idx], std.mem.sliceAsBytes(self.stack[1].buffer.?));
-    //         self.stack[1].idx = 0;
-    //         self.stack[2].idx += 1;
-    //     }
-    //
-    //     if (self.stack[0].buffer == null or self.stack[0].idx >= self.stack[0].buffer.?.len) {
-    //         if (self.stack[0].buffer == null) {
-    //             self.stack[0].buffer = try self.alloctr.alloc(u32, self.ext2.superblock.getBlockSize() / 4);
-    //         }
-    //         try readBlock(self.ext2, self.stack[0].buffer.?[self.stack[0].idx], std.mem.sliceAsBytes(self.stack[0].buffer.?));
-    //         self.stack[0].idx = 0;
-    //         self.stack[1].idx += 1;
-    //     }
-    //
-    //     defer self.stack[0].idx += 1;
-    //     const res = self.stack[0].buffer.?[self.stack[0].idx];
-    //     return if (res == 0) null else res;
-    // }
 };
 
 // Helper functions
@@ -406,6 +324,3 @@ pub fn findInodeByPath(self: *const Ext2, path: []const u8, start_dir_inode: ?u3
 
     return curr_inode_num;
 }
-
-// test
-test "ext2_a" {}

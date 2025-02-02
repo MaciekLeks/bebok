@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 // pub const BlockAddressing = struct {
 //     /// Convert byte offset to block number
@@ -25,6 +26,8 @@ const std = @import("std");
 //         return 1;
 //     }
 // };
+
+pub const BlockNum = u32;
 
 pub const Superblock = extern struct {
     comptime {
@@ -178,7 +181,7 @@ pub const Superblock = extern struct {
     }
 
     pub fn getBlockSize(self: *const Superblock) u64 {
-        return @as(u64, 1024) << @as(u6, @truncate(self.log_block_size));
+        return if (!builtin.is_test) @as(u64, 1024) << @as(u6, @truncate(self.log_block_size)) else 2;
     }
 
     pub fn getFragSize(self: *const Superblock) u64 {

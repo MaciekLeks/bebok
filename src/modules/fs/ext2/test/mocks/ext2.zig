@@ -7,7 +7,7 @@ const mbgd = @import("../../test/mocks/bgd.zig");
 
 pub fn mockExt2(allocator: std.mem.Allocator) Ext2 {
     return .{
-        .allocator = allocator,
+        .alloctr = allocator,
         .partition = &mpart.mockPartition(allocator),
         .superblock = &msuper.mockSuperblock,
         .block_group_descriptor_table = &[_]BlockGroupDescriptor{mbgd.mockBlockGroupDescriptor},
