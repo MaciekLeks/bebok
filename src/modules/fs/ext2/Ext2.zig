@@ -89,12 +89,7 @@ inline fn getOffsetFromBlockNum(block_num: usize) usize {
     return block_size * block_num;
 }
 
-fn readBlock(self: *const Ext2, block_num: usize, buffer: []u8) !void {
-    if (builtin.is_test) {
-        @memset(buffer, 0);
-        return;
-    }
-
+fn readBlock(self: *const Ext2, block_num: u32, buffer: []u8) !void {
     var stream = BlockDevice.Stream(u8).init(self.partition.block_device.streamer());
     stream.seek(getOffsetFromBlockNum(block_num), .start);
     _ = try stream.readAll(buffer);
@@ -172,6 +167,7 @@ const LinkedDirectoryIterator = struct {
 
 pub const InodeBlockIterator = struct {
     const Self = @This();
+    const ReadBlockFn = *const fn (*const Ext2, u32, []u8) anyerror!void;
     alloctr: std.mem.Allocator,
     ext2: *const Ext2,
     inode: *const Inode,
@@ -182,6 +178,7 @@ pub const InodeBlockIterator = struct {
         idx: u32,
         needs_load: bool,
     },
+    readBlockFn: ReadBlockFn = &readBlock, //defaults to readBlock
 
     pub fn init(allocator: std.mem.Allocator, ext2: *const Ext2, inode: *const Inode) Self {
         return .{
@@ -217,6 +214,7 @@ pub const InodeBlockIterator = struct {
             if (block_num == 0) break;
 
             var current_level = self.curr_block_idx - 12; //0-12th, 1-13th, 2-14th
+            std.debug.print("current_level: {d}\n", .{current_level});
             var base_block = block_num;
 
             while (true) {
@@ -227,10 +225,14 @@ pub const InodeBlockIterator = struct {
                     self.stack[current_level].idx = 0;
                 }
 
+                std.debug.print("buffer: {d}\n", .{self.stack[current_level].buffer.?.len});
+
                 // Load data into buffer
                 if (self.stack[current_level].needs_load) {
-                    try self.ext2.readBlock(base_block, std.mem.sliceAsBytes(self.stack[current_level].buffer.?));
+                    try self.readBlockFn(self.ext2, base_block, std.mem.sliceAsBytes(self.stack[current_level].buffer.?));
                     self.stack[current_level].needs_load = false;
+
+                    std.debug.print("loaded: {d}\n", .{self.stack[current_level].buffer.?[0]});
                 }
 
                 const buffer = self.stack[current_level].buffer.?;
@@ -249,6 +251,7 @@ pub const InodeBlockIterator = struct {
                 if (current_level == 0) {
                     const result = buffer[self.stack[0].idx];
                     self.stack[0].idx += 1;
+                    std.debug.print("result: {d}\n", .{result});
                     if (result != 0) {
                         return result;
                     }

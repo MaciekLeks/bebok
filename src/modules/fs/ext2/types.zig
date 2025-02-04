@@ -180,8 +180,9 @@ pub const Superblock = extern struct {
         return (self.feature_compat & flags) != 0;
     }
 
+    // Minimum block size for testing is size of BlockNum is 8, 2xBlockNum
     pub fn getBlockSize(self: *const Superblock) u64 {
-        return if (!builtin.is_test) @as(u64, 1024) << @as(u6, @truncate(self.log_block_size)) else 2;
+        return if (!builtin.is_test) @as(u64, 1024) << @as(u6, @truncate(self.log_block_size)) else 2 * @sizeOf(BlockNum);
     }
 
     pub fn getFragSize(self: *const Superblock) u64 {

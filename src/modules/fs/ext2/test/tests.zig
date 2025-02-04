@@ -93,6 +93,15 @@ const inode_block_data = [_]BlockNum{
     1027, //83 - data}
 };
 
+fn mockReadBlock(_: *const Ext2, block_num: u32, buffer: []u8) !void {
+    const start = block_num;
+    const end = start + buffer.len / @sizeOf(BlockNum);
+
+    std.debug.print("Reading block: {d}, [from:{d};to:{d}) into the buffer@u8 of len:{d}\n", .{block_num, start, end, buffer.len});
+
+    @memcpy(buffer, std.mem.sliceAsBytes(inode_block_data[start..end]));
+}
+
 test "InodeBlockIterator" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -104,6 +113,7 @@ test "InodeBlockIterator" {
     //std.debug.print("mext: {}\n", .{ext2});
 
     var iter = Ext2.InodeBlockIterator.init(allocator, ext2, inode);
+    iter.readBlockFn = mockReadBlock;
     while (iter.next()) |opt_block_num| {
         const block_num = opt_block_num orelse break;
         std.debug.print("Block number: {}\n", .{block_num});
