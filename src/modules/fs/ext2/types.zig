@@ -43,38 +43,38 @@ pub const Superblock = extern struct {
 
     ///Features that can be safely ignored - filesystem can be mounted (for read/write even if these features are not supported)
     const FeatureCompatFlags = packed struct(u32) {
-        dir_prealloc: bool,
-        imagic_inodes: bool,
-        has_journal: bool,
-        ext_attr: bool,
-        resize_inode: bool,
-        dir_index: bool,
+        dir_prealloc: bool = false,
+        imagic_inodes: bool = false,
+        has_journal: bool = false,
+        ext_attr: bool = false,
+        resize_inode: bool = false,
+        dir_index: bool = false,
         rsrvd: u26 = 0,
     };
     ///Features that must be supported to mount filesystem at all - Mount will fail if any of these features is not supported
     const FeatureIncompatFlags = packed struct(u32) {
-        compression: bool,
-        file_type: bool,
-        needs_recovery: bool,
-        journal_dev: bool,
-        meta_bg: bool,
+        compression: bool = false,
+        file_type: bool = false,
+        needs_recovery: bool = false,
+        journal_dev: bool = false,
+        meta_bg: bool = false,
 
         rsrvd: u27 = 0,
     };
 
     ///Features that must be supported for write operations - Filesystem can be mounted read-only if these features are not supported
     const FeatureRoCompatFlags = packed struct(u32) {
-        sparse_super: bool,
-        large_file: bool,
-        btrees: bool,
+        sparse_super: bool = false,
+        large_file: bool = false,
+        btrees: bool = false,
         rsrvd: u29 = 0,
     };
     const CompressionAlgorithm = packed struct(u32) {
-        lzv1: bool,
-        lzrw3a: bool,
-        gzip: bool,
-        bzip2: bool,
-        lzo: bool,
+        lzv1: bool = false,
+        lzrw3a: bool = false,
+        gzip: bool = false,
+        bzip2: bool = false,
+        lzo: bool = false,
         rsrvd: u27 = 0,
     };
 
@@ -293,9 +293,9 @@ pub const BlockGroupDescriptor = extern struct {
         std.debug.assert(@sizeOf(@This()) == 32);
     }
 
-    block_bitmap_id: u32 align(1), // 0x0 - the block number of the block containing the block bitmap for this group
-    inode_bitmap_id: u32 align(1), // 0x4 - the block number of the block containing the inode bitmap for this group
-    inode_table_id: u32 align(1), // 0x8 - the block number of the block containing the inode table for this group
+    block_bitmap: u32 align(1), // 0x0 - the block number of the block containing the block bitmap for this group
+    inode_bitmap: u32 align(1), // 0x4 - the block number of the block containing the inode bitmap for this group
+    inode_table: u32 align(1), // 0x8 - the block number of the block containing the inode table for this group
     free_blocks_count: u16 align(1), // 0xC - the total number of free blocks in the block group
     free_inodes_count: u16 align(1), // 0xE - the total number of free inodes in the block group
     used_dirs_count: u16 align(1), // 0x10 - the total number of inodes allocated to directories in the block group
@@ -321,42 +321,42 @@ pub const Inode = extern struct {
             _,
         };
         permissions: packed struct(u9) {
-            other_execute: bool,
-            other_write: bool,
-            other_read: bool,
-            group_execute: bool,
-            group_write: bool,
-            group_read: bool,
-            user_execute: bool,
-            user_write: bool,
-            user_read: bool,
+            other_execute: bool = false,
+            other_write: bool = false,
+            other_read: bool = false,
+            group_execute: bool = false,
+            group_write: bool = false,
+            group_read: bool = false,
+            user_execute: bool = false,
+            user_write: bool = false,
+            user_read: bool = false,
         },
         process_flags: packed struct(u3) {
-            sticky_bit: bool,
-            set_process_gid: bool,
-            set_process_user_id: bool,
+            sticky_bit: bool = false,
+            set_process_gid: bool = false,
+            set_process_user_id: bool = false,
         },
         format: Format,
     };
     const Flags = packed struct(u32) {
-        secure_deletion: bool, //0x00000001
-        keep_copy: bool, //0x00000002
-        file_compression: bool, //0x00000004
-        sync_updates: bool, //0x00000008
-        immutable_file: bool, //0x00000010
-        append_only: bool, //0x00000020
-        no_dump: bool, //0x00000040
-        no_atime: bool, //0x00000080
+        secure_deletion: bool = false, //0x00000001
+        keep_copy: bool = false, //0x00000002
+        file_compression: bool = false, //0x00000004
+        sync_updates: bool = false, //0x00000008
+        immutable_file: bool = false, //0x00000010
+        append_only: bool = false, //0x00000020
+        no_dump: bool = false, //0x00000040
+        no_atime: bool = false, //0x00000080
         //Reserved for compression usage
-        dirty_compression: bool, //0x00000100
-        compress_blocks: bool, //0x00000200
-        no_commpress: bool, //0x00000400
-        error_compress: bool, //0x00000800
+        dirty_compression: bool = false, //0x00000100
+        compress_blocks: bool = false, //0x00000200
+        no_commpress: bool = false, //0x00000400
+        error_compress: bool = false, //0x00000800
         //Reserved for encryption usage
-        btree: bool, //0x00001000
-        index: bool, //0x00002000
-        afs: bool, //0x00004000
-        journal: bool, //0x00008000
+        btree: bool = false, //0x00001000
+        index: bool = false, //0x00002000
+        afs: bool = false, //0x00004000
+        journal: bool = false, //0x00008000
         rsrvd: u16 = 0,
     };
     // Fixed part (128 bytes)

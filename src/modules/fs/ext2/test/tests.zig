@@ -1,7 +1,7 @@
 const std = @import("std");
 const Ext2 = @import("../Ext2.zig");
 const mext2 = @import("mocks/ext2.zig");
-const mionode = @import("mocks/inode.zig");
+const minode = @import("mocks/inode.zig");
 const BlockNum = @import("../types.zig").BlockNum;
 
 const inode_block_data = [_]BlockNum{
@@ -84,12 +84,12 @@ test "InodeBlockIterator" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const mext = mext2.mockExt2(allocator);
-    const minode = mionode.mockInode(&inode_block_data);
+    const ext2 = try mext2.createMockExt2(allocator);
+    const inode = try minode.createMockInode(allocator, try allocator.dupe(BlockNum, inode_block_data[0..15]));
 
-    std.debug.print("mext: {}\n", .{mext});
+    std.debug.print("mext: {}\n", .{ext2});
 
-    var iter = try Ext2.InodeBlockIterator.init(allocator, &mext, &minode);
+    var iter = Ext2.InodeBlockIterator.init(allocator, ext2, inode);
     _ = &iter;
 }
 

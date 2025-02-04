@@ -170,9 +170,11 @@ const LinkedDirectoryIterator = struct {
     }
 };
 
-const InodeBlockIterator = struct {
+pub const InodeBlockIterator = struct {
     const Self = @This();
     alloctr: std.mem.Allocator,
+    ext2: *const Ext2,
+    inode: *const Inode,
     curr_block_idx: u8 = 0, //0-11 direct blocks, 12-14 indirect blocks
     curr_block_level: u8 = 0,
     stack: [3]struct {
@@ -187,9 +189,9 @@ const InodeBlockIterator = struct {
             .ext2 = ext2,
             .inode = inode,
             .stack = .{
-                .{ .buffer = null, .idx = 0 }, //TODO: can't use array multiplication operator
-                .{ .buffer = null, .idx = 0 },
-                .{ .buffer = null, .idx = 0 },
+                .{ .buffer = null, .idx = 0, .needs_load = true }, //TODO: can't use array multiplication operator
+                .{ .buffer = null, .idx = 0, .needs_load = true },
+                .{ .buffer = null, .idx = 0, .needs_load = true },
             },
         };
     }

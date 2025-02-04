@@ -217,7 +217,7 @@ pub fn build(b: *Build) !void {
         .pic = false,
     });
     const kernel_ut_mod = b.createModule(.{
-        .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/kernel_ut.zig" } },
+        .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/kernel.zig" } },
         .target = ut_target,
     });
 
@@ -232,107 +232,187 @@ pub fn build(b: *Build) !void {
 
     const options_mod = options.createModule();
     kernel_mod.addImport("config", options_mod);
+    kernel_ut_mod.addImport("config", options_mod);
+
     kernel_mod.addImport("limine", limine_zig_mod);
+    kernel_ut_mod.addImport("limine", limine_zig_mod);
 
     // Core system modules
     const core_mod = b.addModule("core", .{ .root_source_file = b.path("src/core/mod.zig"), .target = kernel_target });
-    const core_ut_mod = b.addModule("core", .{ .root_source_file = b.path("src/core/mod_ut.zig"), .target = ut_target });
+    const core_ut_mod = b.addModule("core", .{ .root_source_file = b.path("src/core/mod.zig"), .target = ut_target });
 
     const commons_mod = b.addModule("commons", .{ .root_source_file = b.path("src/commons/mod.zig"), .target = kernel_target });
-    const commons_ut_mod = b.addModule("commons", .{ .root_source_file = b.path("src/commons/mod_ut.zig"), .target = ut_target });
+    const commons_ut_mod = b.addModule("commons", .{ .root_source_file = b.path("src/commons/mod.zig"), .target = ut_target });
 
     const drivers_mod = b.addModule("drivers", .{ .root_source_file = b.path("src/drivers/mod.zig"), .target = kernel_target });
-    const drivers_ut_mod = b.addModule("drivers", .{ .root_source_file = b.path("src/drivers/mod_ut.zig"), .target = ut_target });
+    const drivers_ut_mod = b.addModule("drivers", .{ .root_source_file = b.path("src/drivers/mod.zig"), .target = ut_target });
 
     const bus_mod = b.addModule("bus", .{ .root_source_file = b.path("src/bus/mod.zig"), .target = kernel_target });
-    const bus_ut_mod = b.addModule("bus", .{ .root_source_file = b.path("src/bus/mod_ut.zig"), .target = ut_target });
+    const bus_ut_mod = b.addModule("bus", .{ .root_source_file = b.path("src/bus/mod.zig"), .target = ut_target });
 
     const devices_mod = b.addModule("devices", .{ .root_source_file = b.path("src/devices/mod.zig"), .target = kernel_target });
-    const devices_ut_mod = b.addModule("devices", .{ .root_source_file = b.path("src/devices/mod_ut.zig"), .target = ut_target });
+    const devices_ut_mod = b.addModule("devices", .{ .root_source_file = b.path("src/devices/mod.zig"), .target = ut_target });
 
     // Memory management modules
     const mem_mod = b.addModule("mem", .{ .root_source_file = b.path("src/mem/mod.zig"), .target = kernel_target });
-    const mem_ut_mod = b.addModule("mem", .{ .root_source_file = b.path("src/mem/mod_ut.zig"), .target = ut_target });
+    const mem_ut_mod = b.addModule("mem", .{ .root_source_file = b.path("src/mem/mod.zig"), .target = ut_target });
 
     const mm_mod = b.addModule("mm", .{ .root_source_file = b.path("src/modules/mm/mod.zig"), .target = kernel_target });
-    const mm_ut_mod = b.addModule("mm", .{ .root_source_file = b.path("src/modules/mm/mod_ut.zig"), .target = ut_target });
+    const mm_ut_mod = b.addModule("mm", .{ .root_source_file = b.path("src/modules/mm/mod.zig"), .target = ut_target });
 
     // Filesystem modules
     const fs_mod = b.addModule("fs", .{ .root_source_file = b.path("src/fs/mod.zig"), .target = kernel_target });
-    const fs_ut_mod = b.addModule("fs", .{ .root_source_file = b.path("src/fs/mod_ut.zig"), .target = ut_target });
+    const fs_ut_mod = b.addModule("fs", .{ .root_source_file = b.path("src/fs/mod.zig"), .target = ut_target });
 
     const ext2_mod = b.addModule("ext2", .{ .root_source_file = b.path("src/modules/fs/ext2/mod.zig"), .target = kernel_target });
-    const ext2_ut_mod = b.addModule("ext2", .{ .root_source_file = b.path("src/modules/fs/ext2/mod_ut.zig"), .target = ut_target });
+    const ext2_ut_mod = b.addModule("ext2", .{ .root_source_file = b.path("src/modules/fs/ext2/mod.zig"), .target = ut_target });
 
     // Storage modules
     const gpt_mod = b.addModule("gpt", .{ .root_source_file = b.path("src/modules/block/gpt/mod.zig"), .target = kernel_target });
-    const gpt_ut_mod = b.addModule("gpt", .{ .root_source_file = b.path("src/modules/block/gpt/mod_ut.zig"), .target = ut_target });
+    const gpt_ut_mod = b.addModule("gpt", .{ .root_source_file = b.path("src/modules/block/gpt/mod.zig"), .target = ut_target });
 
     const nvme_mod = b.addModule("nvme", .{ .root_source_file = b.path("src/modules/block/nvme/mod.zig"), .target = kernel_target });
-    const nvme_ut_mod = b.addModule("nvme", .{ .root_source_file = b.path("src/modules/block/nvme/mod_ut.zig"), .target = ut_target });
+    const nvme_ut_mod = b.addModule("nvme", .{ .root_source_file = b.path("src/modules/block/nvme/mod.zig"), .target = ut_target });
 
     // UI modules
     const terminal_mod = b.addModule("terminal", .{ .root_source_file = b.path("src/modules/terminal/mod.zig"), .target = kernel_target });
-    const terminal_ut_mod = b.addModule("terminal", .{ .root_source_file = b.path("src/modules/terminal/mod_ut.zig"), .target = ut_target });
+    const terminal_ut_mod = b.addModule("terminal", .{ .root_source_file = b.path("src/modules/terminal/mod.zig"), .target = ut_target });
 
     // Core module dependencies
     core_mod.addImport("limine", limine_zig_mod);
+    core_ut_mod.addImport("limine", limine_zig_mod);
+
     core_mod.addImport("config", options_mod);
+    core_ut_mod.addImport("config", options_mod);
+
     core_mod.addImport("commons", commons_mod);
+    core_ut_mod.addImport("commons", commons_ut_mod);
 
     // Bus and device dependencies
     bus_mod.addImport("core", core_mod);
+    bus_ut_mod.addImport("core", core_ut_mod);
+
     bus_mod.addImport("devices", devices_mod);
+    bus_ut_mod.addImport("devices", devices_ut_mod);
+
     bus_mod.addImport("drivers", drivers_mod);
+    bus_ut_mod.addImport("drivers", drivers_ut_mod);
+
     drivers_mod.addImport("bus", bus_mod);
+    drivers_ut_mod.addImport("bus", bus_ut_mod);
+
     devices_mod.addImport("bus", bus_mod);
+    devices_ut_mod.addImport("bus", bus_ut_mod);
+
     devices_mod.addImport("gpt", gpt_mod);
+    devices_ut_mod.addImport("gpt", gpt_ut_mod);
+
     devices_mod.addImport("commons", commons_mod);
+    devices_ut_mod.addImport("commons", commons_ut_mod);
+
     devices_mod.addImport("fs", fs_mod);
+    devices_ut_mod.addImport("fs", fs_ut_mod);
+
+    devices_ut_mod.addImport("fs", fs_ut_mod);
+    devices_ut_mod.addImport("fs", fs_ut_mod);
+
     devices_mod.addImport("mem", mem_mod);
+    devices_ut_mod.addImport("mem", mem_ut_mod);
 
     // Memory management dependencies
     mem_mod.addImport("limine", limine_zig_mod);
+    mem_ut_mod.addImport("limine", limine_zig_mod);
+
     mem_mod.addImport("core", core_mod);
+    mem_ut_mod.addImport("core", core_ut_mod);
+
     mem_mod.addImport("mm", mm_mod);
+    mem_ut_mod.addImport("mm", mm_ut_mod);
+
     mem_mod.addImport("config", options_mod);
+    mem_ut_mod.addImport("config", options_mod);
+
     mem_mod.addImport("zigavl", zigavl_mod);
+    mem_ut_mod.addImport("zigavl", zigavl_mod);
 
     // Storage dependencies
     gpt_mod.addImport("devices", devices_mod);
+    gpt_ut_mod.addImport("devices", devices_ut_mod);
+
     gpt_mod.addImport("commons", commons_mod);
+    gpt_ut_mod.addImport("commons", commons_ut_mod);
+
     nvme_mod.addImport("drivers", drivers_mod);
+    nvme_ut_mod.addImport("drivers", drivers_ut_mod);
+
     nvme_mod.addImport("core", core_mod);
+    nvme_ut_mod.addImport("core", core_ut_mod);
+
     nvme_mod.addImport("mem", mem_mod);
+    nvme_ut_mod.addImport("mem", mem_ut_mod);
+
     nvme_mod.addImport("bus", bus_mod);
+    nvme_ut_mod.addImport("bus", bus_ut_mod);
+
     nvme_mod.addImport("devices", devices_mod);
+    nvme_ut_mod.addImport("devices", devices_ut_mod);
 
     // Filesystem dependencies
     fs_mod.addImport("bus", bus_mod);
+    fs_ut_mod.addImport("bus", bus_ut_mod);
+
     fs_mod.addImport("devices", devices_mod);
+    fs_ut_mod.addImport("devices", devices_ut_mod);
+
     ext2_mod.addImport("mem", mem_mod);
+    ext2_ut_mod.addImport("mem", mem_ut_mod);
 
     ext2_mod.addImport("devices", devices_mod);
     ext2_ut_mod.addImport("devices", devices_ut_mod);
 
     ext2_mod.addImport("fs", fs_mod);
+    ext2_ut_mod.addImport("fs", fs_ut_mod);
 
     // UI dependencies
     terminal_mod.addImport("limine", limine_zig_mod);
+    terminal_ut_mod.addImport("limine", limine_zig_mod);
 
     // Root module imports
     kernel_mod.addImport("core", core_mod);
+    kernel_ut_mod.addImport("core", core_ut_mod);
+
     kernel_mod.addImport("commons", commons_mod);
+    kernel_ut_mod.addImport("commons", commons_ut_mod);
+
     kernel_mod.addImport("drivers", drivers_mod);
+    kernel_ut_mod.addImport("drivers", drivers_ut_mod);
+
     kernel_mod.addImport("devices", devices_mod);
+    kernel_ut_mod.addImport("devices", devices_ut_mod);
+
     kernel_mod.addImport("bus", bus_mod);
+    kernel_ut_mod.addImport("bus", bus_ut_mod);
+
     kernel_mod.addImport("mm", mm_mod);
+    kernel_ut_mod.addImport("mm", mm_ut_mod);
+
     kernel_mod.addImport("gpt", gpt_mod);
+    kernel_ut_mod.addImport("gpt", gpt_ut_mod);
+
     kernel_mod.addImport("fs", fs_mod);
+    kernel_ut_mod.addImport("fs", fs_ut_mod);
+
     kernel_mod.addImport("mem", mem_mod);
+    kernel_ut_mod.addImport("mem", mem_ut_mod);
+
     kernel_mod.addImport("terminal", terminal_mod);
+    kernel_ut_mod.addImport("terminal", terminal_ut_mod);
+
     kernel_mod.addImport("nvme", nvme_mod);
+    kernel_ut_mod.addImport("nvme", nvme_ut_mod);
+
     kernel_mod.addImport("ext2", ext2_mod);
+    kernel_ut_mod.addImport("ext2", ext2_ut_mod);
     //Modules end
 
     const kernel_ins_file = addInstallKernelFile(b, kernel);
