@@ -6,17 +6,17 @@ const BlockNum = @import("../types.zig").BlockNum;
 
 const inode_block_data = [_]BlockNum{
     60, //0 - direct block num
-    61, //1 - direct block num
-    62, //2 - direct block num
-    63, //3 - direct block num
-    64, //4 - direct block num
-    65, //5 - direct block num
-    66, //6 - direct block num
-    67, //7 - direct block num
-    68, //8 - direct block num
-    69, //9 - direct block num
-    70, //10 - direct block num
-    71, //11 - direct block num
+    62, //1 - direct block num
+    64, //2 - direct block num
+    66, //3 - direct block num
+    68, //4 - direct block num
+    70, //5 - direct block num
+    72, //6 - direct block num
+    74, //7 - direct block num
+    76, //8 - direct block num
+    78, //9 - direct block num
+    80, //10 - direct block num
+    82, //11 - direct block num
     22, //12 - single indirect block num //plays role of 12th element i_block array
     32, //13 - double indirect block num //plays role of 13th element i_block array
     36, //14 - triple indirect block num //plays role of 14th element i_block array
@@ -70,13 +70,27 @@ const inode_block_data = [_]BlockNum{
     1001, //60 - {data
     1002, //61 - data}
     1003, //62 - {data
-    1004, //65 - data}
-    1006, //66 - {data
-    1007, //67 - data}
-    1008, //68 - {data
-    1009, //69 - data}
-    1010, //70 - {data
-    1011, //71 - data}
+    1004, //63 - data}
+    1005, //64 - {data
+    1006, //65 - data}
+    1007, //66 - {data
+    1008, //67 - data}
+    1009, //68 - {data
+    1010, //69 - data}
+    1011, //70 - {data
+    1012, //71 - data}
+    1013, //72 - {data
+    1014, //73 - data}
+    1015, //74 - {data
+    1016, //75 - data}
+    1017, //76 - {data
+    1018, //77 - data}
+    1020, //78 - {data
+    1022, //79 - data}
+    1024, //80 - {data
+    1025, //81 - data}
+    1026, //82 - {data
+    1027, //83 - data}
 };
 
 test "InodeBlockIterator" {
@@ -87,10 +101,20 @@ test "InodeBlockIterator" {
     const ext2 = try mext2.createMockExt2(allocator);
     const inode = try minode.createMockInode(allocator, try allocator.dupe(BlockNum, inode_block_data[0..15]));
 
-    std.debug.print("mext: {}\n", .{ext2});
+    //std.debug.print("mext: {}\n", .{ext2});
 
     var iter = Ext2.InodeBlockIterator.init(allocator, ext2, inode);
-    _ = &iter;
+    while (iter.next()) |opt_block_num| {
+        const block_num = opt_block_num orelse break;
+        std.debug.print("Block number: {}\n", .{block_num});
+        //print data from block_num till blovk_num + block_size\
+        var i: u8 = 0;
+        while (i < 2) : (i += 1) { //block_size is 2, see the mock superblock
+            std.debug.print("Data: {}\n", .{inode_block_data[block_num + i]});
+        }
+    } else |err| {
+        std.debug.print("Error: {}\n", .{err});
+    }
 }
 
 test "dwa" {}

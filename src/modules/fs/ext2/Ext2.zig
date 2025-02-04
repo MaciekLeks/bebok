@@ -178,7 +178,7 @@ pub const InodeBlockIterator = struct {
     curr_block_idx: u8 = 0, //0-11 direct blocks, 12-14 indirect blocks
     curr_block_level: u8 = 0,
     stack: [3]struct {
-        buffer: ?[]u8,
+        buffer: ?[]BlockNum,
         idx: u32,
         needs_load: bool,
     },
@@ -229,7 +229,7 @@ pub const InodeBlockIterator = struct {
 
                 // Load data into buffer
                 if (self.stack[current_level].needs_load) {
-                    try readBlock(base_block, self.stack[current_level].buffer.?);
+                    try self.ext2.readBlock(base_block, std.mem.sliceAsBytes(self.stack[current_level].buffer.?));
                     self.stack[current_level].needs_load = false;
                 }
 
