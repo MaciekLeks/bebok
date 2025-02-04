@@ -94,6 +94,8 @@ const inode_block_data = [_]BlockNum{
 };
 
 fn mockReadBlock(_: *const Ext2, block_num: u32, buffer: []u8) !void {
+    std.debug.print("mReadBlock\n", .{});
+    defer std.debug.print("mReadBlock end\n", .{});
     const start = block_num;
     const end = start + buffer.len / @sizeOf(BlockNum);
 

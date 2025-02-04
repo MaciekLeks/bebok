@@ -214,7 +214,7 @@ pub const InodeBlockIterator = struct {
             if (block_num == 0) break;
 
             var current_level = self.curr_block_idx - 12; //0-12th, 1-13th, 2-14th
-            std.debug.print("current_level: {d}\n", .{current_level});
+            std.debug.print("current_level: {d}, block_num:{d}\n", .{current_level, block_num});
             var base_block = block_num;
 
             while (true) {
@@ -238,7 +238,7 @@ pub const InodeBlockIterator = struct {
                 const buffer = self.stack[current_level].buffer.?;
                 if (self.stack[current_level].idx >= buffer.len) {
                     self.stack[current_level].idx = 0;
-                    if (current_level == self.curr_block_idx) {
+                    if (current_level + 12 == self.curr_block_idx) {
                         self.curr_block_idx += 1;
                         break;
                     } else {
