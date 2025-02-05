@@ -85,21 +85,21 @@ const inode_block_data = [_]BlockNum{
     1016, //75 - data}
     1017, //76 - {data
     1018, //77 - data}
-    1020, //78 - {data
-    1022, //79 - data}
-    1024, //80 - {data
-    1025, //81 - data}
-    1026, //82 - {data
-    1027, //83 - data}
+    1019, //78 - {data
+    1020, //79 - data}
+    1021, //80 - {data
+    1022, //81 - data}
+    1023, //82 - {data
+    1024, //83 - data}
 };
 
 fn mockReadBlock(_: *const Ext2, block_num: u32, buffer: []u8) !void {
-    std.debug.print("mReadBlock\n", .{});
-    defer std.debug.print("mReadBlock end\n", .{});
+    //std.debug.print("mReadBlock\n", .{});
+    //defer std.debug.print("mReadBlock end\n", .{});
     const start = block_num;
     const end = start + buffer.len / @sizeOf(BlockNum);
 
-    std.debug.print("Reading block: {d}, [from:{d};to:{d}) into the buffer@u8 of len:{d}\n", .{block_num, start, end, buffer.len});
+    //std.debug.print("Reading block: {d}, [from:{d};to:{d}) into the buffer@u8 of len:{d}\n", .{ block_num, start, end, buffer.len });
 
     @memcpy(buffer, std.mem.sliceAsBytes(inode_block_data[start..end]));
 }
@@ -116,16 +116,74 @@ test "InodeBlockIterator" {
 
     var iter = Ext2.InodeBlockIterator.init(allocator, ext2, inode);
     iter.readBlockFn = mockReadBlock;
+    const expected_results = [_]BlockNum{
+        1001, //{direct access 0th-11th
+        1002,
+        1003,
+        1004,
+        1005,
+        1006,
+        1007,
+        1008,
+        1009,
+        1010,
+        1011,
+        1012,
+        1013,
+        1014,
+        1015,
+        1016,
+        1017,
+        1018,
+        1019,
+        1020,
+        1021,
+        1022,
+        1023,
+        1024, //direct access 0th-11th}
+        101, //{single indirect access 12th
+        102,
+        103,
+        104, //single indirect access 12th}
+        101, //{double indirect access 13th
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+        108, //double indirect access 13th}
+        101, //{tripple indirect access 14th
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+        108,
+        109,
+        110,
+        111,
+        112,
+        113,
+        114,
+        116,
+        118, //tripple indirect access 14th}
+    };
+    //_ = expected_results;
+    var res_idx: u8 = 0;
     while (iter.next()) |opt_block_num| {
         const block_num = opt_block_num orelse break;
-        std.debug.print("Block number: {}\n", .{block_num});
-        //print data from block_num till blovk_num + block_size\
+        //std.debug.print("Block number: {}\n", .{block_num});
         var i: u8 = 0;
         while (i < 2) : (i += 1) { //block_size is 2, see the mock superblock
-            std.debug.print("Data: {}\n", .{inode_block_data[block_num + i]});
+            //std.debug.print("{d},\n", .{inode_block_data[block_num + i]});
+            try std.testing.expectEqual(expected_results[res_idx], inode_block_data[block_num + i]);
+            res_idx += 1;
         }
     } else |err| {
         std.debug.print("Error: {}\n", .{err});
+        return err;
     }
 }
 

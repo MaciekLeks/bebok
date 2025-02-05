@@ -214,7 +214,6 @@ pub const InodeBlockIterator = struct {
             if (block_num == 0) break;
 
             var current_level = self.curr_block_idx - 12; //0-12th, 1-13th, 2-14th
-            std.debug.print("current_level: {d}, block_num:{d}\n", .{current_level, block_num});
             var base_block = block_num;
 
             while (true) {
@@ -225,14 +224,10 @@ pub const InodeBlockIterator = struct {
                     self.stack[current_level].idx = 0;
                 }
 
-                std.debug.print("buffer: {d}\n", .{self.stack[current_level].buffer.?.len});
-
                 // Load data into buffer
                 if (self.stack[current_level].needs_load) {
                     try self.readBlockFn(self.ext2, base_block, std.mem.sliceAsBytes(self.stack[current_level].buffer.?));
                     self.stack[current_level].needs_load = false;
-
-                    std.debug.print("loaded: {d}\n", .{self.stack[current_level].buffer.?[0]});
                 }
 
                 const buffer = self.stack[current_level].buffer.?;
@@ -251,7 +246,6 @@ pub const InodeBlockIterator = struct {
                 if (current_level == 0) {
                     const result = buffer[self.stack[0].idx];
                     self.stack[0].idx += 1;
-                    std.debug.print("result: {d}\n", .{result});
                     if (result != 0) {
                         return result;
                     }
