@@ -3,6 +3,7 @@ const Ext2 = @import("../Ext2.zig");
 const mext2 = @import("mocks/ext2.zig");
 const minode = @import("mocks/inode.zig");
 const BlockNum = @import("../types.zig").BlockNum;
+const Superblock = @import("../types.zig").Superblock;
 
 const inode_block_data = [_]BlockNum{
     60, //0 - direct block num
@@ -109,6 +110,8 @@ test "InodeBlockIterator" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
+    Superblock.test_overwrite_block_size = 2 * @sizeOf(BlockNum);
+    defer Superblock.test_overwrite_block_size = null;
     const ext2 = try mext2.createMockExt2(allocator);
     const inode = try minode.createMockInode(allocator, try allocator.dupe(BlockNum, inode_block_data[0..15]));
 
