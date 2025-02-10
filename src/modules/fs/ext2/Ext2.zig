@@ -6,6 +6,9 @@ const Partition = @import("devices").Partition;
 const Filesystem = @import("fs").Filesystem;
 const FileDescriptor = @import("fs").FileDescriptor;
 const BlockNum = @import("types.zig").BlockNum;
+const BlockGroupNum = @import("types.zig").BlockGroupNum;
+const InodeNum = @import("types.zig").InodeNum;
+const InodeIdx = @import("types.zig").InodeIdx;
 const Superblock = @import("types.zig").Superblock;
 const BlockGroupDescriptor = @import("types.zig").BlockGroupDescriptor;
 const BlockAddressing = @import("types.zig").BlockAddressing;
@@ -65,31 +68,31 @@ pub fn filesystem(self: *Ext2) Filesystem {
 }
 
 //---Private functions
-inline fn getBlockGroupNumFromInodeNum(self: *const Ext2, inode_num: usize) usize {
+inline fn getBlockGroupNumFromInodeNum(self: *const Ext2, inode_num: InodeNum) BlockGroupNum {
     return (inode_num - 1) / self.superblock.inodes_per_group;
 }
 
 /// Retrieve inode index inside of a block group
-inline fn getInodeIdxInBlockGroup(self: *const Ext2, inode_num: usize) usize {
+inline fn getInodeIdxInBlockGroup(self: *const Ext2, inode_num: u32) InodeIdx {
     return (inode_num - 1) % self.superblock.inodes_per_group;
 }
 
-inline fn getRelBlockNumberFromInodeIdx(self: *const Ext2, inode_idx: usize) usize {
+inline fn getRelBlockNumberFromInodeIdx(self: *const Ext2, inode_idx: InodeIdx) BlockNum {
     return (inode_idx * self.superblock.inode_size) / self.superblock.getBlockSize();
 }
 
-inline fn getInodePosFromInodeNum(self: *const Ext2, inode_num: usize) struct { block_num: usize, offset: usize } {
+inline fn getInodePosFromInodeNum(self: *const Ext2, inode_num: u32) struct { block_num: BlockNum, offset: u32 } {
     const bg_num = getBlockGroupNumFromInodeNum(self, inode_num);
     const inode_idx = getInodeIdxInBlockGroup(self, inode_num);
     const rel_block_num = getRelBlockNumberFromInodeIdx(self, inode_idx);
-    return .{ .block_num = self.block_group_descriptor_table[bg_num].inode_table_id + rel_block_num, .offset = (inode_idx * self.superblock.inode_size) % self.superblock.getBlockSize() };
+    return .{ .block_num = self.block_group_descriptor_table[bg_num].inode_table + rel_block_num, .offset = (inode_idx * self.superblock.inode_size) % self.superblock.getBlockSize() };
 }
 
 inline fn getOffsetFromBlockNum(block_num: usize) usize {
     return block_size * block_num;
 }
 
-fn readBlock(self: *const Ext2, block_num: u32, buffer: []u8) !void {
+fn readBlock(self: *const Ext2, block_num: BlockNum, buffer: []u8) !void {
     var stream = BlockDevice.Stream(u8).init(self.partition.block_device.streamer());
     stream.seek(getOffsetFromBlockNum(block_num), .start);
     _ = try stream.readAll(buffer);
@@ -268,7 +271,7 @@ pub const InodeBlockIterator = struct {
 };
 
 // Helper functions
-pub fn findInodeByPath(self: *const Ext2, path: []const u8, start_dir_inode: ?u32) !u32 {
+pub fn findInodeByPath(self: *const Ext2, path: []const u8, start_dir_inode: ?u32) !InodeNum {
     log.debug("findInodeByPath: {s}", .{path});
     var arena = std.heap.ArenaAllocator.init(heap.page_allocator);
     defer arena.deinit();

@@ -28,10 +28,13 @@ const builtin = @import("builtin");
 // };
 
 pub const BlockNum = u32;
+pub const BlockGroupNum = u32;
+pub const InodeNum = u32; //starts from 1
+pub const InodeIdx = u32;
 
 pub const Superblock = extern struct {
     //use in tests
-    pub threadlocal var test_overwrite_block_size: ?u64 = null;
+    pub threadlocal var test_overwrite_block_size: ?u16 = null;
     comptime {
         //@compileLog("Superblock size: {}\n", .{ @sizeOf(@This()) });
         if (@sizeOf(@This()) != 1024) {
@@ -183,8 +186,8 @@ pub const Superblock = extern struct {
     }
 
     // Minimum block size for testing is size of BlockNum is 8, 2xBlockNum
-    pub fn getBlockSize(self: *const Superblock) u64 {
-        return if (!builtin.is_test) @as(u64, 1024) << @as(u6, @truncate(self.log_block_size)) else test_overwrite_block_size.?;
+    pub fn getBlockSize(self: *const Superblock) u16 {
+        return if (!builtin.is_test) @as(u16, 1024) << @as(u4, @truncate(self.log_block_size)) else test_overwrite_block_size.?;
     }
 
     pub fn getFragSize(self: *const Superblock) u64 {

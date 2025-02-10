@@ -47,5 +47,8 @@ LOOP_DEV=$(sudo losetup --show -fP "$DISK_IMG")
 echo "Mounting partition..."
 sudo mount "${LOOP_DEV}p1" "$MOUNT_POINT"
 
+echo "Change ownership of mount point to current user..."
+sudo chown -R 1000:1000 "$MOUNT_POINT"
+
 echo "Disk mounted successfully at $MOUNT_POINT"
 echo "To unmount, use: sudo umount $MOUNT_POINT && sudo losetup -d $LOOP_DEV"
