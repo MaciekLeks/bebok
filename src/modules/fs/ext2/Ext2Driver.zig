@@ -2,6 +2,7 @@ const std = @import("std");
 
 const BlockDevice = @import("devices").BlockDevice;
 const Partition = @import("devices").Partition;
+const Filesystem = @import("fs").Filesystem;
 const FilesystemDriver = @import("fs").FilesystemDriver;
 const Superblock = @import("types.zig").Superblock;
 const BlockGroupDescriptor = @import("types.zig").BlockGroupDescriptor;
@@ -20,7 +21,7 @@ const Ext2Driver = @This();
 
 // Resolve ext2 filesystem and attach it to the partition
 // From now on, the partition will be able to use the filesystem and must deinit it later
-pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partition) !bool {
+pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partition) !?Filesystem {
     log.info("Resolving ext2 filesystem", .{});
     const streamer = partition.block_device.streamer();
     var stream = BlockDevice.Stream(u8).init(streamer);
@@ -33,17 +34,17 @@ pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partitio
 
     if (!superblock.isMagicValid()) {
         log.debug("Invalid magic number: {x}", .{superblock.magic});
-        return false;
+        return null;
     }
 
     if (!superblock.isMajorValid()) {
         log.warn("Unsupported major revision level: {}", .{superblock.major_rev_level});
-        return false;
+        return null;
     }
 
     if (!superblock.isBlockSizeValid(pmm.page_size)) {
         log.warn("Unsupported block size: {}", .{superblock.getBlockSize()});
-        return false;
+        return null;
     }
 
     log.info("Ext2 filesystem detected", .{});
@@ -92,7 +93,7 @@ pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partitio
         log.err("findInodeByPath error: {any}", .{err});
     };
 
-    return true;
+    return ext_fs.filesystem();
 }
 
 // fn listInodes(allocator: std.mem.Allocator, sb: *const Superblock, bgd: *const BlockGroupDescriptor, streamer: BlockDevice.Streamer) !void {

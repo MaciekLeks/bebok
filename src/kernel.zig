@@ -22,6 +22,7 @@ const NvmeDriver = @import("nvme").NvmeDriver;
 // const NvmeNamespace = @import("nvme").NvmeNamespace;
 const fs = @import("fs");
 const pathparser = fs.pathparser;
+const Vfs = fs.Vfs;
 const FilesystemDriver = fs.FilesystemDriver;
 const Filesystem = fs.Filesystem;
 const FilesystemDriversRegistry = fs.Registry;
@@ -204,10 +205,18 @@ fn _start() callconv(.C) noreturn {
         @panic("Ext2 filesystem driver registration error");
     };
 
-    Filesystem.scanBlockDevices(arena_allocator.allocator(), pcie_bus, fs_reg) catch |err| {
+    //Init VFS
+    const vfs = Vfs.init(arena_allocator.allocator()) catch |err| {
+        log.err("VFS initialization error: {}", .{err});
+        @panic("VFS initialization error");
+    };
+
+    log.info("Scanning block devices for filesystems", .{});
+    Filesystem.scanBlockDevices(arena_allocator.allocator(), pcie_bus, fs_reg, vfs) catch |err| {
         log.err("Filesystem scan error: {}", .{err});
         @panic("Filesystem scan error");
     };
+    log.info("Scanning block devices for filesystems finished", .{});
 
     //const tst_ns = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl.namespaces.get(1);
     for (pcie_bus.devices.items) |*dev_node| {
