@@ -64,20 +64,20 @@ fn addKernelUninstall(b: *Build, install_kernel_action: *Build.Step.InstallArtif
     return kernel_uninstall;
 }
 
-fn addLimineBuild(b: *Build, target: Build.ResolvedTarget) *Build.Step.Run {
-    const limine = b.dependency("limine", .{});
-    const exe = b.addExecutable(.{
-        .name = "limine",
-        .target = target,
-        .optimize = .ReleaseFast,
-    });
-    exe.addCSourceFile(.{
-        .file = limine.path("limine.c"),
-    });
-    exe.linkLibC();
-    const run = b.addRunArtifact(exe);
-    return run;
-}
+// fn addLimineBuild(b: *Build, target: Build.ResolvedTarget) *Build.Step.Run {
+//     const limine = b.dependency("limine", .{});
+//     const exe = b.addExecutable(.{
+//         .name = "limine",
+//         .target = target,
+//         .optimize = .ReleaseFast,
+//     });
+//     exe.addCSourceFile(.{
+//         .file = limine.path("limine.c"),
+//     });
+//     exe.linkLibC();
+//     const run = b.addRunArtifact(exe);
+//     return run;
+// }
 
 fn addBuildIso(b: *Build, kernel: *Build.Step.Compile) *Build.Step.Run {
     const limine = b.dependency("limine", .{});
@@ -423,7 +423,7 @@ pub fn build(b: *Build) !void {
     // overwrite standard uninstall
     b.getUninstallStep().dependOn(&kernel_unins_run.step);
 
-    const limine_run = addLimineBuild(b, kernel_target);
+    //? const limine_run = addLimineBuild(b, kernel_target);
 
     const iso_run = addBuildIso(b, kernel);
     const iso_run_out = iso_run.addOutputFileArg(bebok_iso_filename);
@@ -432,12 +432,11 @@ pub fn build(b: *Build) !void {
     iso_step.dependOn(&iso_run.step);
 
     //inject limine args
-    limine_run.addArg("bios-install");
-    limine_run.addFileArg(iso_run_out);
+    //? limine_run.addArg("bios-install");
+    //? limine_run.addFileArg(iso_run_out);
 
     const iso_ins_file = addInstallIso(b, &iso_run.step, iso_run_out);
     const iso_ins_step = b.step("iso-install", "Build the ISO");
-    iso_ins_file.step.dependOn(&limine_run.step);
     iso_ins_file.step.dependOn(iso_step);
     iso_ins_step.dependOn(&iso_ins_file.step);
 
