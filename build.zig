@@ -437,6 +437,7 @@ pub fn build(b: *Build) !void {
 
     const iso_ins_file = addInstallIso(b, &iso_run.step, iso_run_out);
     const iso_ins_step = b.step("iso-install", "Build the ISO");
+    iso_ins_file.step.dependOn(&limine_run.step);
     iso_ins_file.step.dependOn(iso_step);
     iso_ins_step.dependOn(&iso_ins_file.step);
 
