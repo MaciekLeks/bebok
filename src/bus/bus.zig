@@ -72,7 +72,7 @@ pub const Bus = struct {
         defer alloctr.destroy(self);
         defer self.devices.deinit();
 
-        for (self.devices) |dev| {
+        for (self.devices.items) |dev| {
             dev.deinit();
         }
 

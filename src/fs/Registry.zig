@@ -11,7 +11,7 @@ var alloctr: std.mem.Allocator = undefined;
 
 fs_drivers: std.ArrayList(FilesystemDriver),
 
-pub fn init(allocator: std.mem.Allocator) !*Registry {
+pub fn new(allocator: std.mem.Allocator) !*Registry {
     alloctr = allocator;
 
     var reg = try alloctr.create(Registry);
@@ -21,10 +21,10 @@ pub fn init(allocator: std.mem.Allocator) !*Registry {
     return reg;
 }
 
-pub fn deinit(self: *Registry) void {
+pub fn destroy(self: *Registry) void {
     defer self.fs_drivers.deinit();
-    for (self.fs_drivers.items) |fs| {
-        fs.deinit();
+    for (self.fs_drivers.items) |driver| {
+        driver.deinit();
     }
 }
 

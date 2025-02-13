@@ -427,26 +427,28 @@ pub fn build(b: *Build) !void {
 
     const iso_run = addBuildIso(b, kernel);
     const iso_run_out = iso_run.addOutputFileArg(bebok_iso_filename);
+    const iso_step = b.step("iso", "Build ISO");
+    iso_run.step.dependOn(&kernel.step);
+    iso_step.dependOn(&iso_run.step);
 
     //inject limine args
     limine_run.addArg("bios-install");
     limine_run.addFileArg(iso_run_out);
 
     const iso_ins_file = addInstallIso(b, &iso_run.step, iso_run_out);
-    const iso_step = b.step("iso-install", "Build the ISO");
-    iso_step.dependOn(&iso_ins_file.step);
-    iso_step.dependOn(&kernel_ins_file.step); //to be able to debug in gdb
+    const iso_ins_step = b.step("iso-install", "Build the ISO");
+    iso_ins_file.step.dependOn(iso_step);
+    iso_ins_step.dependOn(&iso_ins_file.step);
 
     const qemu_iso_run = try addQemuRun(b, kernel_target, false, build_options.bios_path); //run with the cached iso file
     const qemu_iso_step = b.step("iso-qemu", "Run the ISO in QEMU");
-    qemu_iso_step.dependOn(&iso_ins_file.step);
+    qemu_iso_run.step.dependOn(iso_ins_step);
     qemu_iso_step.dependOn(&qemu_iso_run.step);
 
     // debug mode
     const qemu_iso_debug_run = try addQemuRun(b, kernel_target, true, build_options.bios_path); //run with the cached iso file
     const qemu_iso_debug_step = b.step("iso-qemu-debug", "Run the ISO in QEMU with debug mode enabled");
-    qemu_iso_debug_step.dependOn(&iso_ins_file.step);
-    qemu_iso_debug_step.dependOn(&kernel_ins_file.step); //to be able to debug in gdb
+    qemu_iso_debug_run.step.dependOn(iso_ins_step);
     qemu_iso_debug_step.dependOn(&qemu_iso_debug_run.step);
 
     //Unit Test task

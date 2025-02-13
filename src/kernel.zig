@@ -193,13 +193,17 @@ fn _start() callconv(.C) noreturn {
         @panic("Block device scan error");
     };
 
-    const fs_reg = FilesystemDriversRegistry.init(arena_allocator.allocator()) catch |err| {
+    const fs_reg = FilesystemDriversRegistry.new(arena_allocator.allocator()) catch |err| {
         log.err("Filesystem drivers registry creation error: {}", .{err});
         @panic("Filesystem drivers registry creation error");
     };
-    defer fs_reg.deinit();
+    defer fs_reg.destroy();
 
-    var ext2_driver: Ext2Driver = .{};
+    const ext2_driver = arena_allocator.allocator().create(Ext2Driver) catch |err| {
+        log.err("Ext2 filesystem driver creation error: {}", .{err});
+        @panic("Ext2 filesystem driver registration error");
+        //
+    };
     fs_reg.registerFileSystemDriver(ext2_driver.driver()) catch |err| {
         log.err("Ext2 filesystem driver registration error: {}", .{err});
         @panic("Ext2 filesystem driver registration error");
@@ -211,7 +215,7 @@ fn _start() callconv(.C) noreturn {
         @panic("VFS initialization error");
     };
 
-    log.info("Scanning block devices for filesystems", .{});
+    log.info("Scanning 777 block devices for filesystems", .{});
     Filesystem.scanBlockDevices(arena_allocator.allocator(), pcie_bus, fs_reg, vfs) catch |err| {
         log.err("Filesystem scan error: {}", .{err});
         @panic("Filesystem scan error");

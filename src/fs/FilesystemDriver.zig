@@ -15,6 +15,7 @@ vtable: *const VTable,
 
 pub const VTable = struct {
     resolve: *const fn (ctx: *anyopaque, allocator: std.mem.Allocator, partition: *Partition) anyerror!?Filesystem,
+    destroy: *const fn (ctx: *anyopaque) void,
 };
 
 // string static typing for the interface
@@ -26,6 +27,12 @@ fn createVTable(comptime T: type) VTable {
                 return self.resolve(allocator, partition);
             }
         }.resolveInt,
+        .destroy = struct {
+            fn destroyInt(ctx: *anyopaque) void {
+                const self: T = @ptrCast(@alignCast(ctx));
+                return self.destroy();
+            }
+        }.destroyInt,
     };
 }
 
@@ -37,6 +44,10 @@ pub fn init(ctx: anytype) FilesystemDriver {
         .ptr = ctx,
         .vtable = &vtable,
     };
+}
+
+pub fn deinit(self: *const FilesystemDriver) void {
+    return self.vtable.destroy(self.ptr);
 }
 
 pub fn resolve(self: *const FilesystemDriver, allocator: std.mem.Allocator, partition: *Partition) anyerror!?Filesystem {

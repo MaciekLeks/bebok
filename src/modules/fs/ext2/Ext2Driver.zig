@@ -19,6 +19,18 @@ const log = std.log.scoped(.ext2);
 
 const Ext2Driver = @This();
 
+//Fields
+alloctr: std.mem.Allocator,
+
+pub fn new(allocator: std.mem.Allocator) !*Ext2Driver {
+    const self = try allocator.create(Ext2Driver);
+    self.* = .{};
+}
+
+pub fn destroy(self: *Ext2Driver) void {
+    self.alloctr.destroy(self);
+}
+
 // Resolve ext2 filesystem and attach it to the partition
 // From now on, the partition will be able to use the filesystem and must deinit it later
 pub fn resolve(_: *Ext2Driver, allocator: std.mem.Allocator, partition: *Partition) !?Filesystem {
