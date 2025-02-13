@@ -215,7 +215,7 @@ fn _start() callconv(.C) noreturn {
         @panic("VFS initialization error");
     };
 
-    log.info("Scanning 777 block devices for filesystems", .{});
+    log.info("Scanning block devices for filesystems", .{});
     Filesystem.scanBlockDevices(arena_allocator.allocator(), pcie_bus, fs_reg, vfs) catch |err| {
         log.err("Filesystem scan error: {}", .{err});
         @panic("Filesystem scan error");

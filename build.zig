@@ -448,6 +448,7 @@ pub fn build(b: *Build) !void {
     // debug mode
     const qemu_iso_debug_run = try addQemuRun(b, kernel_target, true, build_options.bios_path); //run with the cached iso file
     const qemu_iso_debug_step = b.step("iso-qemu-debug", "Run the ISO in QEMU with debug mode enabled");
+    qemu_iso_debug_run.step.dependOn(b.getInstallStep()); //debug mode requires a kernel to be installed
     qemu_iso_debug_run.step.dependOn(iso_ins_step);
     qemu_iso_debug_step.dependOn(&qemu_iso_debug_run.step);
 
