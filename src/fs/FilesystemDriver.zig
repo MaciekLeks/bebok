@@ -18,29 +18,12 @@ pub const VTable = struct {
     destroy: *const fn (ctx: *anyopaque) void,
 };
 
-// string static typing for the interface
-// fn createVTable(comptime T: type) VTable {
-//     return .{
-//         .resolve = struct {
-//             fn resolveInt(ctx: *anyopaque, allocator: std.mem.Allocator, partition: *Partition) anyerror!?Filesystem {
-//                 const self: T = @ptrCast(@alignCast(ctx));
-//                 return self.resolve(allocator, partition);
-//             }
-//         }.resolveInt,
-//         .destroy = struct {
-//             fn destroyInt(ctx: *anyopaque) void {
-//                 const self: T = @ptrCast(@alignCast(ctx));
-//                 return self.destroy();
-//             }
-//         }.destroyInt,
-//     };
-// }
-
 /// VTable container
 fn VTableContainer(comptime T: type) type {
     return struct {
         const Self = @This();
 
+        // we need vtable address
         pub const vtable = VTable{
             .resolve = struct {
                 fn resolveInt(ctx: *anyopaque, allocator: std.mem.Allocator, partition: *Partition) anyerror!?Filesystem {
@@ -61,10 +44,7 @@ fn VTableContainer(comptime T: type) type {
 pub fn init(ctx: anytype) FilesystemDriver {
     const T = @TypeOf(ctx);
     comptime if (@typeInfo(T) != .pointer) @compileError("FilesystemDriver.init() requires a pointer to the struct");
-    // const vtable = createVTable(T);
-    log.debug("XYZ-00-a", .{});
     const VT = VTableContainer(@TypeOf(ctx));
-    log.debug("XYZ-00-b", .{});
 
     return .{
         .ptr = ctx,
