@@ -21,7 +21,7 @@ const Ext2Driver = @This();
 
 // Resolve ext2 filesystem and attach it to the partition
 // From now on, the partition will be able to use the filesystem and must deinit it later
-pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partition) !?Filesystem {
+pub fn resolve(_: *Ext2Driver, allocator: std.mem.Allocator, partition: *Partition) !?Filesystem {
     log.info("Resolving ext2 filesystem", .{});
     const streamer = partition.block_device.streamer();
     var stream = BlockDevice.Stream(u8).init(streamer);
@@ -64,7 +64,7 @@ pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partitio
     log.debug("Superblock: {}", .{superblock});
 
     // Attach filesystem to the partition
-    const ext_fs = try Ext2.init(allocator, partition, superblock, bgdt);
+    const ext_fs = try Ext2.new(allocator, partition, superblock, bgdt);
     partition.filesystem = ext_fs.filesystem();
 
     //{TODO: remove this
@@ -119,8 +119,5 @@ pub fn resolve(_: *anyopaque, allocator: std.mem.Allocator, partition: *Partitio
 // }
 //
 pub fn driver(self: *Ext2Driver) FilesystemDriver {
-    const vtable = FilesystemDriver.VTable{
-        .resolve = resolve,
-    };
-    return FilesystemDriver.init(self, vtable);
+    return FilesystemDriver.init(self);
 }

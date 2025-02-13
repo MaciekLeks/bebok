@@ -33,7 +33,7 @@ block_group_descriptor_table: []BlockGroupDescriptor,
 /// Every thread need own inode buffer
 //block_buffer: []u8, //TOOD: not thread safe
 
-pub fn init(allocator: std.mem.Allocator, partition: *Partition, superblock: *Superblock, block_group_descriptor_table: []BlockGroupDescriptor) !*Ext2 {
+pub fn new(allocator: std.mem.Allocator, partition: *Partition, superblock: *Superblock, block_group_descriptor_table: []BlockGroupDescriptor) !*Ext2 {
     const self = try allocator.create(Ext2);
     self.* = .{
         .alloctr = allocator,
@@ -46,7 +46,7 @@ pub fn init(allocator: std.mem.Allocator, partition: *Partition, superblock: *Su
 }
 
 // Should be called by the Parition deinit
-pub fn deinit(ctx: *anyopaque) void {
+pub fn destroy(ctx: *Ext2) void {
     const self: *Ext2 = @ptrCast(@alignCast(ctx));
     self.alloctr.destroy(self.superblock);
     self.alloctr.free(self.block_group_descriptor_table);
@@ -60,11 +60,7 @@ pub fn open(ctx: *anyopaque, partition: *Partition) anyerror!Filesystem.Descript
 }
 
 pub fn filesystem(self: *Ext2) Filesystem {
-    const vtable = Filesystem.VTable{
-        .deinit = deinit,
-        .open = open,
-    };
-    return Filesystem.init(self, vtable);
+    return Filesystem.init(self);
 }
 
 //---Private functions

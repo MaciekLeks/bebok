@@ -14,27 +14,41 @@ const Filesystem = @This();
 pub const Descriptor = i32;
 
 ptr: *anyopaque,
-vtable: VTable,
-//sb: *Superblock,
+vtable: *const VTable,
 
 pub const VTable = struct {
-    deinit: *const fn (ctx: *anyopaque) void,
-    open: *const fn (ctx: *anyopaque, partition: *Partition) anyerror!Descriptor,
+    destroy: *const fn (ctx: *anyopaque) void,
+    //open: *const fn (ctx: *anyopaque, partition: *Partition) anyerror!Descriptor,
 };
 
-pub fn init(ctx: *anyopaque, vtable: VTable) Filesystem {
+// strong static typing for the interface
+fn createVTable(comptime T: type) VTable {
     return .{
-        .ptr = ctx,
-        .vtable = vtable,
+        .destroy = struct {
+            fn destroyInt(ctx: *anyopaque) void {
+                const self: T = @ptrCast(@alignCast(ctx));
+                return self.destroy();
+            }
+        }.destroyInt,
     };
 }
 
-pub fn open(self: *const Filesystem, allocator: std.mem.Allocator, partition: *Partition) anyerror!Descriptor {
-    return @call(.auto, self.vtable.open, .{ self.ptr, allocator, partition });
+pub fn init(ctx: anytype) Filesystem {
+    const T = @TypeOf(ctx);
+    comptime if (@typeInfo(T) != .pointer) @compileError("Filesystem must be a struct");
+    const vtable = createVTable(T);
+    return .{
+        .ptr = ctx,
+        .vtable = &vtable,
+    };
 }
 
+// pub fn open(self: *const Filesystem, allocator: std.mem.Allocator, partition: *Partition) anyerror!Descriptor {
+//     return @call(.auto, self.vtable.open, .{ self.ptr, allocator, partition });
+// }
+
 pub fn deinit(self: Filesystem) void {
-    return @call(.auto, self.vtable.deinit, .{self.ptr});
+    return self.vtable.destroy(self.ptr);
 }
 
 pub fn scanBlockDevices(allocator: std.mem.Allocator, bus: *const Bus, registry: *const Registry, vfs: *Vfs) !void {
