@@ -21,6 +21,23 @@ pub const VTable = struct {
     //open: *const fn (ctx: *anyopaque, partition: *Partition) anyerror!Descriptor,
 };
 
+/// VTable container
+fn VTableContainer(comptime T: type) type {
+    return struct {
+        const Self = @This();
+
+        // we need vtable address
+        pub const vtable = VTable{
+            .destroy = struct {
+                fn destroyInt(ctx: *anyopaque) void {
+                    const self: T = @ptrCast(@alignCast(ctx));
+                    return self.destroy();
+                }
+            }.destroyInt,
+        };
+    };
+}
+
 // strong static typing for the interface
 fn createVTable(comptime T: type) VTable {
     return .{
@@ -36,10 +53,11 @@ fn createVTable(comptime T: type) VTable {
 pub fn init(ctx: anytype) Filesystem {
     const T = @TypeOf(ctx);
     comptime if (@typeInfo(T) != .pointer) @compileError("Filesystem must be a struct");
-    const vtable = createVTable(T);
+    const VT = VTableContainer(@TypeOf(ctx));
+
     return .{
         .ptr = ctx,
-        .vtable = &vtable,
+        .vtable = &VT.vtable,
     };
 }
 

@@ -1,4 +1,4 @@
-pub const File = @import("File.zig");
+pub const File = @import("types.zig").File;
 pub const Filesystem = @import("Filesystem.zig");
 pub const FilesystemDriver = @import("FilesystemDriver.zig");
 pub const Registry = @import("Registry.zig");

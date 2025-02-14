@@ -1,6 +1,6 @@
 const std = @import("std");
 const Filesystem = @import("Filesystem.zig");
-const File = @import("File.zig");
+const File = @import("types.zig").File;
 const pathparser = @import("pathparser.zig");
 const Partition = @import("devices").Partition;
 

@@ -73,6 +73,11 @@ pub const FD = struct {
 };
 
 pub const File = struct {
+    pub const Error = error{
+        NotFound,
+    };
+    pub const max_name_len = 256;
+
     dentry: *const DEntry,
 };
 
