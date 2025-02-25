@@ -99,7 +99,7 @@ pub fn deinit(self: Filesystem) void {
 
 pub fn scanBlockDevices(allocator: std.mem.Allocator, bus: *const Bus, registry: *const Registry, vfs: *Vfs) !void {
     for (bus.devices.items) |*dev_node| {
-        log.warn("Device: {}", .{dev_node});
+        //log.warn("Device: {}", .{dev_node}); //TODO:  prontformat method needed to avoid tripple fault
 
         if (dev_node.device.kind == Device.Kind.block) {
             const block_dev = BlockDevice.fromDevice(dev_node.device);

@@ -5,6 +5,7 @@
 const std = @import("std");
 const bbtree = @import("bbtree.zig");
 const Allocator = std.mem.Allocator;
+const Alignment = std.mem.Alignment;
 
 const log = std.log.scoped(.buddy_allocator);
 const metric_log = std.log.scoped(.metric_mem);
@@ -164,7 +165,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
         }
 
         // TODO implement ret_addr
-        fn alloc(ctx: *anyopaque, len: usize, _: u8, _: usize) ?[*]u8 {
+        fn alloc(ctx: *anyopaque, len: usize, _: Alignment, _: usize) ?[*]u8 {
             log.debug("alloc(): requested 0x{x}", .{len});
             const self: *Self = @ptrCast(@alignCast(ctx));
             const len_pow2 = minAllocSize(len) catch return null;
@@ -198,7 +199,7 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
             self.metric_mem_allocated_block_count_down(level_meta.size);
         }
 
-        fn free(ctx: *anyopaque, old_mem: []u8, _: u8, _: usize) void {
+        fn free(ctx: *anyopaque, old_mem: []u8, _: Alignment, _: usize) void {
             log.debug("free(): Freeing slice  {*} of 0x{x} len", .{ old_mem.ptr, old_mem.len });
             defer log.debug("free(): Freed at 0x{x}", .{&old_mem[0]});
             const self: *Self = @ptrCast(@alignCast(ctx));
@@ -208,8 +209,12 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
 
         /// Resize the allocation at the given virtual address to the new length. Note that resizing is limited to the current chunk.
         /// For example, if you allocated 3kB, it implies that we have occupied 4kB (page/frame size), so you can resize it to up to 4kB within this chunk.
-        fn resizeInner(self: *Self, vaddr: usize, new_len: usize) bool {
-            const idx = self.indexFromVaddr(vaddr);
+        fn resizeInner(self: *Self, old_mem: []u8, new_len: usize) bool {
+            const idx = self.indexFromSlice(old_mem) catch |err| {
+                log.err("resizeInner(): indexFromSlice failed: {}", .{err});
+                @panic("resizeInner(): indexFromSlice failed");
+            };
+
             const new_size_pow2 = minAllocSize(new_len) catch return false;
             const old_size_pow2 = (self.tree.levelMetaFromIndex(idx) catch return false).size;
             if (new_size_pow2 <= old_size_pow2) return true; //no need to leave the chunk
@@ -220,10 +225,9 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
             return false;
         }
 
-        fn resize(ctx: *anyopaque, buf: []u8, _: u8, new_len: usize, _: usize) bool {
+        fn resize(ctx: *anyopaque, buf: []u8, _: Alignment, new_len: usize, _: usize) bool {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            const vaddr = @intFromPtr(&buf[0]);
-            const res = self.resizeInner(vaddr, new_len);
+            const res = self.resizeInner(buf, new_len);
             defer log.debug("resize(): resized: {} at 0x{x}, new_len: 0x{x}", .{ res, &buf[0], new_len });
             return res;
         }
@@ -233,7 +237,8 @@ pub fn BuddyAllocator(comptime max_levels: u8, comptime min_size: usize) type {
                 .ptr = self,
                 .vtable = &.{
                     .alloc = alloc,
-                    .resize = Allocator.noResize,
+                    .resize = resize,
+                    .remap = Allocator.noRemap, //TODO: to be define - it was addd at the end of 0.14th version development
                     .free = free,
                 },
             };

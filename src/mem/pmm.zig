@@ -140,7 +140,7 @@ pub fn deinit() void {
 }
 
 // TODO: implement a more efficient way to find the buddy allocator and updating the tree if free_mem_size changes radically
-fn alloc(_: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
+fn alloc(_: *anyopaque, len: usize, ptr_align: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
     //var it = avl_tree_by_size.ascendFromStart();
     var it = avl_tree_by_size.descendFromEnd(); //large size to small size
     const size_pow2 = BuddyAllocatorPreconfigured.minAllocSize(len) catch {
@@ -163,7 +163,7 @@ fn alloc(_: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
     return null;
 }
 
-fn free(_: *anyopaque, buf: []u8, _: u8, _: usize) void {
+fn free(_: *anyopaque, buf: []u8, _: std.mem.Alignment, _: usize) void {
     log.debug("free(): Freeing memory at 0x{x}", .{@intFromPtr(buf.ptr)});
     defer log.debug("free(): Freed memory at 0x{x}", .{@intFromPtr(buf.ptr)});
     const key: KeyVaddrSize = .{ .virt = @intFromPtr(buf.ptr), .size = buf.len };
@@ -179,7 +179,7 @@ fn free(_: *anyopaque, buf: []u8, _: u8, _: usize) void {
     }
 }
 
-fn resize(_: *anyopaque, buf: []u8, buf_align: u8, new_len: usize, ret_addr: usize) bool {
+fn resize(_: *anyopaque, buf: []u8, buf_align: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
     defer log.debug("resize(): Resized memory at 0x{x} from {d} to {d} bytes", .{ @intFromPtr(buf.ptr), buf.len, new_len });
     const key: KeyVaddrSize = .{ .virt = @intFromPtr(buf.ptr), .size = buf.len };
     const it = avl_tree_by_vaddr.get(key);
@@ -196,5 +196,6 @@ pub const allocator = std.mem.Allocator{
         .alloc = alloc,
         .resize = resize,
         .free = free,
+        .remap = std.mem.Allocator.noRemap, //TODO: to be define - it was addd at the end of 0.14th version development
     },
 };

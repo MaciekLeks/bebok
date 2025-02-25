@@ -52,7 +52,7 @@ pub fn streamer(self: *BlockDevice) Streamer {
 // Remark: Memory released by bus deinit function
 pub fn scanBlockDevices(bus: *Bus, allocator: std.mem.Allocator) !void {
     for (bus.devices.items) |*dev_node| {
-        log.warn("Device: {}", .{dev_node});
+        //log.warn("Device: {}", .{dev_node}); //TODO:  prontformat method needed to avoid tripple fault
 
         if (dev_node.device.kind == Device.Kind.block) {
             const block_dev = BlockDevice.fromDevice(dev_node.device);

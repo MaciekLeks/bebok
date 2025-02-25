@@ -224,7 +224,7 @@ fn _start() callconv(.C) noreturn {
 
     //const tst_ns = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl.namespaces.get(1);
     for (pcie_bus.devices.items) |*dev_node| {
-        log.warn("Device: {}", .{dev_node});
+        //log.warn("Device: {}", .{dev_node}); //TODO:  prontformat method needed to avoid tripple fault
 
         if (dev_node.device.kind == Device.Kind.block) {
             const block_dev = BlockDevice.fromDevice(dev_node.device);
