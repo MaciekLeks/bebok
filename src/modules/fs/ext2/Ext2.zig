@@ -14,7 +14,12 @@ const BlockGroupDescriptor = @import("types.zig").BlockGroupDescriptor;
 const BlockAddressing = @import("types.zig").BlockAddressing;
 const Inode = @import("types.zig").Inode;
 const LinkedDirectoryEntry = @import("types.zig").LinkedDirectoryEntry;
-const File = @import("fs").File;
+
+//VFS
+const VFile = @import("fs").File;
+const VInode = @import("fs").Inode;
+const VSuperblock = @import("fs").Superblock;
+const VFileDescriptor = @import("fs").FileDescriptor;
 
 const pathparser = @import("fs").pathparser;
 const pmm = @import("mem").pmm; //block size should be the same as the page size
@@ -28,17 +33,17 @@ const Ext2 = @This();
 //Fields
 alloctr: std.mem.Allocator,
 partition: *Partition, //owning partition
-superblock: *Superblock,
+sb: *Superblock,
 block_group_descriptor_table: []BlockGroupDescriptor,
 /// Every thread need own inode buffer
 //block_buffer: []u8, //TOOD: not thread safe
 
-pub fn new(allocator: std.mem.Allocator, partition: *Partition, superblock: *Superblock, block_group_descriptor_table: []BlockGroupDescriptor) !*Ext2 {
+pub fn new(allocator: std.mem.Allocator, partition: *Partition, sb: *Superblock, block_group_descriptor_table: []BlockGroupDescriptor) !*Ext2 {
     const self = try allocator.create(Ext2);
     self.* = .{
         .alloctr = allocator,
         .partition = partition,
-        .superblock = superblock,
+        .sb = sb,
         .block_group_descriptor_table = block_group_descriptor_table,
         //.block_buffer = try allocator.alloc(u8, superblock.getBlockSize()),
     };
@@ -48,40 +53,48 @@ pub fn new(allocator: std.mem.Allocator, partition: *Partition, superblock: *Sup
 // Should be called by the Parition deinit
 pub fn destroy(ctx: *Ext2) void {
     const self: *Ext2 = @ptrCast(@alignCast(ctx));
-    self.alloctr.destroy(self.superblock);
+    self.alloctr.destroy(self.sb);
     self.alloctr.free(self.block_group_descriptor_table);
     self.alloctr.destroy(self);
-}
-
-pub fn open(ctx: *anyopaque, partition: *Partition) anyerror!Filesystem.Descriptor {
-    _ = ctx;
-    _ = partition;
-    return error.Unimplemented;
 }
 
 pub fn filesystem(self: *Ext2) Filesystem {
     return Filesystem.init(self);
 }
 
+pub fn superblock(self: *Ext2) VSuperblock {
+    // for now Ext2 implements Superblock functions directly
+    return VSuperblock.init(self);
+}
+
+// Interface functions
+pub fn open(self: *Ext2, allocator: std.mem.Allocator, file_path: [:0]const u8, mode: VFileDescriptor.Mode) anyerror!VFileDescriptor {
+    _ = self;
+    _ = allocator;
+    _ = file_path;
+    _ = mode;
+    return error.Unimplemented;
+}
+
 //---Private functions
 inline fn getBlockGroupNumFromInodeNum(self: *const Ext2, inode_num: InodeNum) BlockGroupNum {
-    return (inode_num - 1) / self.superblock.inodes_per_group;
+    return (inode_num - 1) / self.sb.inodes_per_group;
 }
 
 /// Retrieve inode index inside of a block group
 inline fn getInodeIdxInBlockGroup(self: *const Ext2, inode_num: u32) InodeIdx {
-    return (inode_num - 1) % self.superblock.inodes_per_group;
+    return (inode_num - 1) % self.sb.inodes_per_group;
 }
 
 inline fn getRelBlockNumberFromInodeIdx(self: *const Ext2, inode_idx: InodeIdx) BlockNum {
-    return (inode_idx * self.superblock.inode_size) / self.superblock.getBlockSize();
+    return (inode_idx * self.sb.inode_size) / self.sb.getBlockSize();
 }
 
 inline fn getInodePosFromInodeNum(self: *const Ext2, inode_num: u32) struct { block_num: BlockNum, offset: u32 } {
     const bg_num = getBlockGroupNumFromInodeNum(self, inode_num);
     const inode_idx = getInodeIdxInBlockGroup(self, inode_num);
     const rel_block_num = getRelBlockNumberFromInodeIdx(self, inode_idx);
-    return .{ .block_num = self.block_group_descriptor_table[bg_num].inode_table + rel_block_num, .offset = (inode_idx * self.superblock.inode_size) % self.superblock.getBlockSize() };
+    return .{ .block_num = self.block_group_descriptor_table[bg_num].inode_table + rel_block_num, .offset = (inode_idx * self.sb.inode_size) % self.sb.getBlockSize() };
 }
 
 inline fn getOffsetFromBlockNum(block_num: usize) usize {
@@ -96,7 +109,7 @@ fn readBlock(self: *const Ext2, block_num: BlockNum, buffer: []u8) !void {
 
 //TODO: remove pub qualifier
 /// Read inode from the disk using existing block_bffer to not alloc memory each time
-pub fn readInode(self: *const Ext2, inode_num: u32, block_buffer: []u8) !Inode {
+pub fn readInodeInternal(self: *const Ext2, inode_num: u32, block_buffer: []u8) !Inode {
     const inode_pos = getInodePosFromInodeNum(self, inode_num);
 
     try readBlock(self, inode_pos.block_num, block_buffer);
@@ -105,6 +118,25 @@ pub fn readInode(self: *const Ext2, inode_num: u32, block_buffer: []u8) !Inode {
 
     log.debug("Inode[{d}]: {}", .{ inode_num, inode.* });
     return inode.*;
+}
+
+/// readInode using alloctator
+/// TODO: allocates memory twice, once for block and the 2nd time for inode
+/// Caller needs to destroy Ext2 Inode memory
+pub fn readInode(self: *Ext2, allocator: std.mem.Allocator, inode_num: InodeNum) !VInode {
+    const block_buffer = try allocator.alloc(u8, self.sb.getBlockSize());
+    defer allocator.free(block_buffer);
+
+    const inode_pos = getInodePosFromInodeNum(self, inode_num);
+
+    try readBlock(self, inode_pos.block_num, block_buffer);
+
+    const inode = try allocator.create(Inode);
+
+    const offset = inode_pos.offset;
+    @memcpy(std.mem.asBytes(inode), block_buffer[offset..(offset + @sizeOf(Inode))]);
+
+    return VInode.init(self, inode);
 }
 
 pub fn linkedDirectoryIterator(self: *const Ext2, allocator: std.mem.Allocator, inode: *const Inode) !LinkedDirectoryIterator {
@@ -130,7 +162,7 @@ const LinkedDirectoryIterator = struct {
             .inode = inode,
             .block_iterator = InodeBlockIterator.init(allocator, ext2, inode),
             .ext2 = ext2,
-            .block_buffer = try allocator.alloc(u8, ext2.superblock.getBlockSize()),
+            .block_buffer = try allocator.alloc(u8, ext2.sb.getBlockSize()),
         };
     }
 
@@ -218,7 +250,7 @@ pub const InodeBlockIterator = struct {
             while (true) {
                 // Allocate buffer if needed
                 if (self.stack[current_level].buffer == null) {
-                    self.stack[current_level].buffer = try self.alloctr.alloc(BlockNum, self.ext2.superblock.getBlockSize() / @sizeOf(BlockNum));
+                    self.stack[current_level].buffer = try self.alloctr.alloc(BlockNum, self.ext2.sb.getBlockSize() / @sizeOf(BlockNum));
                     self.stack[current_level].needs_load = true;
                     self.stack[current_level].idx = 0;
                 }
@@ -288,7 +320,7 @@ pub fn findInodeByPath(self: *const Ext2, path: []const u8, start_dir_inode: ?u3
     defer log.debug("findInodeByPath: res={d}", .{curr_inode_num});
 
     const name_buffer = try alloctr.alloc(u8, 256);
-    const block_buffer = try alloctr.alloc(u8, self.superblock.getBlockSize());
+    const block_buffer = try alloctr.alloc(u8, self.sb.getBlockSize());
 
     var it = parser.iterator();
     // Skip root segment if path is absolute
@@ -296,7 +328,7 @@ pub fn findInodeByPath(self: *const Ext2, path: []const u8, start_dir_inode: ?u3
 
     // Iterate through path segments
     while (it.next()) |name| {
-        const curr_inode = try self.readInode(curr_inode_num, block_buffer);
+        const curr_inode = try self.readInodeInternal(curr_inode_num, block_buffer);
 
         if (!curr_inode.isDirectory()) {
             return pathparser.PathError.NotDirectory;
@@ -316,7 +348,7 @@ pub fn findInodeByPath(self: *const Ext2, path: []const u8, start_dir_inode: ?u3
         } else |err| return err;
 
         if (!found) {
-            return File.Error.NotFound;
+            return VFile.Error.NotFound;
         }
     }
 

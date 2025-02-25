@@ -85,7 +85,7 @@ pub fn resolve(_: *Ext2Driver, allocator: std.mem.Allocator, partition: *Partiti
     const tmp_alloc = tmp_arena.allocator();
     const block_buffer = try tmp_alloc.alloc(u8, superblock.getBlockSize());
 
-    const inode = try ext_fs.readInode(2, block_buffer);
+    const inode = try ext_fs.readInodeInternal(2, block_buffer);
     var diter = try ext_fs.linkedDirectoryIterator(tmp_alloc, &inode);
     var name_buffer: [256]u8 = undefined;
     while (diter.next(&name_buffer)) |opt_entry| {

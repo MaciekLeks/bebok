@@ -3,6 +3,8 @@ const Filesystem = @import("Filesystem.zig");
 const File = @import("types.zig").File;
 const pathparser = @import("pathparser.zig");
 const Partition = @import("devices").Partition;
+const FD = @import("types.zig").FD;
+const FileDessriptor = @import("types.zig").FileDescriptor;
 
 pub const MountPoint = struct {
     path: []const u8,
@@ -58,26 +60,28 @@ pub fn mount(self: *Vfs, path: []const u8, filesystem: Filesystem) !void {
     const path_copy = try self.alloctr.dupe(u8, path);
     errdefer self.alloctr.free(path_copy);
 
+    // mount root filesystem
     if (path.len == 0 or (path.len == 1 and path[0] == '/')) {
         // Mount as root filesystem
         if (self.root_fs != null) return error.RootAlreadyMounted;
         self.root_fs = filesystem;
-    } else {
-        try self.mount_points.append(.{
-            .path = path_copy,
-            .filesystem = filesystem,
-        });
     }
+
+    // add mount point (also for the root filesystem)
+    try self.mount_points.append(.{
+        .path = path_copy,
+        .filesystem = filesystem,
+    });
 }
 
 pub fn findMountPoint(self: *Vfs, path: []const u8) ?*MountPoint {
-    // First check if this is root
-    if (path.len == 0 or (path.len == 1 and path[0] == '/')) {
-        if (self.root_fs) |_| {
-            return &self.mount_points.items[0];
-        }
-        return null;
-    }
+    // // First check if this is root
+    // if (path.len == 0 or (path.len == 1 and path[0] == '/')) {
+    //     if (self.root_fs) |_| {
+    //         return &self.mount_points.items[0];
+    //     }
+    //     return null;
+    // }
 
     // Find the longest matching mount point
     var longest_match: ?*MountPoint = null;
@@ -95,18 +99,20 @@ pub fn findMountPoint(self: *Vfs, path: []const u8) ?*MountPoint {
     return longest_match;
 }
 
-pub fn open(self: *Vfs, path: []const u8) !Filesystem.Descriptor {
-    // Parse path
-    var parser = pathparser.PathParser.init(self.alloctr);
-    defer parser.deinit();
-    try parser.parse(path);
+pub fn open(self: *Vfs, path: []const u8, mode: FileDessriptor.Mode) !FD {
 
     // Find mount point
     const mount_point = self.findMountPoint(path) orelse return error.NoMountPoint;
 
     // Remove mount point prefix from path
-    const relative_path = path[mount_point.path.len..];
+    // We remove path.len - 1 to avoid not having "/"
+    const fs_path = path[(mount_point.path.len - 1)..];
+
+    // Parse path
+    var parser = pathparser.PathParser.init(self.alloctr);
+    defer parser.deinit();
+    try parser.parse(fs_path);
 
     // Delegate to filesystem implementation
-    return mount_point.filesystem.open(self.alloctr, relative_path);
+    return (try mount_point.filesystem.open(self.alloctr, fs_path, mode)).idx;
 }

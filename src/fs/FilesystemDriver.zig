@@ -10,7 +10,7 @@ const log = std.log.scoped(.vfs_filesystem_driver);
 
 const FilesystemDriver = @This();
 
-ptr: *anyopaque,
+ctx: *anyopaque,
 vtable: *const VTable,
 
 pub const VTable = struct {
@@ -47,15 +47,15 @@ pub fn init(ctx: anytype) FilesystemDriver {
     const VT = VTableContainer(@TypeOf(ctx));
 
     return .{
-        .ptr = ctx,
+        .ctx = ctx,
         .vtable = &VT.vtable,
     };
 }
 
 pub fn deinit(self: *const FilesystemDriver) void {
-    return self.vtable.destroy(self.ptr);
+    return self.vtable.destroy(self.ctx);
 }
 
 pub fn resolve(self: *const FilesystemDriver, allocator: std.mem.Allocator, partition: *Partition) anyerror!?Filesystem {
-    return self.vtable.resolve(self.ptr, allocator, partition);
+    return self.vtable.resolve(self.ctx, allocator, partition);
 }
