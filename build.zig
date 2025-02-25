@@ -278,6 +278,10 @@ pub fn build(b: *Build) !void {
     const terminal_mod = b.addModule("terminal", .{ .root_source_file = b.path("src/modules/terminal/mod.zig"), .target = kernel_target });
     const terminal_ut_mod = b.addModule("terminal", .{ .root_source_file = b.path("src/modules/terminal/mod.zig"), .target = ut_target });
 
+    // Zig Language modules
+    const lang_mod = b.addModule("lang", .{ .root_source_file = b.path("src/modules/lang/mod.zig"), .target = kernel_target });
+    const lang_ut_mod = b.addModule("lang", .{ .root_source_file = b.path("src/modules/lang/mod.zig"), .target = ut_target });
+
     // Core module dependencies
     core_mod.addImport("limine", limine_zig_mod);
     core_ut_mod.addImport("limine", limine_zig_mod);
@@ -363,6 +367,7 @@ pub fn build(b: *Build) !void {
 
     fs_mod.addImport("devices", devices_mod);
     fs_ut_mod.addImport("devices", devices_ut_mod);
+    fs_mod.addImport("lang", lang_mod);
 
     ext2_mod.addImport("mem", mem_mod);
     ext2_ut_mod.addImport("mem", mem_ut_mod);
@@ -413,6 +418,7 @@ pub fn build(b: *Build) !void {
 
     kernel_mod.addImport("ext2", ext2_mod);
     kernel_ut_mod.addImport("ext2", ext2_ut_mod);
+
     //Modules end
 
     const kernel_ins_file = addInstallKernelFile(b, kernel);
@@ -531,6 +537,12 @@ pub fn build(b: *Build) !void {
     });
     const terminal_ut_run = b.addRunArtifact(terminal_ut);
 
+    const lang_ut = b.addTest(.{
+        .name = "lang",
+        .root_module = lang_ut_mod,
+    });
+    const lang_ut_run = b.addRunArtifact(lang_ut);
+
     const ut_step = b.step("unit-tests", "Run unit tests");
     ut_step.dependOn(&kernel_ut_run.step);
     ut_step.dependOn(&core_ut_run.step);
@@ -545,6 +557,7 @@ pub fn build(b: *Build) !void {
     ut_step.dependOn(&gpt_ut_run.step);
     ut_step.dependOn(&nvme_ut_run.step);
     ut_step.dependOn(&terminal_ut_run.step);
+    ut_step.dependOn(&lang_ut_run.step);
 
     b.default_step = iso_step;
 }
