@@ -21,7 +21,7 @@ In Silesian language, a creature from our (Upper Silesians) demonology.
 
 # In progress
 - [ ] Ongoing refactoring and bug fixing
-- [ ] ext2(and possibly ext4 ) filesystem support
+- [ ] ext2 filesystem support
 
 # Pre-requisites
 ## Installed tools
