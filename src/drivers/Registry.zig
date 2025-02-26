@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const Driver = @import("Driver.zig");
-const Device = @import("mod.zig").Device;
+const Device = @import("devices").Device;
 
 const Registry = @This();
 

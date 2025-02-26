@@ -44,130 +44,81 @@ fn resolveTarget(b: *Build, arch: Target.Cpu.Arch) !Build.ResolvedTarget {
     return target;
 }
 
-/// Main compilation units
-/// Add here all modules that should be compiled into the kernel
-fn compileKernelAction(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, options: *Build.Step.Options, limine_zig_mod: *Build.Module, zigavl_mod: *Build.Module) *Build.Step.Compile {
-    const compile_kernel_action = b.addExecutable(.{
-        .name = "kernel.elf",
-        // .root_source_file = .{ .path = "src/kernel.zig" },
-        .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/kernel.zig" } },
-        .target = target,
-        .optimize = optimize,
-        .single_threaded = true,
-        .code_model = .kernel,
-        .pic = false, //TODO: check if this is needed
-    });
-
-    // Pass options to the code
-    compile_kernel_action.root_module.addOptions("config", options);
-
-    compile_kernel_action.root_module.addImport("limine", limine_zig_mod);
-    compile_kernel_action.root_module.addImport("zigavl", zigavl_mod);
-    //compile_kernel_action.setLinkerScript(.{ .path = b.fmt("linker-{s}.ld", .{@tagName(target.result.cpu.arch)}) });
-    compile_kernel_action.setLinkerScript(.{ .src_path = .{ .owner = b, .sub_path = b.fmt("linker-{s}.ld", .{@tagName(target.result.cpu.arch)}) } });
-    compile_kernel_action.out_filename = "kernel.elf";
-    compile_kernel_action.pie = false; //TODO: ?
-
-    //{Modules
-    //const terminal_module = b.addModule("terminal", .{ .root_source_file = .{ .path = "lib/terminal/mod.zig" } });
-    const terminal_module = b.addModule("terminal", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/terminal/mod.zig" } } });
-    terminal_module.addImport("limine", limine_zig_mod); //we need limine there
-    compile_kernel_action.root_module.addImport("terminal", terminal_module);
-
-    //const utils_module = b.addModule("utils", .{ .root_source_file = .{ .path = "lib/utils/mod.zig" } });
-    const utils_module = b.addModule("utils", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/utils/mod.zig" } } });
-    compile_kernel_action.root_module.addImport("utils", utils_module);
-
-    const nvme_module = b.addModule("nvme", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/block/nvme/mod.zig" } } });
-    compile_kernel_action.root_module.addImport("nvme", nvme_module);
-
-    const gpt_module = b.addModule("gpt", .{ .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/modules/block/gpt/mod.zig" } } });
-    compile_kernel_action.root_module.addImport("gpt", gpt_module);
-    //}Modules
-
-    return compile_kernel_action;
-}
-
-fn installKernelAction(b: *Build, compile_action: *Build.Step.Compile) *Build.Step.InstallArtifact {
-    const install_kernel_action = b.addInstallArtifact(compile_action, .{
+fn addInstallKernelFile(b: *Build, compile_action: *Build.Step.Compile) *Build.Step.InstallArtifact {
+    const install = b.addInstallArtifact(compile_action, .{
         .dest_dir = .{
             .override = .prefix, //do not install inside bin subdirectory
         },
     });
-    return install_kernel_action;
+    return install;
 }
 
-fn uninstallKernelAction(b: *Build, install_kernel_action: *Build.Step.InstallArtifact) !*Build.Step.Run {
+fn addKernelUninstall(b: *Build, install_kernel_action: *Build.Step.InstallArtifact) !*Build.Step.Run {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
     const allocator = arena.allocator();
-    const uninstall_kernel_action = b.addSystemCommand(&.{ "rm", "-r" });
-    const install_abs_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ b.install_prefix, install_kernel_action.dest_sub_path });
-    uninstall_kernel_action.addArg(install_abs_path);
-    return uninstall_kernel_action;
+    const kernel_uninstall = b.addSystemCommand(&.{ "rm", "-r" });
+    const path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ b.install_prefix, install_kernel_action.dest_sub_path });
+    kernel_uninstall.addArg(path);
+    return kernel_uninstall;
 }
 
-fn buildLimineAction(b: *Build) *Build.Step.Run {
-    const limine_dep = b.dependency("limine", .{});
-    const limine_build_task = b.addExecutable(.{
-        .name = "limine",
-        .target = b.host,
-        .optimize = .ReleaseFast,
-    });
-    limine_build_task.addCSourceFile(.{
-        .file = limine_dep.path("limine.c"),
-    });
-    limine_build_task.linkLibC();
-    const limine_run_action = b.addRunArtifact(limine_build_task);
-    return limine_run_action;
-}
+// fn addLimineBuild(b: *Build, target: Build.ResolvedTarget) *Build.Step.Run {
+//     const limine = b.dependency("limine", .{});
+//     const exe = b.addExecutable(.{
+//         .name = "limine",
+//         .target = target,
+//         .optimize = .ReleaseFast,
+//     });
+//     exe.addCSourceFile(.{
+//         .file = limine.path("limine.c"),
+//     });
+//     exe.linkLibC();
+//     const run = b.addRunArtifact(exe);
+//     return run;
+// }
 
-fn buildIsoFileAction(b: *Build, compile_kernel_action: *Build.Step.Compile) *Build.Step.Run {
-    const limine_dep = b.dependency("limine", .{});
-    const iso_prepate_files_action = b.addWriteFiles();
-    _ = iso_prepate_files_action.addCopyFile(compile_kernel_action.getEmittedBin(), "kernel.elf");
+fn addBuildIso(b: *Build, kernel: *Build.Step.Compile) *Build.Step.Run {
+    const limine = b.dependency("limine", .{});
+    const iso_files = b.addWriteFiles();
+    _ = iso_files.addCopyFile(kernel.getEmittedBin(), "kernel.elf");
     //_ = iso_prepate_files_action.addCopyFile(.{ .path = "src/boot/limine.cfg" }, "limine.cfg");
-    _ = iso_prepate_files_action.addCopyFile(.{ .src_path = .{ .owner = b, .sub_path = "src/boot/limine.conf" } }, "limine.conf");
-    _ = iso_prepate_files_action.addCopyFile(limine_dep.path("limine-bios.sys"), "limine-bios.sys");
-    _ = iso_prepate_files_action.addCopyFile(limine_dep.path("limine-bios-cd.bin"), "limine-bios-cd.bin");
-    _ = iso_prepate_files_action.addCopyFile(limine_dep.path("limine-uefi-cd.bin"), "limine-uefi-cd.bin");
-    _ = iso_prepate_files_action.addCopyFile(limine_dep.path("BOOTX64.EFI"), "EFI/BOOT/BOOTX64.EFI");
-    _ = iso_prepate_files_action.addCopyFile(limine_dep.path("BOOTIA32.EFI"), "EFI/BOOT/BOOTIA32.EFI");
+    _ = iso_files.addCopyFile(.{ .src_path = .{ .owner = b, .sub_path = "src/boot/limine.conf" } }, "limine.conf");
+    _ = iso_files.addCopyFile(limine.path("limine-bios.sys"), "limine-bios.sys");
+    _ = iso_files.addCopyFile(limine.path("limine-bios-cd.bin"), "limine-bios-cd.bin");
+    _ = iso_files.addCopyFile(limine.path("limine-uefi-cd.bin"), "limine-uefi-cd.bin");
+    _ = iso_files.addCopyFile(limine.path("BOOTX64.EFI"), "EFI/BOOT/BOOTX64.EFI");
+    _ = iso_files.addCopyFile(limine.path("BOOTIA32.EFI"), "EFI/BOOT/BOOTIA32.EFI");
 
-    const iso_build_action = b.addSystemCommand(&.{"xorriso"});
-    iso_build_action.addArg("-as");
-    iso_build_action.addArg("mkisofs");
-    iso_build_action.addArg("-b");
-    iso_build_action.addArg("limine-bios-cd.bin");
-    iso_build_action.addArg("-no-emul-boot");
-    iso_build_action.addArg("-boot-load-size");
-    iso_build_action.addArg("4");
-    iso_build_action.addArg("-boot-info-table");
-    iso_build_action.addArg("--efi-boot");
-    iso_build_action.addArg("limine-uefi-cd.bin");
-    iso_build_action.addArg("-efi-boot-part");
-    iso_build_action.addArg("--efi-boot-image");
-    iso_build_action.addArg("--protective-msdos-label");
-    iso_build_action.addDirectoryArg(iso_prepate_files_action.getDirectory());
-    iso_build_action.addArg("-o");
-    return iso_build_action;
+    const xorriso = b.addSystemCommand(&.{"xorriso"});
+    xorriso.addArg("-as");
+    xorriso.addArg("mkisofs");
+    xorriso.addArg("-b");
+    xorriso.addArg("limine-bios-cd.bin");
+    xorriso.addArg("-no-emul-boot");
+    xorriso.addArg("-boot-load-size");
+    xorriso.addArg("4");
+    xorriso.addArg("-boot-info-table");
+    xorriso.addArg("--efi-boot");
+    xorriso.addArg("limine-uefi-cd.bin");
+    xorriso.addArg("-efi-boot-part");
+    xorriso.addArg("--efi-boot-image");
+    xorriso.addArg("--protective-msdos-label");
+    xorriso.addDirectoryArg(iso_files.getDirectory());
+    xorriso.addArg("-o");
+    return xorriso;
 }
 
-fn injectLimineStages(limine_run_action: *Build.Step.Run, iso_file: Build.LazyPath) void {
-    limine_run_action.addArg("bios-install");
-    limine_run_action.addFileArg(iso_file);
+fn addInstallIso(b: *Build, iso_step: *Build.Step, iso_file: Build.LazyPath) *Build.Step.InstallFile {
+    const files = b.addWriteFiles();
+    files.step.dependOn(iso_step);
+    const path = files.addCopyFile(iso_file, bebok_iso_filename);
+    return b.addInstallFile(path, bebok_iso_filename);
 }
 
-fn installIsoFileAction(b: *Build, iso_build_task: *Build.Step, iso_file: Build.LazyPath) *Build.Step.InstallFile {
-    const copy_iso_task = b.addWriteFiles();
-    copy_iso_task.step.dependOn(iso_build_task);
-    const iso_artifact_path = copy_iso_task.addCopyFile(iso_file, bebok_iso_filename);
-    return b.addInstallFile(iso_artifact_path, bebok_iso_filename);
-}
-
-fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, debug: bool, bios_path: []const u8) !*Build.Step.Run {
-    const qemu_iso_action = b.addSystemCommand(&.{switch (target.result.cpu.arch) {
+fn addQemuRun(b: *Build, target: Build.ResolvedTarget, debug: bool, bios_path: []const u8) !*Build.Step.Run {
+    const qemu = b.addSystemCommand(&.{switch (target.result.cpu.arch) {
         .x86_64 => "qemu-system-x86_64",
         else => return error.UnsupportedArch,
     }});
@@ -175,7 +126,7 @@ fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, debug: bool, bios_path
     _ = bios_path; //TODO: use it
     switch (target.result.cpu.arch) {
         .x86_64 => {
-            qemu_iso_action.addArgs(&.{
+            qemu.addArgs(&.{
                 //"-M", "q35", //for PCIe and NVMe support
                 "-M", "q35", //see qemu-system-x86_64 -M help
                 "-m", "2G", //Memory size
@@ -185,68 +136,70 @@ fn qemuIsoAction(b: *Build, target: Build.ResolvedTarget, debug: bool, bios_path
                 //"-bios", bios_path, //we need ACPI >=2.0
                 // "-drive", "if=pflash,format=raw,readonly=on,file=/usr/share/ovmf/OVMF.fd",
             });
-            qemu_iso_action.addArg("-no-reboot");
-            qemu_iso_action.addArg("-cdrom");
+            qemu.addArg("-no-reboot");
+            qemu.addArg("-cdrom");
             //qemu_iso_action.addArg(try std.fmt.allocPrint(b.allocator, "{s}/{s}", .{b.install_prefix, bebok_iso_filename})); //TODO: can't take installed artifact LazyPAth
-            qemu_iso_action.addArg(try std.fmt.allocPrint(b.allocator, "{s}", .{b.getInstallPath(.prefix, bebok_iso_filename)})); //TODO: can't take installed artifact LazyPAth
-            qemu_iso_action.addArgs(&.{ //PCIe controller
+            qemu.addArg(try std.fmt.allocPrint(b.allocator, "{s}", .{b.getInstallPath(.prefix, bebok_iso_filename)})); //TODO: can't take installed artifact LazyPAth
+            qemu.addArgs(&.{ //PCIe controller
                 "-device",
                 "pcie-root-port,id=pcie_port0,multifunction=on,bus=pcie.0,addr=0x10",
             });
-            qemu_iso_action.addArgs(&.{ //NVMe controller
+            qemu.addArgs(&.{ //NVMe controller
                 "-device",
                 "nvme,drive=drv0,serial=deadbeef,bus=pcie_port0,use-intel-id=on,max_ioqpairs=1",
                 //"nvme,serial=1,bus=pcie_port0,use-intel-id=on",
             });
-            qemu_iso_action.addArg("-drive");
+            qemu.addArg("-drive");
             //> TODO: can't take installed artifact LazyPAth, see my issue: https://stackoverflow.com/questions/78499409/buid-system-getting-installed-relative-path
             //qemu_iso_action.addArg(try std.fmt.allocPrint(b.allocator, "file={s}/{s},format=qcow2,if=none,id=drv0", .{b.install_prefix, bebok_disk_img_filename}));
-            qemu_iso_action.addArg(try std.fmt.allocPrint(b.allocator, "file={s},format=raw,if=none,id=drv0", .{b.getInstallPath(.prefix, bebok_disk_img_filename)}));
+            qemu.addArg(try std.fmt.allocPrint(b.allocator, "file={s},format=raw,if=none,id=drv0", .{b.getInstallPath(.prefix, bebok_disk_img_filename)}));
             //boot from cdrom
-            qemu_iso_action.addArgs(&.{
+            qemu.addArgs(&.{
                 "-boot",
                 "d",
             }); //boot from cdrom
-            qemu_iso_action.addArgs(&.{ "-debugcon", "stdio" });
-            qemu_iso_action.addArgs(&.{ "--trace", "events=.qemu-events" });
+            qemu.addArgs(&.{ "-debugcon", "stdio" });
+            qemu.addArgs(&.{ "--trace", "events=.qemu-events" });
             //qemu_iso_action.addArgs(&.{ "-d", "int,guest_errors,cpu_reset" });
-            qemu_iso_action.addArgs(&.{ "-d", "guest_errors,cpu_reset" });
+            qemu.addArgs(&.{ "-d", "guest_errors,cpu_reset" });
             //qemu_iso_action.addArgs(&.{ "-D", "qemu-logs.txt" });
+            //qemu_iso_action.addArgs(&.{ "-display", "gtk", "-vga", "virtio" });
+            qemu.addArgs(&.{ "-display", "gtk", "-vga", "std" });
             if (debug) {
-                qemu_iso_action.addArgs(&.{
+                qemu.addArgs(&.{
                     "-s",
                     "-S",
                 });
-                qemu_iso_action.addArgs(&.{ "-d", "int" });
+                qemu.addArgs(&.{ "-d", "int" });
             }
         },
         else => return error.UnsupportedArch,
     }
-    return qemu_iso_action;
+    return qemu;
 }
 
 pub fn build(b: *Build) !void {
     b.enable_qemu = true;
 
     const build_options = .{
-        .arch = b.option(std.Target.Cpu.Arch, "arch", "The architecture to build for") orelse b.host.result.cpu.arch,
+        .arch = b.option(std.Target.Cpu.Arch, "arch", "The architecture to build for") orelse std.Target.Cpu.Arch.x86_64,
         .mem_page_size = b.option(enum(u32) { ps4k = 4096, ps2m = 512 * 4096, ps1g = 1024 * 1024 * 1024 }, "page-size", "Choose the page size: 'ps4k' stands for 4096 bytes, 'ps1m' means 2MB pages, and 'ps1g' is a 1GB page. ") orelse .ps4k,
         .mem_bit_tree_max_levels = b.option(u8, "mem-bit-tree-max-levels", "Maximum number of the bit tree levels to manage memory, calculated as log2(total_memory_in_bytes/page_size_in_bytes)+ 1; defaults to 32") orelse 32,
         .bios_path = b.option([]const u8, "bios-path", "Aboslute path to BIOS file") orelse "/usr/share/qemu/OVMF.fd",
     };
 
-    const target = try resolveTarget(b, build_options.arch);
+    const kernel_target = try resolveTarget(b, build_options.arch);
+    const ut_target = b.standardTargetOptions(.{});
 
     const optimize = b.standardOptimizeOption(.{
-        .preferred_optimize_mode = .ReleaseSafe, //tODO: uncomment
-        // .preferred_optimize_mode = .Debug,
+        .preferred_optimize_mode = .Debug,
     });
 
-    const limine_zig_dep = b.dependency("limine_zig", .{});
-    const limine_zig_mod = limine_zig_dep.module("limine");
+    const limine_zig = b.dependency("limine_zig", .{});
+    const limine_zig_mod = limine_zig.module("limine");
 
-    const zigavl_dep = b.dependency("zigavl", .{});
-    const zigavl_mod = zigavl_dep.module("zigavl");
+    const zigavl = b.dependency("zigavl", .{});
+    const zigavl_mod = zigavl.module("zigavl");
 
     // Comptime options
     const options = b.addOptions();
@@ -254,43 +207,357 @@ pub fn build(b: *Build) !void {
     options.addOption(u8, "mem_bit_tree_max_levels", build_options.mem_bit_tree_max_levels);
     options.addOption(std.SemanticVersion, "kernel_version", kernel_version);
 
-    const compile_kernel_action = compileKernelAction(b, target, optimize, options, limine_zig_mod, zigavl_mod);
-    const install_kernel_action = installKernelAction(b, compile_kernel_action);
-    const install_kernel_task = &install_kernel_action.step;
+    // Modules start
+    const kernel_mod = b.createModule(.{
+        .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/kernel.zig" } },
+        .target = kernel_target,
+        .optimize = optimize,
+        .single_threaded = true,
+        .code_model = .kernel,
+        .pic = false,
+    });
+    const kernel_ut_mod = b.createModule(.{
+        .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/kernel.zig" } },
+        .target = ut_target,
+    });
+
+    const kernel = b.addExecutable(.{
+        .name = "kernel.elf",
+        .root_module = kernel_mod,
+    });
+
+    kernel.setLinkerScript(.{ .src_path = .{ .owner = b, .sub_path = b.fmt("linker-{s}.ld", .{@tagName(kernel_target.result.cpu.arch)}) } });
+    kernel.out_filename = "kernel.elf";
+    kernel.pie = false;
+
+    const options_mod = options.createModule();
+    kernel_mod.addImport("config", options_mod);
+    kernel_ut_mod.addImport("config", options_mod);
+
+    kernel_mod.addImport("limine", limine_zig_mod);
+    kernel_ut_mod.addImport("limine", limine_zig_mod);
+
+    // Core system modules
+    const core_mod = b.addModule("core", .{ .root_source_file = b.path("src/core/mod.zig"), .target = kernel_target });
+    const core_ut_mod = b.addModule("core", .{ .root_source_file = b.path("src/core/mod.zig"), .target = ut_target });
+
+    const commons_mod = b.addModule("commons", .{ .root_source_file = b.path("src/commons/mod.zig"), .target = kernel_target });
+    const commons_ut_mod = b.addModule("commons", .{ .root_source_file = b.path("src/commons/mod.zig"), .target = ut_target });
+
+    const drivers_mod = b.addModule("drivers", .{ .root_source_file = b.path("src/drivers/mod.zig"), .target = kernel_target });
+    const drivers_ut_mod = b.addModule("drivers", .{ .root_source_file = b.path("src/drivers/mod.zig"), .target = ut_target });
+
+    const bus_mod = b.addModule("bus", .{ .root_source_file = b.path("src/bus/mod.zig"), .target = kernel_target });
+    const bus_ut_mod = b.addModule("bus", .{ .root_source_file = b.path("src/bus/mod.zig"), .target = ut_target });
+
+    const devices_mod = b.addModule("devices", .{ .root_source_file = b.path("src/devices/mod.zig"), .target = kernel_target });
+    const devices_ut_mod = b.addModule("devices", .{ .root_source_file = b.path("src/devices/mod.zig"), .target = ut_target });
+
+    // Memory management modules
+    const mem_mod = b.addModule("mem", .{ .root_source_file = b.path("src/mem/mod.zig"), .target = kernel_target });
+    const mem_ut_mod = b.addModule("mem", .{ .root_source_file = b.path("src/mem/mod.zig"), .target = ut_target });
+
+    const mm_mod = b.addModule("mm", .{ .root_source_file = b.path("src/modules/mm/mod.zig"), .target = kernel_target });
+    const mm_ut_mod = b.addModule("mm", .{ .root_source_file = b.path("src/modules/mm/mod.zig"), .target = ut_target });
+
+    // Filesystem modules
+    const fs_mod = b.addModule("fs", .{ .root_source_file = b.path("src/fs/mod.zig"), .target = kernel_target });
+    const fs_ut_mod = b.addModule("fs", .{ .root_source_file = b.path("src/fs/mod.zig"), .target = ut_target });
+
+    const ext2_mod = b.addModule("ext2", .{ .root_source_file = b.path("src/modules/fs/ext2/mod.zig"), .target = kernel_target });
+    const ext2_ut_mod = b.addModule("ext2", .{ .root_source_file = b.path("src/modules/fs/ext2/mod.zig"), .target = ut_target });
+
+    // Storage modules
+    const gpt_mod = b.addModule("gpt", .{ .root_source_file = b.path("src/modules/block/gpt/mod.zig"), .target = kernel_target });
+    const gpt_ut_mod = b.addModule("gpt", .{ .root_source_file = b.path("src/modules/block/gpt/mod.zig"), .target = ut_target });
+
+    const nvme_mod = b.addModule("nvme", .{ .root_source_file = b.path("src/modules/block/nvme/mod.zig"), .target = kernel_target });
+    const nvme_ut_mod = b.addModule("nvme", .{ .root_source_file = b.path("src/modules/block/nvme/mod.zig"), .target = ut_target });
+
+    // UI modules
+    const terminal_mod = b.addModule("terminal", .{ .root_source_file = b.path("src/modules/terminal/mod.zig"), .target = kernel_target });
+    const terminal_ut_mod = b.addModule("terminal", .{ .root_source_file = b.path("src/modules/terminal/mod.zig"), .target = ut_target });
+
+    // Zig Language modules
+    const lang_mod = b.addModule("lang", .{ .root_source_file = b.path("src/modules/lang/mod.zig"), .target = kernel_target });
+    const lang_ut_mod = b.addModule("lang", .{ .root_source_file = b.path("src/modules/lang/mod.zig"), .target = ut_target });
+
+    // Core module dependencies
+    core_mod.addImport("limine", limine_zig_mod);
+    core_ut_mod.addImport("limine", limine_zig_mod);
+
+    core_mod.addImport("config", options_mod);
+    core_ut_mod.addImport("config", options_mod);
+
+    core_mod.addImport("commons", commons_mod);
+    core_ut_mod.addImport("commons", commons_ut_mod);
+
+    // Bus and device dependencies
+    bus_mod.addImport("core", core_mod);
+    bus_ut_mod.addImport("core", core_ut_mod);
+
+    bus_mod.addImport("devices", devices_mod);
+    bus_ut_mod.addImport("devices", devices_ut_mod);
+
+    bus_mod.addImport("drivers", drivers_mod);
+    bus_ut_mod.addImport("drivers", drivers_ut_mod);
+
+    drivers_mod.addImport("bus", bus_mod);
+    drivers_ut_mod.addImport("bus", bus_ut_mod);
+
+    devices_mod.addImport("bus", bus_mod);
+    devices_ut_mod.addImport("bus", bus_ut_mod);
+
+    devices_mod.addImport("gpt", gpt_mod);
+    devices_ut_mod.addImport("gpt", gpt_ut_mod);
+
+    devices_mod.addImport("commons", commons_mod);
+    devices_ut_mod.addImport("commons", commons_ut_mod);
+
+    devices_mod.addImport("fs", fs_mod);
+    devices_ut_mod.addImport("fs", fs_ut_mod);
+
+    devices_ut_mod.addImport("fs", fs_ut_mod);
+    devices_ut_mod.addImport("fs", fs_ut_mod);
+
+    devices_mod.addImport("mem", mem_mod);
+    devices_ut_mod.addImport("mem", mem_ut_mod);
+
+    // Memory management dependencies
+    mem_mod.addImport("limine", limine_zig_mod);
+    mem_ut_mod.addImport("limine", limine_zig_mod);
+
+    mem_mod.addImport("core", core_mod);
+    mem_ut_mod.addImport("core", core_ut_mod);
+
+    mem_mod.addImport("mm", mm_mod);
+    mem_ut_mod.addImport("mm", mm_ut_mod);
+
+    mem_mod.addImport("config", options_mod);
+    mem_ut_mod.addImport("config", options_mod);
+
+    mem_mod.addImport("zigavl", zigavl_mod);
+    mem_ut_mod.addImport("zigavl", zigavl_mod);
+
+    // Storage dependencies
+    gpt_mod.addImport("devices", devices_mod);
+    gpt_ut_mod.addImport("devices", devices_ut_mod);
+
+    gpt_mod.addImport("commons", commons_mod);
+    gpt_ut_mod.addImport("commons", commons_ut_mod);
+
+    nvme_mod.addImport("drivers", drivers_mod);
+    nvme_ut_mod.addImport("drivers", drivers_ut_mod);
+
+    nvme_mod.addImport("core", core_mod);
+    nvme_ut_mod.addImport("core", core_ut_mod);
+
+    nvme_mod.addImport("mem", mem_mod);
+    nvme_ut_mod.addImport("mem", mem_ut_mod);
+
+    nvme_mod.addImport("bus", bus_mod);
+    nvme_ut_mod.addImport("bus", bus_ut_mod);
+
+    nvme_mod.addImport("devices", devices_mod);
+    nvme_ut_mod.addImport("devices", devices_ut_mod);
+
+    // Filesystem dependencies
+    fs_mod.addImport("bus", bus_mod);
+    fs_ut_mod.addImport("bus", bus_ut_mod);
+
+    fs_mod.addImport("devices", devices_mod);
+    fs_ut_mod.addImport("devices", devices_ut_mod);
+    fs_mod.addImport("lang", lang_mod);
+
+    ext2_mod.addImport("mem", mem_mod);
+    ext2_ut_mod.addImport("mem", mem_ut_mod);
+
+    ext2_mod.addImport("devices", devices_mod);
+    ext2_ut_mod.addImport("devices", devices_ut_mod);
+
+    ext2_mod.addImport("fs", fs_mod);
+    ext2_ut_mod.addImport("fs", fs_ut_mod);
+
+    // UI dependencies
+    terminal_mod.addImport("limine", limine_zig_mod);
+    terminal_ut_mod.addImport("limine", limine_zig_mod);
+
+    // Root module imports
+    kernel_mod.addImport("core", core_mod);
+    kernel_ut_mod.addImport("core", core_ut_mod);
+
+    kernel_mod.addImport("commons", commons_mod);
+    kernel_ut_mod.addImport("commons", commons_ut_mod);
+
+    kernel_mod.addImport("drivers", drivers_mod);
+    kernel_ut_mod.addImport("drivers", drivers_ut_mod);
+
+    kernel_mod.addImport("devices", devices_mod);
+    kernel_ut_mod.addImport("devices", devices_ut_mod);
+
+    kernel_mod.addImport("bus", bus_mod);
+    kernel_ut_mod.addImport("bus", bus_ut_mod);
+
+    kernel_mod.addImport("mm", mm_mod);
+    kernel_ut_mod.addImport("mm", mm_ut_mod);
+
+    kernel_mod.addImport("gpt", gpt_mod);
+    kernel_ut_mod.addImport("gpt", gpt_ut_mod);
+
+    kernel_mod.addImport("fs", fs_mod);
+    kernel_ut_mod.addImport("fs", fs_ut_mod);
+
+    kernel_mod.addImport("mem", mem_mod);
+    kernel_ut_mod.addImport("mem", mem_ut_mod);
+
+    kernel_mod.addImport("terminal", terminal_mod);
+    kernel_ut_mod.addImport("terminal", terminal_ut_mod);
+
+    kernel_mod.addImport("nvme", nvme_mod);
+    kernel_ut_mod.addImport("nvme", nvme_ut_mod);
+
+    kernel_mod.addImport("ext2", ext2_mod);
+    kernel_ut_mod.addImport("ext2", ext2_ut_mod);
+
+    //Modules end
+
+    const kernel_ins_file = addInstallKernelFile(b, kernel);
     // overwrite standard install
-    b.getInstallStep().dependOn(install_kernel_task);
+    b.getInstallStep().dependOn(&kernel_ins_file.step);
 
+    const kernel_unins_run = try addKernelUninstall(b, kernel_ins_file);
     // overwrite standard uninstall
-    const uninstall_kernel_action = try uninstallKernelAction(b, install_kernel_action);
-    const uninstall_kernel_task = &uninstall_kernel_action.step;
-    b.getUninstallStep().dependOn(uninstall_kernel_task);
+    b.getUninstallStep().dependOn(&kernel_unins_run.step);
 
-    const limine_action = buildLimineAction(b);
+    //? const limine_run = addLimineBuild(b, kernel_target);
 
-    const build_iso_file_action = buildIsoFileAction(b, compile_kernel_action);
-    const build_iso_file_action_output = build_iso_file_action.addOutputFileArg(bebok_iso_filename);
-    injectLimineStages(limine_action, build_iso_file_action_output);
-    const build_iso_file_task = &build_iso_file_action.step;
+    const iso_run = addBuildIso(b, kernel);
+    const iso_run_out = iso_run.addOutputFileArg(bebok_iso_filename);
+    const iso_step = b.step("iso", "Build ISO");
+    iso_run.step.dependOn(&kernel.step);
+    iso_step.dependOn(&iso_run.step);
 
-    const install_iso_file_action = installIsoFileAction(b, build_iso_file_task, build_iso_file_action_output);
-    const install_iso_file_task = &install_iso_file_action.step;
-    const iso_stage = b.step("iso-install", "Build the ISO");
-    iso_stage.dependOn(install_iso_file_task);
-    iso_stage.dependOn(install_kernel_task); //to be able to debug in gdb
+    //inject limine args
+    //? limine_run.addArg("bios-install");
+    //? limine_run.addFileArg(iso_run_out);
 
-    const qemu_iso_action = try qemuIsoAction(b, target, false, build_options.bios_path); //run with the cached iso file
-    const qemu_iso_task = &qemu_iso_action.step;
-    qemu_iso_task.dependOn(install_iso_file_task);
-    const qemu_iso_stage = b.step("iso-qemu", "Run the ISO in QEMU");
-    qemu_iso_stage.dependOn(qemu_iso_task);
+    const iso_ins_file = addInstallIso(b, &iso_run.step, iso_run_out);
+    const iso_ins_step = b.step("iso-install", "Build the ISO");
+    iso_ins_file.step.dependOn(iso_step);
+    iso_ins_step.dependOn(&iso_ins_file.step);
+
+    const qemu_iso_run = try addQemuRun(b, kernel_target, false, build_options.bios_path); //run with the cached iso file
+    const qemu_iso_step = b.step("iso-qemu", "Run the ISO in QEMU");
+    qemu_iso_run.step.dependOn(iso_ins_step);
+    qemu_iso_step.dependOn(&qemu_iso_run.step);
 
     // debug mode
-    const qemu_iso_debug_action = try qemuIsoAction(b, target, true, build_options.bios_path); //run with the cached iso file
-    const qemu_iso_debug_task = &qemu_iso_debug_action.step;
-    qemu_iso_debug_task.dependOn(install_iso_file_task);
-    qemu_iso_debug_task.dependOn(install_kernel_task); //to be able to debug in gdb
-    const qemu_iso_debug_stage = b.step("iso-qemu-debug", "Run the ISO in QEMU with debug mode enabled");
-    qemu_iso_debug_stage.dependOn(qemu_iso_debug_task);
+    const qemu_iso_debug_run = try addQemuRun(b, kernel_target, true, build_options.bios_path); //run with the cached iso file
+    const qemu_iso_debug_step = b.step("iso-qemu-debug", "Run the ISO in QEMU with debug mode enabled");
+    qemu_iso_debug_run.step.dependOn(b.getInstallStep()); //debug mode requires a kernel to be installed
+    qemu_iso_debug_run.step.dependOn(iso_ins_step);
+    qemu_iso_debug_step.dependOn(&qemu_iso_debug_run.step);
 
-    b.default_step = iso_stage;
+    //Unit Test task
+    const kernel_ut = b.addTest(.{
+        .name = "kernel",
+        .root_module = kernel_ut_mod,
+    });
+    const kernel_ut_run = b.addRunArtifact(kernel_ut);
+
+    const core_ut = b.addTest(.{
+        .name = "core",
+        .root_module = core_ut_mod,
+    });
+    const core_ut_run = b.addRunArtifact(core_ut);
+
+    const commons_ut = b.addTest(.{
+        .name = "commons",
+        .root_module = commons_ut_mod,
+    });
+    const commons_ut_run = b.addRunArtifact(commons_ut);
+
+    const drivers_ut = b.addTest(.{
+        .name = "drivers",
+        .root_module = drivers_ut_mod,
+    });
+    const drivers_ut_run = b.addRunArtifact(drivers_ut);
+
+    const bus_ut = b.addTest(.{
+        .name = "bus",
+        .root_module = bus_ut_mod,
+    });
+    const bus_ut_run = b.addRunArtifact(bus_ut);
+
+    const devices_ut = b.addTest(.{
+        .name = "devices",
+        .root_module = devices_ut_mod,
+    });
+    const devices_ut_run = b.addRunArtifact(devices_ut);
+
+    const mem_ut = b.addTest(.{
+        .name = "mem",
+        .root_module = mem_ut_mod,
+    });
+    const mem_ut_run = b.addRunArtifact(mem_ut);
+
+    const mm_ut = b.addTest(.{
+        .name = "mm",
+        .root_module = mm_ut_mod,
+    });
+    const mm_ut_run = b.addRunArtifact(mm_ut);
+
+    const fs_ut = b.addTest(.{
+        .name = "fs",
+        .root_module = fs_ut_mod,
+    });
+    const fs_ut_run = b.addRunArtifact(fs_ut);
+
+    const ext2_ut = b.addTest(.{
+        .name = "ext2",
+        .root_module = ext2_ut_mod,
+    });
+    const ext2_ut_run = b.addRunArtifact(ext2_ut);
+
+    const gpt_ut = b.addTest(.{
+        .name = "gpt",
+        .root_module = gpt_ut_mod,
+    });
+    const gpt_ut_run = b.addRunArtifact(gpt_ut);
+
+    const nvme_ut = b.addTest(.{
+        .name = "nvme",
+        .root_module = nvme_ut_mod,
+    });
+    const nvme_ut_run = b.addRunArtifact(nvme_ut);
+
+    const terminal_ut = b.addTest(.{
+        .name = "terminal",
+        .root_module = terminal_ut_mod,
+    });
+    const terminal_ut_run = b.addRunArtifact(terminal_ut);
+
+    const lang_ut = b.addTest(.{
+        .name = "lang",
+        .root_module = lang_ut_mod,
+    });
+    const lang_ut_run = b.addRunArtifact(lang_ut);
+
+    const ut_step = b.step("unit-tests", "Run unit tests");
+    ut_step.dependOn(&kernel_ut_run.step);
+    ut_step.dependOn(&core_ut_run.step);
+    ut_step.dependOn(&commons_ut_run.step);
+    ut_step.dependOn(&drivers_ut_run.step);
+    ut_step.dependOn(&bus_ut_run.step);
+    ut_step.dependOn(&devices_ut_run.step);
+    ut_step.dependOn(&mem_ut_run.step);
+    ut_step.dependOn(&mm_ut_run.step);
+    ut_step.dependOn(&fs_ut_run.step);
+    ut_step.dependOn(&ext2_ut_run.step);
+    ut_step.dependOn(&gpt_ut_run.step);
+    ut_step.dependOn(&nvme_ut_run.step);
+    ut_step.dependOn(&terminal_ut_run.step);
+    ut_step.dependOn(&lang_ut_run.step);
+
+    b.default_step = iso_step;
 }

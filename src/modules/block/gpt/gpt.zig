@@ -1,8 +1,8 @@
 const std = @import("std");
 
-const BlockDevice = @import("deps.zig").BlockDevice;
-const Guid = @import("deps.zig").Guid;
-const Partition = @import("deps.zig").Partition;
+const BlockDevice = @import("devices").BlockDevice;
+const Guid = @import("commons").Guid;
+const Partition = @import("devices").Partition;
 
 //TODO: add code to read GPT header and entries from the mirror
 
@@ -78,7 +78,7 @@ pub const GptEntry = extern struct {
         return std.mem.eql(u8, std.mem.asBytes(&self.partition_type_guid), std.mem.asBytes(&zero_guid));
     }
 
-    pub fn getName(self: *const GptEntry) ![72]u8 {
+    pub fn getName(self: *const GptEntry) !struct { [72]u8, u8 } {
         var name_buffer: [36]u16 = undefined;
         const utf16_bytes = std.mem.bytesAsSlice(u8, &self.partition_name);
 
@@ -92,11 +92,12 @@ pub const GptEntry = extern struct {
         var result: [72]u8 = undefined;
         _ = try std.unicode.utf16LeToUtf8(&result, name_buffer[0..len]);
 
-        return result;
+        return .{ result, @intCast(len) };
     }
 
-    pub fn asPartition(self: *const GptEntry) !Partition {
-        return Partition{
+    pub fn asPartitionEntry(self: *const GptEntry) !Partition.Entry {
+        const name_len = try self.getName();
+        return Partition.Entry{
             .start_lba = self.starting_lba,
             .end_lba = self.ending_lba,
             .partition_type = try Partition.Type.fromGuid(self.partition_type_guid),
@@ -104,7 +105,8 @@ pub const GptEntry = extern struct {
                 .required_to_function = self.attributes.required_to_function,
                 .type_guid_specific = self.attributes.type_guid_specific,
             },
-            .name = try self.getName(),
+            .name = name_len[0],
+            .name_len = name_len[1],
         };
     }
 };
@@ -116,16 +118,21 @@ pub const Gpt = struct {
     header: GptHeader,
     entries: []GptEntry,
 
-    pub fn init(allocator: std.mem.Allocator, streamer: BlockDevice.Streamer) !*const Self {
+    // Constructor
+    // @allocator: Memory allocator
+    // @streamer: Block device streamer
+    // @lbads: Logical block size in bytes
+    pub fn init(allocator: std.mem.Allocator, streamer: BlockDevice.Streamer, lbads: u64) !*const Self {
         // Read GPT Header (LBA1)
-        var header_buffer: [512]u8 = undefined;
+        const header_buffer = try allocator.alloc(u8, lbads);
+        defer allocator.free(header_buffer);
 
-        var stream = BlockDevice.Stream(u8).init(streamer, allocator);
-        stream.seek(512);
+        var stream = BlockDevice.Stream(u8).init(streamer);
+        stream.seek(lbads, .start);
 
-        _ = try stream.readAll(&header_buffer);
+        _ = try stream.readAll(header_buffer);
 
-        const header = @as(*const GptHeader, @ptrCast(&header_buffer)).*;
+        const header = @as(*const GptHeader, @ptrCast(header_buffer)).*;
         try header.validate();
 
         // Read GPT Entries
@@ -134,7 +141,7 @@ pub const Gpt = struct {
         defer allocator.free(entries_buffer);
 
         // Seek to partition entries
-        stream.seek(header.partition_entry_lba * 512);
+        stream.seek(header.partition_entry_lba * lbads, .start);
         _ = try stream.readAll(entries_buffer);
 
         // Convert buffer to entries
@@ -150,8 +157,8 @@ pub const Gpt = struct {
         return self;
     }
 
-    pub fn deinit(self: *Self) void {
-        self.allocator.free(self.entries);
+    pub fn deinit(self: *const Self) void {
+        self.alloctr.free(self.entries);
     }
 
     // Helper methods
@@ -165,7 +172,7 @@ pub const Gpt = struct {
         return count;
     }
 
-    pub fn getPartitionAt(self: *const Self, index: usize) !?Partition {
+    pub fn getPartitionEntryAt(self: *const Self, index: usize) !?Partition.Entry {
         const count = self.getPartitionCount();
         if (index >= count) return null;
 
@@ -177,7 +184,7 @@ pub const Gpt = struct {
             const entry = &self.entries[current_index];
             if (!entry.isEmpty()) {
                 if (found_index == index) {
-                    return try entry.asPartition();
+                    return try entry.asPartitionEntry();
                 }
                 found_index += 1;
             }

@@ -1,12 +1,14 @@
 const std = @import("std");
 const math = std.math;
 
-const pmm = @import("deps.zig").pmm;
-const paging = @import("deps.zig").paging;
-const heap = @import("deps.zig").heap; //TODO:rmv
+const pmm = @import("mem").pmm;
+const paging = @import("core").paging;
+const heap = @import("mem").heap; //TODO:rmv
 
-const Streamer = @import("deps.zig").BlockDevice.Streamer;
-const PartitionScheme = @import("deps.zig").PartitionScheme;
+const Device = @import("devices").Device;
+const BlockDevice = @import("devices").BlockDevice;
+const Streamer = @import("devices").BlockDevice.Streamer;
+const PartitionScheme = @import("devices").PartitionScheme;
 
 const id = @import("admin/identify.zig");
 const e = @import("errors.zig");
@@ -18,42 +20,72 @@ const NvmeNamespace = @This();
 
 const log = std.log.scoped(.nvme_namespace);
 
-const State = struct {
-    partition_scheme: ?*const PartitionScheme, // null means partitionless device
-};
-
 //Fields
 alloctr: std.mem.Allocator, //we use page allocator internally cause LBA size is at least 512 bytes
+block_device: BlockDevice,
 nsid: u32,
 info: id.NsInfo,
 ctrl: *NvmeController,
-state: *State,
 
-pub fn init(allocator: std.mem.Allocator, ctrl: *NvmeController, nsid: u32, info: *const id.NsInfo) !*const NvmeNamespace {
-    var self = try allocator.create(NvmeNamespace);
-    self.alloctr = heap.page_allocator; //we use page allocator internally cause LBA size is at least 512
-    self.nsid = nsid;
-    self.info = info.*;
-    self.ctrl = ctrl;
-    self.state = try allocator.create(State); //TODO: to much memory
+// Device interface vtable for NvmeController
+const device_vtable = Device.VTable{
+    .deinit = deinit,
+};
+
+const block_device_vtable = BlockDevice.VTable{
+    .streamer = streamer,
+};
+
+pub fn init(allocator: std.mem.Allocator, ctrl: *NvmeController, nsid: u32, info: *const id.NsInfo) !*NvmeNamespace {
+    const self = try allocator.create(NvmeNamespace);
+    self.* = .{
+        .alloctr = heap.page_allocator, //we use page allocator internally cause LBA size is at least 512
+        .block_device = .{
+            .device = .{ .kind = Device.Kind.block, .vtable = &device_vtable },
+            .state = .{
+                .partition_scheme = null,
+                .slba = 0,
+                .nlba = info.nsze,
+                .lbads = math.pow(u32, 2, info.lbaf[info.flbas].lbads),
+            },
+            .vtable = &block_device_vtable,
+        },
+        .nsid = nsid,
+        .info = info.*,
+        .ctrl = ctrl,
+    };
 
     return self;
 }
 
-pub fn detectPartitionScheme(self: *const NvmeNamespace) !void {
-    const scheme = try PartitionScheme.init(self.alloctr, self.streamer());
-    log.debug("Partition scheme detected: {any}", .{scheme});
-    self.state.partition_scheme = scheme;
+// pub fn detectPartitionScheme(self: *const NvmeNamespace) !void {
+//     const scheme = try PartitionScheme.init(self.alloctr, self.streamer());
+//     log.debug("Partition scheme detected: {any}", .{scheme});
+//     self.state.partition_scheme = scheme;
+// }
+
+pub fn fromDevice(dev: *Device) *NvmeNamespace {
+    const block_device: *BlockDevice = BlockDevice.fromDevice(dev);
+    return @alignCast(@fieldParentPtr("block_device", block_device));
 }
 
-pub fn deinit(self: *NvmeNamespace) void {
-    self.alloctr.destroy(self.state);
+pub fn fromBlockDevice(block_device: *BlockDevice) *NvmeNamespace {
+    return @alignCast(@fieldParentPtr("block_device", block_device));
+}
+
+pub fn deinit(dev: *Device) void {
+    const block_device: *BlockDevice = BlockDevice.fromDevice(dev);
+    //const self: *NvmeNamespace = @alignCast(@fieldParentPtr("block_device", block_device));
+    const self: *NvmeNamespace = fromBlockDevice(block_device);
+
+    block_device.deinit(); //free partition if any
     self.alloctr.destroy(self);
 }
 
 // Yields istels as a Streamer interface
 // @return Streamer interface
-pub fn streamer(self: *const NvmeNamespace) Streamer {
+pub fn streamer(bdev: *BlockDevice) Streamer {
+    const self = fromBlockDevice(bdev);
     const vtable = Streamer.VTable{
         .read = readInternal,
         .write = writeInternal,
@@ -66,7 +98,7 @@ pub fn streamer(self: *const NvmeNamespace) Streamer {
 pub fn calculateInternal(ctx: *const anyopaque, offset: usize, total: usize) !Streamer.LbaPos {
     const self: *const NvmeNamespace = @ptrCast(@alignCast(ctx));
 
-    const lbads_bytes = math.pow(u32, 2, self.info.lbaf[self.info.flbas].lbads);
+    const lbads_bytes = math.pow(u32, 2, self.info.lbaf[self.info.flbas].lbads); //TODO: change to self.block_device.state.lbads
     const slba = offset / lbads_bytes;
     const nlba: u16 = @intCast(try std.math.divCeil(usize, total, lbads_bytes));
     const slba_offset = offset % lbads_bytes;
@@ -88,7 +120,7 @@ pub fn readInternal(ctx: *const anyopaque, allocator: std.mem.Allocator, slba: u
     const flbaf = self.info.lbaf[self.info.flbas];
     log.debug("LBA Format Index: {d}, LBA Format: {}", .{ self.info.flbas, flbaf });
 
-    const lbads_bytes = math.pow(u32, 2, flbaf.lbads);
+    const lbads_bytes = math.pow(u32, 2, flbaf.lbads); //TODO: change to self.block_device.state.lbads
     log.debug("LBA Data Size: {d} bytes", .{lbads_bytes});
 
     //calculate number of pages to allocate
@@ -171,7 +203,7 @@ pub fn readInternal(ctx: *const anyopaque, allocator: std.mem.Allocator, slba: u
         .read = .{
             .cdw0 = .{
                 .opc = .read,
-                .cid = 255, //our id
+                .cid = self.ctrl.nextComandId(), //our id
             },
             .nsid = self.nsid,
             .elbst_eilbst_a = 0, //no extended LBA
@@ -211,8 +243,6 @@ pub fn readInternal(ctx: *const anyopaque, allocator: std.mem.Allocator, slba: u
 
 /// Write to the NVMe drive
 /// @param allocator : Allocator to allocate memory for PRP list
-/// @param drv : Device
-/// @param nsid : Namespace ID
 /// @param slba : Start Logical Block Address
 /// @param data : Data to write
 pub fn writeInternal(ctx: *const anyopaque, allocator: std.mem.Allocator, slba: u64, data: []const u8) !void {
@@ -304,7 +334,7 @@ pub fn writeInternal(ctx: *const anyopaque, allocator: std.mem.Allocator, slba: 
         .write = .{
             .cdw0 = .{
                 .opc = .write,
-                .cid = 256, //our id
+                .cid = self.ctrl.nextComandId(), //our id
             },
             .nsid = self.nsid,
             .lbst_ilbst_a = 0, //no extended LBA

@@ -1,1 +1,0 @@
-pub const BuddyAllocator = @import("buddy_allocator/buddy_allocator.zig").BuddyAllocator;

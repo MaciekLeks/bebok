@@ -1,12 +1,20 @@
 {
   "version": "0.2.0",
   "configurations": [
-      {
-        "type": "qemu",
-        "name": "Attach to qemu",
-        "request": "attach",
-        "cwd": "${workspaceFolder}",
-        "target": "localhost:1234"
-      }
-    ]
+    {
+      "type": "qemu",
+      "name": "Attach to qemu",
+      "request": "attach",
+      "cwd": "${workspaceFolder}",
+      "target": "localhost:1234"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug test",
+      "program": "${workspaceFolder}/zig-out/unit-test",
+      "args": [],
+      "cwd": "${workspaceFolder}"
+    }
+  ]
 }

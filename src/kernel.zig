@@ -3,35 +3,61 @@ const builtin = @import("builtin");
 const limine = @import("limine");
 const config = @import("config");
 //const start = @import("start.zig");
-const segmentation = @import("segmentation.zig");
 const term = @import("terminal");
 
-pub const Driver = @import("drivers/Driver.zig");
-pub const Device = @import("devices/Device.zig");
-pub const BlockDevice = @import("devices/mod.zig").BlockDevice;
-pub const PartitionScheme = @import("devices/mod.zig").PartitionScheme;
-pub const Partition = @import("devices/mod.zig").Partition;
-pub const Guid = @import("commons/guid.zig").Guid;
-const Registry = @import("drivers/Registry.zig");
+//pub const Bus = @import("bus/bus.zig").Bus;
+//pub const BusDeviceAddress = @import("bus/bus.zig").BusDeviceAddress;
+//pub const Driver = @import("drivers/Driver.zig");
+const DriverRegistry = @import("drivers").Registry;
+const devices = @import("devices");
+const Device = devices.Device;
+// const PhysDevice = @import("devices/PhysDevice.zig");
+const BlockDevice = devices.BlockDevice;
+// const PartitionScheme = @import("devices/mod.zig").PartitionScheme;
+// const Partition = @import("devices/mod.zig").Partition;
+// const Guid = @import("commons/guid.zig").Guid;
+// const DummyMutex = @import("commons/thread.zig").DummyMutex;
+// const File = @import("fs/File.zig");
 const NvmeDriver = @import("nvme").NvmeDriver;
-const NvmeNamespace = @import("nvme").NvmeNamespace;
-const smp = @import("smp.zig");
-const acpi = @import("acpi.zig");
+// const NvmeNamespace = @import("nvme").NvmeNamespace;
+const fs = @import("fs");
+const pathparser = fs.pathparser;
+const Vfs = fs.Vfs;
+const FilesystemDriver = fs.FilesystemDriver;
+const Filesystem = fs.Filesystem;
+const FilesystemDriversRegistry = fs.Registry;
+const ext2 = @import("ext2");
+const Ext2Driver = ext2.Ext2Driver;
+//
+const core = @import("core");
+// const acpi = core.acpi;
+const cpu = core.cpu;
+const int = core.int;
+const paging = core.paging;
+const smp = core.smp;
+const segmentation = core.segmentation;
+const mem = @import("mem");
+const pmm = mem.pmm;
+const heap = mem.heap;
+//
 
-pub const bus = @import("bus/mod.zig");
-pub const cpu = @import("cpu.zig");
-pub const int = @import("int.zig");
-pub const paging = @import("paging.zig");
-pub const pmm = @import("mem/pmm.zig");
-pub const heap = @import("mem/heap.zig").heap;
-
-const apic_test = @import("arch/x86_64/apic.zig");
+pub const bus = @import("bus");
+//?const apic_test = @import("core/arch/x86_64/apic.zig");
 
 const log = std.log.scoped(.kernel);
 
 pub export var base_revision: limine.BaseRevision = .{ .revision = 1 };
 
-pub const std_options = .{
+const logo =
+    \\   /(,-.   )\.---.     /(,-.     .-./(      .'( 
+    \\,' _   ) (   ,-._(  ,' _   )  ,'     )  ,')\  )
+    \\(  '-' (   \  '-,   (  '-' (  (  .-, (  (  '/ / 
+    \\ )  _   )   ) ,-`    )  _   )  ) '._\ )  )   (  
+    \\(  '-' /   (  ``-.  (  '-' /  (  ,   (  (  .\ \ 
+    \\ )/._.'     )..-.(   )/._.'    )/ ._.'   )/  )/ 
+;
+
+pub const std_options: std.Options = .{
     .logFn = logFn,
     .log_scope_levels = &[_]std.log.ScopeLevel{
         .{ .scope = .bbtree, .level = .info },
@@ -71,7 +97,14 @@ pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     cpu.halt();
 }
 
-export fn _start() callconv(.C) noreturn {
+comptime {
+    if (!builtin.is_test) {
+        @export(&_start, .{ .name = "_start", .linkage = .strong });
+    }
+}
+
+fn _start() callconv(.C) noreturn {
+    //export fn _start() callconv(.C) noreturn {
     // Ensure the bootloader actually understands our base revision (see spec).
     if (!base_revision.is_supported()) {
         cpu.halt();
@@ -126,22 +159,22 @@ export fn _start() callconv(.C) noreturn {
     //} init handler list
 
     //pci test start
-    var registry = Registry.init(arena_allocator.allocator()) catch |err| {
+    var driver_reg = DriverRegistry.init(arena_allocator.allocator()) catch |err| {
         log.err("Driver registry creation error: {}", .{err});
         @panic("Driver registry creation error");
     };
-    defer registry.deinit();
+    defer driver_reg.deinit();
     const nvme_driver = NvmeDriver.init(arena_allocator.allocator()) catch |err| {
         log.err("Nvme driver creation error: {}", .{err});
         @panic("Nvme driver creation error");
     };
 
-    registry.registerDriver(nvme_driver.driver()) catch |err| {
+    driver_reg.registerDriver(nvme_driver.driver()) catch |err| {
         log.err("Nvme driver registration error: {}", .{err});
         @panic("Nvme driver registration error");
     };
 
-    const pcie_bus = bus.Bus.init(arena_allocator.allocator(), .pcie, registry) catch |err| {
+    const pcie_bus = bus.Bus.init(arena_allocator.allocator(), .pcie, driver_reg) catch |err| {
         log.err("PCIe bus creation error: {}", .{err});
         @panic("PCIe bus creation error");
     };
@@ -152,100 +185,75 @@ export fn _start() callconv(.C) noreturn {
     defer pcie_bus.deinit(); //TODO: na pewno?
     //pci test end
 
-    //log.debug("waiting for the first interrupt", .{});
-    //apic_test.setTimerTest();
     cpu.sti();
-    //cpu.halt();
-    //log.debug("waiting for the first interrupt/2", .{});
 
-    //list bus devices
-    for (pcie_bus.devices.items) |dev| {
-        log.warn("Device: {}", .{dev});
-    }
+    // Scan all block devices already found for partition schemes and partitions
+    BlockDevice.scanBlockDevices(pcie_bus, arena_allocator.allocator()) catch |err| {
+        log.err("Block device scan error: {}", .{err});
+        @panic("Block device scan error");
+    };
 
-    // const tst_ns = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl.namespaces.get(1);
-    // if (tst_ns) |ns| {
-    //     const streamer = ns.streamer();
-    //     var stream = BlockDevice.Stream(u8).init(streamer);
-    //     log.info("Writing to NVMe starts.", .{});
-    //     defer log.info("Writing to NVMe ends.", .{});
-    //     //
-    //     const mlk_data: []const u8 = &.{ 'M', 'a', 'c', 'i', 'e', 'k', ' ', 'L', 'e', 'k', 's', ' ' };
-    //     stream.write(mlk_data) catch |err| blk: {
-    //         log.err("Nvme write error: {}", .{err});
-    //         break :blk;
-    //     };
-    //
-    //     // read from the beginning
-    //     stream.seek(1); //we ommit the first byte (0x4d)
-    //
-    //     log.info("Reading from NVMe starts.", .{});
-    //     const data = stream.read(heap.page_allocator, mlk_data.len) catch |err| blk: {
-    //         log.err("Nvme read error: {}", .{err});
-    //         break :blk null;
-    //     };
-    //     for (data.?) |d| {
-    //         log.warn("Nvme data: {x}", .{d});
-    //     }
-    //     if (data) |block| heap.page_allocator.free(block);
-    // }
+    const fs_reg = FilesystemDriversRegistry.new(arena_allocator.allocator()) catch |err| {
+        log.err("Filesystem drivers registry creation error: {}", .{err});
+        @panic("Filesystem drivers registry creation error");
+    };
+    defer fs_reg.destroy();
 
-    const tst_ns = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl.namespaces.get(1);
-    if (tst_ns) |ns| {
-        //detect partition scheme if any
-        ns.detectPartitionScheme() catch |err| {
-            log.err("Partition scheme detection error: {}", .{err});
-        };
+    const ext2_driver = arena_allocator.allocator().create(Ext2Driver) catch |err| {
+        log.err("Ext2 filesystem driver creation error: {}", .{err});
+        @panic("Ext2 filesystem driver registration error");
+        //
+    };
+    fs_reg.registerFileSystemDriver(ext2_driver.driver()) catch |err| {
+        log.err("Ext2 filesystem driver registration error: {}", .{err});
+        @panic("Ext2 filesystem driver registration error");
+    };
 
-        //show partition scheme if any
-        if (ns.state.partition_scheme) |scheme| {
-            switch (scheme.spec) {
-                .gpt => |gpt| {
-                    log.warn("GPT detected", .{});
-                    log.warn("GPT header: {}", .{gpt.header});
-                    for (gpt.entries) |entry| {
-                        if (entry.isEmpty()) {
-                            continue;
-                        }
-                        log.warn("GPT entry: {}", .{entry});
-                    }
-                },
-            }
+    //Init VFS
+    const vfs = Vfs.init(arena_allocator.allocator()) catch |err| {
+        log.err("VFS initialization error: {}", .{err});
+        @panic("VFS initialization error");
+    };
 
-            // Iterate over partitions no matter the scheme
-            var it = scheme.iterator();
-            while (it.next()) |partition_opt| {
-                if (partition_opt) |partition| {
-                    log.debug("Partition: start_lba={}, end_lba={}, type={}, name={s}", .{ partition.start_lba, partition.end_lba, partition.partition_type, partition.name });
-                } else {
-                    log.debug("No more partition", .{});
-                    break;
+    log.info("Scanning block devices for filesystems", .{});
+    Filesystem.scanBlockDevices(arena_allocator.allocator(), pcie_bus, fs_reg, vfs) catch |err| {
+        log.err("Filesystem scan error: {}", .{err});
+        @panic("Filesystem scan error");
+    };
+    log.info("Scanning block devices for filesystems finished", .{});
+
+    //const tst_ns = pcie_bus.devices.items[0].spec.block.spec.nvme_ctrl.namespaces.get(1);
+    for (pcie_bus.devices.items) |*dev_node| {
+        //log.warn("Device: {}", .{dev_node}); //TODO:  prontformat method needed to avoid tripple fault
+
+        if (dev_node.device.kind == Device.Kind.block) {
+            const block_dev = BlockDevice.fromDevice(dev_node.device);
+
+            if (block_dev.kind == .logical) {
+                const streamer = block_dev.streamer();
+
+                var stream = BlockDevice.Stream(u8).init(streamer);
+
+                // Go to superblock position, always 1024 in the ext2 partition
+                stream.seek(0x400, .start);
+
+                //log.debug("admin.identify.IdentifyNamespaceInfo: ptr:{*}, info:{}", .{ ns, ns.info });
+
+                log.info("Reading from NVMe starts.", .{});
+                const data = stream.read(heap.page_allocator, 128) catch |err| blk: {
+                    log.err("Nvme read error: {}", .{err});
+                    break :blk null;
+                };
+                for (data.?) |d| {
+                    log.warn("Nvme data: {x}", .{d});
                 }
-            } else |err| {
-                log.err("Partition iteration error: {}", .{err});
-            }
-        }
-
-        const streamer = ns.streamer();
-        var stream = BlockDevice.Stream(u8).init(streamer, heap.page_allocator);
-
-        stream.seek(0x400);
-
-        log.debug("admin.identify.IdentifyNamespaceInfo: ptr:{*}, info:{}", .{ ns, ns.info });
-
-        log.info("Reading from NVMe starts.", .{});
-        const data = stream.read(heap.page_allocator, 32) catch |err| blk: {
-            log.err("Nvme read error: {}", .{err});
-            break :blk null;
-        };
-        for (data.?) |d| {
-            log.warn("Nvme data: {x}", .{d});
-        }
-        if (data) |block| heap.page_allocator.free(block);
-    }
+                if (data) |block| heap.page_allocator.free(block);
+            } //partition only
+        } //block device condition
+    } //loop over bus devices
 
     var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");
-    pty.printf("Bebok version: {any}\n", .{config.kernel_version});
+    pty.printf("{s}\n\nversion: {any}", .{ logo, config.kernel_version });
 
     {
         log.debug("TEST:Start", .{});
@@ -270,3 +278,8 @@ fn testISR0(_: ?*anyopaque) !void {
 //     log.warn("apic: 1----->>>>!!!!", .{});
 // }
 //
+//
+
+// comptime {
+//     @compileLog("Loading kernel.zig as root");
+// }

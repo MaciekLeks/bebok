@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Gpt = @import("../deps.zig").Gpt;
+const Gpt = @import("gpt").Gpt;
 const BlockDevice = @import("../BlockDevice.zig");
 const Partition = @import("Partition.zig");
 
@@ -14,10 +14,10 @@ spec: union(enum) { gpt: *const Gpt },
 /// Detects the partition scheme of a block device.
 /// Returns a PartitionScheme object if successful, or null for paritionless devices.
 /// If an error occurs, the error is returned.
-pub fn init(allocator: std.mem.Allocator, streamer: BlockDevice.Streamer) !?*const PartitionScheme {
+pub fn init(allocator: std.mem.Allocator, streamer: BlockDevice.Streamer, lbads: u64) !?*const PartitionScheme {
     var buffer: [512]u8 = undefined;
     //const bytes_read = try reader.readAll(&buffer);
-    var stream = BlockDevice.Stream(u8).init(streamer, allocator);
+    var stream = BlockDevice.Stream(u8).init(streamer);
 
     try stream.readAll(&buffer);
 
@@ -28,7 +28,7 @@ pub fn init(allocator: std.mem.Allocator, streamer: BlockDevice.Streamer) !?*con
     if (buffer[510] == 0x55 and buffer[511] == 0xAA) {
         // Check if it's a Protective MBR for GPT
         if (buffer[450] == 0xEE) {
-            self.spec.gpt = try Gpt.init(allocator, streamer);
+            self.spec.gpt = try Gpt.init(allocator, streamer, lbads);
             return self;
         }
         return error.SchemeNotSupported;
@@ -44,13 +44,13 @@ pub fn deinit(self: *const PartitionScheme) void {
     }
 }
 
-const PartitionIterator = struct {
+const PartitionEntryIterator = struct {
     scheme: *const PartitionScheme,
     current_index: usize = 0,
 
-    pub fn next(self: *PartitionIterator) !?Partition {
+    pub fn next(self: *PartitionEntryIterator) !?Partition.Entry {
         const result = switch (self.scheme.spec) {
-            inline else => |scheme| try scheme.getPartitionAt(self.current_index),
+            inline else => |scheme| try scheme.getPartitionEntryAt(self.current_index),
         };
 
         if (result == null) {
@@ -62,8 +62,8 @@ const PartitionIterator = struct {
     }
 };
 
-pub fn iterator(self: *const PartitionScheme) PartitionIterator {
-    return PartitionIterator{
+pub fn iterator(self: *const PartitionScheme) PartitionEntryIterator {
+    return PartitionEntryIterator{
         .scheme = self,
     };
 }

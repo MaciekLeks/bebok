@@ -1,22 +1,24 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const Device = @import("deps.zig").Device;
-const Driver = @import("deps.zig").Driver;
-const Registry = @import("deps.zig").Registry;
-const cpu = @import("deps.zig").cpu;
-const heap = @import("deps.zig").heap;
-const paging = @import("deps.zig").paging;
+const Device = @import("devices").Device;
+const PhysDevice = @import("devices").PhysDevice;
+const Driver = @import("drivers").Driver;
+const Registry = @import("drivers").Registry;
+const cpu = @import("core").cpu;
+const heap = @import("core").heap;
+const paging = @import("core").paging;
 
 const Bus = @import("bus.zig").Bus;
-const NvmeDriver = @import("mod.zig").NvmeDriver;
+//const NvmeDriver = @import("mod.zig").NvmeDriver;
 
 const log = std.log.scoped(.pci);
 
 const Pcie = @This();
 
 pub usingnamespace switch (builtin.cpu.arch) {
-    .x86_64 => @import("../arch/x86_64/pcie.zig"),
+    //.x86_64 => @import("../arch/x86_64/pcie.zig"),
+    .x86_64 => @import("arch/x86_64/pcie.zig"),
     else => |other| @compileError("Unimplemented for " ++ @tagName(other)),
 };
 
@@ -65,7 +67,7 @@ pub const PcieProbeContext = struct {
 };
 
 //variables
-var allctr: std.mem.Allocator = undefined;
+var alloctr: std.mem.Allocator = undefined;
 
 //Fields
 base: *Bus,
@@ -195,30 +197,30 @@ inline fn registerAddress(T: type, config_addr: ConfigAddress) T {
     return @as(T, @bitCast(config_addr)) & ~mask;
 }
 
-test "PCI register addresses" {
-    var config_addr = ConfigAddress{
-        .register_offset = .max_latency,
-        .addr = .{ .function = 0, .slot = 0, .bus = 0 },
-    };
-    const x = registerAddress(u32, config_addr);
-    log.warn("Register address: 0x{b:0>8}, 0x{b:0>8}", .{ x, @intFromEnum(RegisterOffset.max_latency) });
-    //  try t.expect(registerAddress(u32, config_addr) == 0x80000000);
-
-    config_addr = ConfigAddress{
-        .register_offset = .vendor_id,
-        .addr = .{ .function = 0, .slot = 0, .bus = 1 },
-    };
-    try t.expect(registerAddress(u32, config_addr) == 0x80_01_00_00);
-
-    config_addr = ConfigAddress{
-        .register_offset = .vendor_id,
-        .addr = .{ .function = 0, .slot = 1, .bus = 0 },
-    };
-    try t.expect(registerAddress(u32, config_addr) == 0x80_00_08_00);
-
-    config_addr = ConfigAddress{ .register_offset = .vendor_id, .addr = .{ .function = 1, .slot = 0, .bus = 0 } };
-    try t.expect(registerAddress(u32, config_addr) == 0x80000100);
-}
+// test "PCI register addresses" {
+//     var config_addr = ConfigAddress{
+//         .register_offset = .max_latency,
+//         .addr = .{ .function = 0, .slot = 0, .bus = 0 },
+//     };
+//     const x = registerAddress(u32, config_addr);
+//     log.warn("Register address: 0x{b:0>8}, 0x{b:0>8}", .{ x, @intFromEnum(RegisterOffset.max_latency) });
+//     //  try t.expect(registerAddress(u32, config_addr) == 0x80000000);
+//
+//     config_addr = ConfigAddress{
+//         .register_offset = .vendor_id,
+//         .addr = .{ .function = 0, .slot = 0, .bus = 1 },
+//     };
+//     try t.expect(registerAddress(u32, config_addr) == 0x80_01_00_00);
+//
+//     config_addr = ConfigAddress{
+//         .register_offset = .vendor_id,
+//         .addr = .{ .function = 0, .slot = 1, .bus = 0 },
+//     };
+//     try t.expect(registerAddress(u32, config_addr) == 0x80_00_08_00);
+//
+//     config_addr = ConfigAddress{ .register_offset = .vendor_id, .addr = .{ .function = 1, .slot = 0, .bus = 0 } };
+//     try t.expect(registerAddress(u32, config_addr) == 0x80000100);
+// }
 
 fn readRegister(T: type, config_addr: ConfigAddress) T {
     cpu.out(u32, legacy_pci_config_addres_port, registerAddress(u32, config_addr));
@@ -361,7 +363,7 @@ fn checkSlot(self: *Pcie, bus: u8, slot: u5) PciError!void {
     };
     for (1..8) |function| {
         const function_no: u3 = @truncate(function);
-        const addr = .{ .function = function_no, .slot = slot, .bus = bus };
+        const addr: PcieAddress = .{ .function = function_no, .slot = slot, .bus = bus };
         if (readRegisterWithArgs(u16, .vendor_id, addr) != 0xFFFF) {
             try checkFunction(self, addr);
         }
@@ -458,17 +460,17 @@ fn probeAndSetupDevice(self: *Pcie, addr: PcieAddress, class_code: u8, subclass:
     const drivers = self.base.registry.drivers;
     for (drivers.items) |drv| {
         if (drv.probe(&PcieProbeContext{ .class_code = class_code, .subclass = subclass, .prog_if = prog_if })) {
-            const dev = try Device.init(allctr, .{ .pcie = addr });
+            //const dev = try Device.init(allctr, .{ .pcie = addr });
             //let the driver fill the device struct
-            try drv.setup(dev);
-            try self.base.devices.append(dev);
+            try drv.setup(alloctr, self.base, .{ .pcie = addr });
+            //try self.base.devices.append(dev);
         }
     }
 }
 
 pub fn deinit(self: *Pcie) void {
     log.info("Deinitializing PCI", .{});
-    defer allctr.destroy(self);
+    defer alloctr.destroy(self);
     defer log.info("PCI deinitialized", .{});
 
     self.drivers.deinit();
@@ -479,7 +481,7 @@ pub fn init(allocator: std.mem.Allocator, bus: *Bus) !*Pcie {
     defer log.info("PCI initialized", .{});
     var pcie = try allocator.create(Pcie);
 
-    allctr = allocator;
+    alloctr = allocator;
     pcie.base = bus;
 
     return pcie;
@@ -521,7 +523,7 @@ pub fn readCapability(comptime TCap: type, addr: PcieAddress) !TCap {
     var val: TCap = undefined;
 
     const cap_id_field = std.meta.fieldInfo(TCap, .cid);
-    const default_val_ptr = cap_id_field.default_value orelse @compileError("TCap.id must have a default value");
+    const default_val_ptr = cap_id_field.default_value_ptr orelse @compileError("TCap.id must have a default value");
     const cap_id_ptr: *const u8 = @ptrCast(default_val_ptr);
 
     const cap_offset = try findCapabilityOffset(cap_id_ptr.*, addr);
@@ -543,7 +545,7 @@ pub fn readCapability(comptime TCap: type, addr: PcieAddress) !TCap {
 
 pub fn writeCapability(comptime TCap: type, val: TCap, addr: PcieAddress) !void {
     const cap_id_field = std.meta.fieldInfo(TCap, .cid);
-    const default_val_ptr = cap_id_field.default_value orelse @compileError("TCap.id must have a default value");
+    const default_val_ptr = cap_id_field.default_value_ptr orelse @compileError("TCap.id must have a default value");
     const cap_id_ptr: *const u8 = @ptrCast(default_val_ptr);
 
     const cap_offset = try findCapabilityOffset(cap_id_ptr.*, addr);

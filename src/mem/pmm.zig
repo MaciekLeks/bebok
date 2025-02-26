@@ -1,9 +1,9 @@
 const std = @import("std");
 const math = std.math;
 const limine = @import("limine");
-const utils = @import("utils");
+const mm = @import("mm");
 const zigavl = @import("zigavl");
-const paging = @import("../paging.zig");
+const paging = @import("core").paging;
 const config = @import("config");
 const log = std.log.scoped(.pmm);
 
@@ -13,7 +13,7 @@ pub const page_size = config.mem_page_size;
 
 const min_region_size_pow2 = config.mem_page_size << 1; //one frame_size takes bbtree buffer, so to manage only one frame/page we need at least 2 frames
 
-const BuddyAllocatorPreconfigured = utils.BuddyAllocator(config.mem_bit_tree_max_levels, config.mem_page_size);
+const BuddyAllocatorPreconfigured = mm.BuddyAllocator(config.mem_bit_tree_max_levels, config.mem_page_size);
 
 fn usizeCmp(a_size: usize, b_size: usize) math.Order {
     return math.order(a_size, b_size);
@@ -140,7 +140,7 @@ pub fn deinit() void {
 }
 
 // TODO: implement a more efficient way to find the buddy allocator and updating the tree if free_mem_size changes radically
-fn alloc(_: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
+fn alloc(_: *anyopaque, len: usize, ptr_align: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
     //var it = avl_tree_by_size.ascendFromStart();
     var it = avl_tree_by_size.descendFromEnd(); //large size to small size
     const size_pow2 = BuddyAllocatorPreconfigured.minAllocSize(len) catch {
@@ -163,10 +163,10 @@ fn alloc(_: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
     return null;
 }
 
-fn free(_: *anyopaque, buf: []u8, _: u8, _: usize) void {
+fn free(_: *anyopaque, buf: []u8, _: std.mem.Alignment, _: usize) void {
     log.debug("free(): Freeing memory at 0x{x}", .{@intFromPtr(buf.ptr)});
     defer log.debug("free(): Freed memory at 0x{x}", .{@intFromPtr(buf.ptr)});
-    const key = .{ .virt = @intFromPtr(buf.ptr), .size = buf.len };
+    const key: KeyVaddrSize = .{ .virt = @intFromPtr(buf.ptr), .size = buf.len };
     const it = avl_tree_by_vaddr.get(key);
     if (it) |v| {
         const ba = v.*;
@@ -179,9 +179,9 @@ fn free(_: *anyopaque, buf: []u8, _: u8, _: usize) void {
     }
 }
 
-fn resize(_: *anyopaque, buf: []u8, buf_align: u8, new_len: usize, ret_addr: usize) bool {
+fn resize(_: *anyopaque, buf: []u8, buf_align: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
     defer log.debug("resize(): Resized memory at 0x{x} from {d} to {d} bytes", .{ @intFromPtr(buf.ptr), buf.len, new_len });
-    const key = .{ .virt = @intFromPtr(buf.ptr), .size = buf.len };
+    const key: KeyVaddrSize = .{ .virt = @intFromPtr(buf.ptr), .size = buf.len };
     const it = avl_tree_by_vaddr.get(key);
     if (it) |v| {
         const new_buf = v.*.allocator().rawResize(buf, buf_align, new_len, ret_addr);
@@ -196,5 +196,6 @@ pub const allocator = std.mem.Allocator{
         .alloc = alloc,
         .resize = resize,
         .free = free,
+        .remap = std.mem.Allocator.noRemap, //TODO: to be define - it was addd at the end of 0.14th version development
     },
 };
