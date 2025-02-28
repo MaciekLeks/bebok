@@ -2,7 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
-const File = @import("types.zig").File;
+const File = @import("File.zig");
 
 const log = std.log.scoped(.file_system_path_parser);
 

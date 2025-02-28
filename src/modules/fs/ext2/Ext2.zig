@@ -16,12 +16,12 @@ const Inode = @import("types.zig").Inode;
 const LinkedDirectoryEntry = @import("types.zig").LinkedDirectoryEntry;
 
 //VFS
-const VFile = @import("fs").File;
-const VInode = @import("fs").Inode;
-const VSuperblock = @import("fs").Superblock;
-const VFileDescriptor = @import("fs").FileDescriptor;
+const File = @import("fs").File;
+const Node = @import("fs").Node;
+const NodeNum = Node.NodeNum;
+const FD = @import("fs").FD;
+const pp = @import("fs").pathparser;
 
-const pathparser = @import("fs").pathparser;
 const pmm = @import("mem").pmm; //block size should be the same as the page size
 const heap = @import("mem").heap;
 const block_size = pmm.page_size;
@@ -62,19 +62,36 @@ pub fn filesystem(self: *Ext2) Filesystem {
     return Filesystem.init(self);
 }
 
-pub fn superblock(self: *Ext2) VSuperblock {
-    // for now Ext2 implements Superblock functions directly
-    return VSuperblock.init(self);
+// pub fn superblock(self: *Ext2) VSuperblock {
+//     // for now Ext2 implements Superblock functions directly
+//     return VSuperblock.init(self);
+// }
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Interface functions
+pub fn lookupNodeNum(self: *Ext2, path: []const u8, start_node_num: ?NodeNum) anyerror!NodeNum {
+    return findInodeByPath(self, path, start_node_num);
 }
 
-// Interface functions
-pub fn open(self: *Ext2, allocator: std.mem.Allocator, file_path: [:0]const u8, mode: VFileDescriptor.Mode) anyerror!VFileDescriptor {
-    _ = self;
-    _ = allocator;
-    _ = file_path;
-    _ = mode;
-    return error.Unimplemented;
+/// readInode using alloctator
+/// TODO: allocates memory twice, once for block and the 2nd time for inode
+/// Caller needs to destroy Ext2 Inode memory
+pub fn readNode(self: *Ext2, allocator: std.mem.Allocator, inode_num: NodeNum) !Node {
+    const block_buffer = try allocator.alloc(u8, self.sb.getBlockSize());
+    defer allocator.free(block_buffer);
+
+    const inode_pos = getInodePosFromInodeNum(self, inode_num);
+
+    try readBlock(self, inode_pos.block_num, block_buffer);
+
+    const inode = try allocator.create(Inode);
+
+    const offset = inode_pos.offset;
+    @memcpy(std.mem.asBytes(inode), block_buffer[offset..(offset + @sizeOf(Inode))]);
+
+    return Node.init(self, inode_num, inode);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
 
 //---Private functions
 inline fn getBlockGroupNumFromInodeNum(self: *const Ext2, inode_num: InodeNum) BlockGroupNum {
@@ -118,25 +135,6 @@ pub fn readInodeInternal(self: *const Ext2, inode_num: u32, block_buffer: []u8) 
 
     log.debug("Inode[{d}]: {}", .{ inode_num, inode.* });
     return inode.*;
-}
-
-/// readInode using alloctator
-/// TODO: allocates memory twice, once for block and the 2nd time for inode
-/// Caller needs to destroy Ext2 Inode memory
-pub fn readInode(self: *Ext2, allocator: std.mem.Allocator, inode_num: InodeNum) !VInode {
-    const block_buffer = try allocator.alloc(u8, self.sb.getBlockSize());
-    defer allocator.free(block_buffer);
-
-    const inode_pos = getInodePosFromInodeNum(self, inode_num);
-
-    try readBlock(self, inode_pos.block_num, block_buffer);
-
-    const inode = try allocator.create(Inode);
-
-    const offset = inode_pos.offset;
-    @memcpy(std.mem.asBytes(inode), block_buffer[offset..(offset + @sizeOf(Inode))]);
-
-    return VInode.init(self, inode);
 }
 
 pub fn linkedDirectoryIterator(self: *const Ext2, allocator: std.mem.Allocator, inode: *const Inode) !LinkedDirectoryIterator {
@@ -305,7 +303,7 @@ pub fn findInodeByPath(self: *const Ext2, path: []const u8, start_dir_inode: ?u3
     defer arena.deinit();
     const alloctr = arena.allocator();
 
-    var parser = pathparser.PathParser.init(alloctr);
+    var parser = pp.PathParser.init(alloctr);
     defer parser.deinit();
     try parser.parse(path);
 
@@ -315,7 +313,7 @@ pub fn findInodeByPath(self: *const Ext2, path: []const u8, start_dir_inode: ?u3
     else if (!parser.isAbsolute() and start_dir_inode != null)
         start_dir_inode.?
     else
-        return pathparser.PathError.InvalidPath;
+        return pp.PathError.InvalidPath;
 
     defer log.debug("findInodeByPath: res={d}", .{curr_inode_num});
 
@@ -331,7 +329,7 @@ pub fn findInodeByPath(self: *const Ext2, path: []const u8, start_dir_inode: ?u3
         const curr_inode = try self.readInodeInternal(curr_inode_num, block_buffer);
 
         if (!curr_inode.isDirectory()) {
-            return pathparser.PathError.NotDirectory;
+            return pp.PathError.NotDirectory;
         }
 
         var dir_iter = try self.linkedDirectoryIterator(alloctr, &curr_inode);
@@ -348,7 +346,7 @@ pub fn findInodeByPath(self: *const Ext2, path: []const u8, start_dir_inode: ?u3
         } else |err| return err;
 
         if (!found) {
-            return VFile.Error.NotFound;
+            return File.Error.NotFound;
         }
     }
 

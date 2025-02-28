@@ -1,10 +1,10 @@
 const std = @import("std");
 const Filesystem = @import("Filesystem.zig");
-const File = @import("types.zig").File;
+const File = @import("File.zig");
 const pathparser = @import("pathparser.zig");
 const Partition = @import("devices").Partition;
-const FD = @import("types.zig").FD;
-const FileDessriptor = @import("types.zig").FileDescriptor;
+const FD = @import("fd.zig").FD;
+const Task = @import("core").task.Task;
 
 pub const MountPoint = struct {
     path: []const u8,
@@ -99,8 +99,9 @@ pub fn findMountPoint(self: *Vfs, path: []const u8) ?*MountPoint {
     return longest_match;
 }
 
-pub fn open(self: *Vfs, path: []const u8, mode: FileDessriptor.Mode) !FD {
+// VFS functions
 
+pub fn open(self: *Vfs, task: *Task, path: []const u8, flags: File.Flags, mode: File.Mode) !FD {
     // Find mount point
     const mount_point = self.findMountPoint(path) orelse return error.NoMountPoint;
 
@@ -108,11 +109,14 @@ pub fn open(self: *Vfs, path: []const u8, mode: FileDessriptor.Mode) !FD {
     // We remove path.len - 1 to avoid not having "/"
     const fs_path = path[(mount_point.path.len - 1)..];
 
-    // Parse path
-    var parser = pathparser.PathParser.init(self.alloctr);
-    defer parser.deinit();
-    try parser.parse(fs_path);
-
     // Delegate to filesystem implementation
-    return (try mount_point.filesystem.open(self.alloctr, fs_path, mode)).idx;
+    const file = try mount_point.filesystem.open(self.alloctr, fs_path, flags, mode);
+
+    //Add file to FD table and get file descriptor
+    return task.fds.getNewFD(file);
+}
+
+pub fn read(_: *Vfs, task: *Task, fd: FD, buf: []u8) !usize {
+    const file = try task.fds.getFile(fd);
+    return file.read(buf);
 }

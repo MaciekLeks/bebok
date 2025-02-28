@@ -1,6 +1,6 @@
 ///! A starting point for task management
-const FileDescriptorTable = @import("../fs/types.zig").FileDescriptorTable;
+const FDTable = @import("fs").FDTable;
 
 pub const Task = struct {
-    fds: FileDescriptorTable,
+    fds: FDTable,
 };

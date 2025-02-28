@@ -5,24 +5,33 @@ const Device = @import("devices").Device;
 const BlockDevice = @import("devices").BlockDevice;
 const Partition = @import("devices").Partition;
 const Bus = @import("bus").Bus;
+const pp = @import("fs").pathparser;
 const Registry = @import("Registry.zig");
-const Superblock = @import("types.zig").Superblock;
-const Inode = @import("types.zig").Inode;
+const Node = @import("Node.zig");
+const NodeNum = Node.NodeNum;
 const Vfs = @import("Vfs.zig");
-const FileDescriptor = @import("types.zig").FileDescriptor;
+const FD = @import("fd.zig").FD;
+const File = @import("File.zig");
 
 const log = std.log.scoped(.vfs_filesystem);
 
 const Filesystem = @This();
-pub const Descriptor = i32;
 
+pub const Type = enum {
+    ext2,
+    unknown,
+};
+
+//Fields
 ptr: *anyopaque,
 vtable: *const VTable,
 
 pub const VTable = struct {
     destroy: iface.Fn(.{}, void),
-    open: iface.Fn(.{ std.mem.Allocator, [:0]const u8, FileDescriptor.Mode }, anyerror!FileDescriptor),
-    superblock: iface.Fn(.{}, Superblock),
+    //open: iface.Fn(.{ std.mem.Allocator, []const u8, File.Flags, File.Mode }, anyerror!FD),
+    //superblock: iface.Fn(.{}, Superblock),
+    lookupNodeNum: iface.Fn(.{ []const u8, NodeNum }, anyerror!NodeNum),
+    readNode: iface.Fn(.{ std.mem.Allocator, NodeNum }, anyerror!Node),
 };
 
 pub fn init(ctx: anytype) Filesystem {
@@ -32,69 +41,25 @@ pub fn init(ctx: anytype) Filesystem {
     };
 }
 
-// TODO: do not remove code below to see the power of the iface functions
-// pub const VTable = struct {
-//     destroy: *const fn (ctx: *anyopaque) void,
-//     open: *const fn (ctx: *anyopaque, allocator: std.mem.Allocator, file_path: [:0]const u8, mode: FileDescriptor.Mode) anyerror!FileDescriptor,
-//     superblock: *const fn (ctx: *anyopaque) Superblock,
-// };
-/// VTable container
-// fn VTableContainer(comptime T: type) type {
-//     return struct {
-//         const Self = @This();
-//
-//         // we need vtable address
-//         pub const vtable = VTable{
-//             .destroy = struct {
-//                 fn destroyInt(ctx: *anyopaque) void {
-//                     const self: T = @ptrCast(@alignCast(ctx));
-//                     return self.destroy();
-//                 }
-//             }.destroyInt,
-//             .open = struct {
-//                 fn openInt(ctx: *anyopaque, allocator: std.mem.Allocator, file_path: [:0]const u8, mode: FileDescriptor.Mode) anyerror!FileDescriptor {
-//                     const self: T = @ptrCast(@alignCast(ctx));
-//                     return self.open(allocator, file_path, mode);
-//                 }
-//             }.openInt,
-//             .superblock = struct {
-//                 fn superblockInt(ctx: *anyopaque) Superblock {
-//                     const self: T = @ptrCast(@alignCast(ctx));
-//                     return self.superblock();
-//                 }
-//             }.superblockInt,
-//         };
-//     };
-// }
-
-// strong static typing for the interface
-// fn createVTable(comptime T: type) VTable {
-//     return .{
-//         .destroy = struct {
-//             fn destroyInt(ctx: *anyopaque) void {
-//                 const self: T = @ptrCast(@alignCast(ctx));
-//                 return self.destroy();
-//             }
-//         }.destroyInt,
-//     };
-// }
-// pub fn init(ctx: anytype) Filesystem {
-//     const T = @TypeOf(ctx);
-//     comptime if (@typeInfo(T) != .pointer) @compileError("Filesystem must be a struct");
-//     const VT = VTableContainer(@TypeOf(ctx));
-//
-//     return .{
-//         .ptr = ctx,
-//         .vtable = &VT.vtable,
-//     };
-// }
-
-pub fn open(self: *const Filesystem, allocator: std.mem.Allocator, file_path: [:0]const u8, mode: FileDescriptor.Mode) anyerror!FileDescriptor {
-    return self.vtable.open(self.ptr, .{ allocator, file_path, mode });
+pub fn deinit(_: *const Filesystem) void {
+    //do nothing right now
 }
 
-pub fn deinit(self: Filesystem) void {
-    return self.vtable.destroy(self.ptr, .{});
+pub fn open(self: *const Filesystem, allocator: std.mem.Allocator, file_path: []const u8, flags: FD.Flags, mode: FD.Mode) anyerror!*File {
+    // Parse path
+    var parser = pp.PathParser.init(allocator);
+    defer parser.deinit();
+    try parser.parse(file_path);
+
+    // Find node number for the file
+    const node_num = try self.vtable.lookupNode(self.ptr, .{file_path});
+
+    // Read node
+    const node = try self.vtable.readNode(self.ptr, .{ allocator, node_num });
+    errdefer node.deinit();
+
+    // Create a file
+    return try File.new(allocator, node, flags, mode);
 }
 
 pub fn scanBlockDevices(allocator: std.mem.Allocator, bus: *const Bus, registry: *const Registry, vfs: *Vfs) !void {
