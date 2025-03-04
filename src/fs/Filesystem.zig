@@ -5,7 +5,8 @@ const Device = @import("devices").Device;
 const BlockDevice = @import("devices").BlockDevice;
 const Partition = @import("devices").Partition;
 const Bus = @import("bus").Bus;
-const pp = @import("fs").pathparser;
+
+const PathParser = @import("PathParser.zig");
 const Registry = @import("Registry.zig");
 const Node = @import("Node.zig");
 const NodeNum = @import("types.zig").NodeNum;
@@ -46,7 +47,7 @@ pub fn deinit(_: *const Filesystem) void {
 
 pub fn open(self: Filesystem, allocator: std.mem.Allocator, file_path: []const u8, flags: FD.Flags, mode: FD.Mode) anyerror!*File {
     // Parse path
-    var parser = pp.PathParser.init(allocator);
+    var parser = PathParser.init(allocator);
     defer parser.deinit();
     try parser.parse(file_path);
 

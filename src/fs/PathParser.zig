@@ -6,6 +6,8 @@ const File = @import("File.zig");
 
 const log = std.log.scoped(.file_system_path_parser);
 
+const PathParser = @This();
+
 /// Possible errors that can occur during path operations
 pub const PathError = error{
     /// File name exceeds the maximum allowed length
@@ -18,49 +20,48 @@ pub const PathError = error{
     NotDirectory,
 } || Allocator.Error;
 
-pub const PathParser = struct {
-    segments: std.ArrayList([]const u8),
-    is_absolute: bool,
+//Fields
+segments: std.ArrayList([]const u8),
+is_absolute: bool,
 
-    pub fn init(allocator: Allocator) PathParser {
-        return .{
-            .segments = std.ArrayList([]const u8).init(allocator),
-            .is_absolute = false,
-        };
+pub fn init(allocator: Allocator) PathParser {
+    return .{
+        .segments = std.ArrayList([]const u8).init(allocator),
+        .is_absolute = false,
+    };
+}
+
+pub fn deinit(self: *PathParser) void {
+    self.segments.deinit();
+}
+
+pub fn parse(self: *PathParser, path: []const u8) PathError!void {
+    self.segments.clearRetainingCapacity();
+    self.is_absolute = path.len > 0 and path[0] == '/';
+
+    if (self.is_absolute) {
+        try self.segments.append("/");
     }
 
-    pub fn deinit(self: *PathParser) void {
-        self.segments.deinit();
+    var it = std.mem.splitScalar(u8, path, '/');
+    while (it.next()) |segment| {
+        if (segment.len == 0) continue;
+        if (segment.len > File.max_name_len) return error.FileNameToLong;
+        try self.segments.append(segment);
     }
+}
 
-    pub fn parse(self: *PathParser, path: []const u8) PathError!void {
-        self.segments.clearRetainingCapacity();
-        self.is_absolute = path.len > 0 and path[0] == '/';
+pub fn iterator(self: *const PathParser) PathIterator {
+    return PathIterator{ .parser = self, .index = 0 };
+}
 
-        if (self.is_absolute) {
-            try self.segments.append("/");
-        }
+pub fn isRoot(self: *const PathParser) bool {
+    return self.is_absolute and self.segments.items.len == 1;
+}
 
-        var it = std.mem.splitScalar(u8, path, '/');
-        while (it.next()) |segment| {
-            if (segment.len == 0) continue;
-            if (segment.len > File.max_name_len) return error.FileNameToLong;
-            try self.segments.append(segment);
-        }
-    }
-
-    pub fn iterator(self: *const PathParser) PathIterator {
-        return PathIterator{ .parser = self, .index = 0 };
-    }
-
-    pub fn isRoot(self: *const PathParser) bool {
-        return self.is_absolute and self.segments.items.len == 1;
-    }
-
-    pub fn isAbsolute(self: *const PathParser) bool {
-        return self.is_absolute;
-    }
-};
+pub fn isAbsolute(self: *const PathParser) bool {
+    return self.is_absolute;
+}
 
 pub const PathIterator = struct {
     parser: *const PathParser,

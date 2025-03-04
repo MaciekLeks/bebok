@@ -449,7 +449,7 @@ pub fn findInodeByPath(self: *Ext2, path: []const u8, start_dir_inode: ?u32) !In
     defer arena.deinit();
     const alloctr = arena.allocator();
 
-    var parser = fs.pathparser.PathParser.init(alloctr);
+    var parser = fs.PathParser.init(alloctr);
     defer parser.deinit();
     try parser.parse(path);
 
@@ -459,7 +459,7 @@ pub fn findInodeByPath(self: *Ext2, path: []const u8, start_dir_inode: ?u32) !In
     else if (!parser.isAbsolute() and start_dir_inode != null)
         start_dir_inode.?
     else
-        return fs.pathparser.PathError.InvalidPath;
+        return fs.PathParser.PathError.InvalidPath;
 
     defer log.debug("findInodeByPath: res={d}", .{curr_inode_num});
 
@@ -475,7 +475,7 @@ pub fn findInodeByPath(self: *Ext2, path: []const u8, start_dir_inode: ?u32) !In
         const curr_inode = try self.readInodeInternal(curr_inode_num, block_buffer);
 
         if (!curr_inode.isDirectory()) {
-            return fs.pathparser.PathError.NotDirectory;
+            return fs.PathParser.PathError.NotDirectory;
         }
 
         var dir_iter = try self.linkedDirectoryIterator(alloctr, &curr_inode);
