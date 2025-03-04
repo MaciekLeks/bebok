@@ -1,6 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const lang = @import("lang");
+const Iterator = lang.iter.Iterator;
+
 const BlockDevice = @import("devices").BlockDevice;
 const Partition = @import("devices").Partition;
 const Filesystem = @import("fs").Filesystem;
@@ -16,11 +19,7 @@ const Inode = @import("types.zig").Inode;
 const LinkedDirectoryEntry = @import("types.zig").LinkedDirectoryEntry;
 
 //VFS
-const File = @import("fs").File;
-const Node = @import("fs").Node;
-const NodeNum = Node.NodeNum;
-const FD = @import("fs").FD;
-const pp = @import("fs").pathparser;
+const fs = @import("fs");
 
 const pmm = @import("mem").pmm; //block size should be the same as the page size
 const heap = @import("mem").heap;
@@ -59,7 +58,7 @@ pub fn destroy(ctx: *Ext2) void {
 }
 
 pub fn filesystem(self: *Ext2) Filesystem {
-    return Filesystem.init(self);
+    return Filesystem.init(self, self.partition);
 }
 
 // pub fn superblock(self: *Ext2) VSuperblock {
@@ -68,14 +67,14 @@ pub fn filesystem(self: *Ext2) Filesystem {
 // }
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Interface functions
-pub fn lookupNodeNum(self: *Ext2, path: []const u8, start_node_num: ?NodeNum) anyerror!NodeNum {
+pub fn lookupNodeNum(self: *Ext2, path: []const u8, start_node_num: ?fs.NodeNum) anyerror!fs.NodeNum {
     return findInodeByPath(self, path, start_node_num);
 }
 
 /// readInode using alloctator
 /// TODO: allocates memory twice, once for block and the 2nd time for inode
 /// Caller needs to destroy Ext2 Inode memory
-pub fn readNode(self: *Ext2, allocator: std.mem.Allocator, inode_num: NodeNum) !Node {
+pub fn readNode(self: *Ext2, allocator: std.mem.Allocator, inode_num: fs.NodeNum) !fs.Node {
     const block_buffer = try allocator.alloc(u8, self.sb.getBlockSize());
     defer allocator.free(block_buffer);
 
@@ -88,7 +87,33 @@ pub fn readNode(self: *Ext2, allocator: std.mem.Allocator, inode_num: NodeNum) !
     const offset = inode_pos.offset;
     @memcpy(std.mem.asBytes(inode), block_buffer[offset..(offset + @sizeOf(Inode))]);
 
-    return Node.init(self, inode_num, inode);
+    return fs.Node.init(self, inode_num, inode);
+}
+
+pub fn getPageIter(self: *Ext2, allocator: std.mem.Allocator, node: fs.Node) !Iterator(fs.PageNum) {
+    const ibi = try InodeBlockIterator.new(allocator, self, @ptrCast(@alignCast(node.data)));
+    return ibi.iter();
+}
+
+/// Get file size of a regular file in bytes
+/// Return null if not a regular file
+pub fn getFileSize(self: *const Ext2, node: fs.Node) ?usize {
+    const inode: *const Inode = @ptrCast(@alignCast(node.data));
+
+    if (inode.mode.format != .regular_file and self.sb.major_rev_level != .dynamic) return null;
+
+    return if (self.sb.major_rev_level == .dynamic)
+        (@as(u64, inode.dir_acl) << 32) | inode.size
+    else
+        inode.size;
+}
+
+pub fn readPage(self: *const Ext2, pg_num: fs.PageNum, buf: []u8) !void {
+    return try self.readBlock(pg_num, buf);
+}
+
+pub fn getPageSize(self: *const Ext2) usize {
+    return self.sb.getBlockSize();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -137,36 +162,152 @@ pub fn readInodeInternal(self: *const Ext2, inode_num: u32, block_buffer: []u8) 
     return inode.*;
 }
 
-pub fn linkedDirectoryIterator(self: *const Ext2, allocator: std.mem.Allocator, inode: *const Inode) !LinkedDirectoryIterator {
-    return LinkedDirectoryIterator.init(allocator, self, inode);
+pub fn linkedDirectoryIterator(self: *Ext2, allocator: std.mem.Allocator, inode: *const Inode) !*LinkedDirectoryIterator {
+    return LinkedDirectoryIterator.new(allocator, self, inode);
 }
 
+// const Read = struct {
+//     const Self = @This();
+//     alloctr: std.mem.Allocator,
+//     inode: *const Inode, //ok
+//     block_iterator: InodeBlockIterator, //ok
+//     ext2: *const Ext2, //ok
+//     block_buffer: []u8 = undefined, //ok
+//     file_size: u64,
+//     bytes_read: u64 = 0,
+//     buffer_pos: usize = 0,
+//
+//     pub fn init(allocator: std.mem.Allocator, ext2: *const Ext2, inode: *const Inode) !Self {
+//         // Calculate file size (combining lower 32 bits from size and upper 32 bits from dir_acl)
+//         const file_size: u64 = if (inode.mode.format == .regular_file and ext2.sb.major_rev_level == .dynamic)
+//             (@as(u64, inode.dir_acl) << 32) | inode.size
+//         else
+//             inode.size;
+//
+//         return Self{
+//             .alloctr = allocator,
+//             .inode = inode,
+//             .block_iterator = InodeBlockIterator.init(allocator, ext2, inode),
+//             .ext2 = ext2,
+//             .block_buffer = try allocator.alloc(u8, ext2.sb.getBlockSize()),
+//             .file_size = file_size,
+//         };
+//     }
+//
+//     pub fn deinit(self: *Self) void {
+//         self.alloctr.free(self.block_buffer);
+//         self.block_iterator.deinit();
+//     }
+//
+//     /// Read bytes into the provided buffer
+//     /// Returns the number of bytes read
+//     pub fn read(self: *Self, buffer: []u8) !usize {
+//         // If we've read the entire file, return 0
+//         if (self.bytes_read >= self.file_size) {
+//             return 0;
+//         }
+//
+//         const bytes_to_read = @min(buffer.len, self.file_size - self.bytes_read);
+//         var bytes_read: usize = 0;
+//
+//         while (bytes_read < bytes_to_read) {
+//             // If we've consumed the current block buffer, load the next block
+//             if (self.buffer_pos >= self.block_buffer.len) {
+//                 if (try self.block_iterator.next()) |block_num| {
+//                     try readBlock(self.ext2, block_num, self.block_buffer);
+//                     self.buffer_pos = 0;
+//                 } else {
+//                     // No more blocks to read
+//                     break;
+//                 }
+//             }
+//
+//             // Calculate how many bytes we can copy from the current block
+//             const remaining_in_buffer = self.block_buffer.len - self.buffer_pos;
+//             const remaining_to_read = bytes_to_read - bytes_read;
+//             const copy_size = @min(remaining_in_buffer, remaining_to_read);
+//
+//             // Copy data from block buffer to output buffer
+//             @memcpy(buffer[bytes_read..(bytes_read + copy_size)], self.block_buffer[self.buffer_pos..(self.buffer_pos + copy_size)]);
+//
+//             // Update positions
+//             bytes_read += copy_size;
+//             self.buffer_pos += copy_size;
+//             self.bytes_read += copy_size;
+//
+//             // If we've read the entire file, break
+//             if (self.bytes_read >= self.file_size) {
+//                 break;
+//             }
+//         }
+//
+//         return bytes_read;
+//     }
+//
+//     /// Seek to a specific position in the file
+//     pub fn seek(self: *Self, offset: u64) !void {
+//         // Reset the iterator if we're seeking from the beginning
+//         if (offset < self.bytes_read) {
+//             // Reset and start from the beginning
+//             self.block_iterator.deinit();
+//             self.block_iterator = InodeBlockIterator.init(self.alloctr, self.ext2, self.inode);
+//             self.bytes_read = 0;
+//             self.buffer_pos = self.block_buffer.len; // Force loading a new block
+//         }
+//
+//         // Skip ahead to the desired position
+//         if (offset > self.bytes_read) {
+//             var arena = std.heap.ArenaAllocator.init(heap.page_allocator);
+//             defer arena.deinit();
+//             const alloctr = arena.allocator();
+//
+//             const skip_buffer = try alloctr.alloc(u8, self.block_buffer.len);
+//             var remaining = offset - self.bytes_read;
+//
+//             while (remaining > 0) {
+//                 const to_skip = @min(remaining, skip_buffer.len);
+//                 const skipped = try self.read(skip_buffer[0..to_skip]);
+//                 if (skipped == 0) {
+//                     // Reached end of file before desired position
+//                     return error.SeekPastEnd;
+//                 }
+//                 remaining -= skipped;
+//             }
+//         }
+//     }
+// };
+//
 //--- Iterators
+
+// TODO: refactor using a new Iterator
 const LinkedDirectoryIterator = struct {
     const Self = @This();
     alloctr: std.mem.Allocator,
     inode: *const Inode,
-    block_iterator: InodeBlockIterator,
+    block_iterator: *InodeBlockIterator,
     ext2: *const Ext2,
     block_buffer: []u8 = undefined,
     dir_pos: usize = 0,
 
-    pub fn init(allocator: std.mem.Allocator, ext2: *const Ext2, inode: *const Inode) !Self {
+    pub fn new(allocator: std.mem.Allocator, ext2: *const Ext2, inode: *const Inode) !*Self {
         if (!inode.isDirectory()) return error.NotDirectory;
         if (inode.flags.index) return error.IndexedDirectoryNotSupported;
 
-        return Self{
+        const self = try allocator.create(Self);
+        self.* = .{
             .alloctr = allocator,
             .inode = inode,
-            .block_iterator = InodeBlockIterator.init(allocator, ext2, inode),
+            .block_iterator = try InodeBlockIterator.new(allocator, ext2, inode),
             .ext2 = ext2,
             .block_buffer = try allocator.alloc(u8, ext2.sb.getBlockSize()),
         };
+
+        return self;
     }
 
-    pub fn deinit(self: *Self) void {
-        self.allopctr.free(self.block_buffer);
-        self.block_iterator.deinit();
+    pub fn destroy(self: *Self) void {
+        self.alloctr.free(self.block_buffer);
+        self.block_iterator.destroy();
     }
 
     /// Return next directory entry
@@ -197,7 +338,7 @@ const LinkedDirectoryIterator = struct {
 pub const InodeBlockIterator = struct {
     const Self = @This();
     const ReadBlockFn = *const fn (*const Ext2, u32, []u8) anyerror!void;
-    alloctr: std.mem.Allocator,
+    alloctr: std.mem.Allocator = undefined, //page heap allocator needed since we alloc page size blocks
     ext2: *const Ext2,
     inode: *const Inode,
     curr_block_idx: u8 = 0, //0-11 direct blocks, 12-14 indirect blocks
@@ -209,8 +350,9 @@ pub const InodeBlockIterator = struct {
     },
     readBlockFn: ReadBlockFn = &readBlock, //defaults to readBlock
 
-    pub fn init(allocator: std.mem.Allocator, ext2: *const Ext2, inode: *const Inode) Self {
-        return .{
+    pub fn new(allocator: std.mem.Allocator, ext2: *const Ext2, inode: *const Inode) !*Self {
+        const self = try allocator.create(Self);
+        self.* = .{
             .alloctr = allocator,
             .ext2 = ext2,
             .inode = inode,
@@ -220,14 +362,18 @@ pub const InodeBlockIterator = struct {
                 .{ .buffer = null, .idx = 0, .needs_load = true },
             },
         };
+        return self;
     }
 
-    pub fn deinit(self: *InodeBlockIterator) void {
+    pub fn destroy(self: *InodeBlockIterator) void {
         for (self.stack) |stack| {
-            if (stack.buffer != null) {
-                self.alloctr.free(stack.buffer);
-            }
+            if (stack.buffer) |buf_ptr| self.alloctr.free(buf_ptr);
         }
+        self.alloctr.destroy(self);
+    }
+
+    pub fn iter(self: *Self) Iterator(BlockNum) {
+        return Iterator(BlockNum).init(self);
     }
 
     pub fn next(self: *Self) !?BlockNum {
@@ -297,13 +443,13 @@ pub const InodeBlockIterator = struct {
 };
 
 // Helper functions
-pub fn findInodeByPath(self: *const Ext2, path: []const u8, start_dir_inode: ?u32) !InodeNum {
+pub fn findInodeByPath(self: *Ext2, path: []const u8, start_dir_inode: ?u32) !InodeNum {
     log.debug("findInodeByPath: {s}", .{path});
     var arena = std.heap.ArenaAllocator.init(heap.page_allocator);
     defer arena.deinit();
     const alloctr = arena.allocator();
 
-    var parser = pp.PathParser.init(alloctr);
+    var parser = fs.pathparser.PathParser.init(alloctr);
     defer parser.deinit();
     try parser.parse(path);
 
@@ -313,7 +459,7 @@ pub fn findInodeByPath(self: *const Ext2, path: []const u8, start_dir_inode: ?u3
     else if (!parser.isAbsolute() and start_dir_inode != null)
         start_dir_inode.?
     else
-        return pp.PathError.InvalidPath;
+        return fs.pathparser.PathError.InvalidPath;
 
     defer log.debug("findInodeByPath: res={d}", .{curr_inode_num});
 
@@ -329,7 +475,7 @@ pub fn findInodeByPath(self: *const Ext2, path: []const u8, start_dir_inode: ?u3
         const curr_inode = try self.readInodeInternal(curr_inode_num, block_buffer);
 
         if (!curr_inode.isDirectory()) {
-            return pp.PathError.NotDirectory;
+            return fs.pathparser.PathError.NotDirectory;
         }
 
         var dir_iter = try self.linkedDirectoryIterator(alloctr, &curr_inode);
@@ -346,7 +492,7 @@ pub fn findInodeByPath(self: *const Ext2, path: []const u8, start_dir_inode: ?u3
         } else |err| return err;
 
         if (!found) {
-            return File.Error.NotFound;
+            return fs.File.Error.NotFound;
         }
     }
 

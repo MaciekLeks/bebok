@@ -379,6 +379,8 @@ pub fn build(b: *Build) !void {
     ext2_mod.addImport("fs", fs_mod);
     ext2_ut_mod.addImport("fs", fs_ut_mod);
 
+    ext2_mod.addImport("lang", lang_mod);
+
     // UI dependencies
     terminal_mod.addImport("limine", limine_zig_mod);
     terminal_ut_mod.addImport("limine", limine_zig_mod);

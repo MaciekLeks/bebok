@@ -8,7 +8,7 @@ const Bus = @import("bus").Bus;
 const pp = @import("fs").pathparser;
 const Registry = @import("Registry.zig");
 const Node = @import("Node.zig");
-const NodeNum = Node.NodeNum;
+const NodeNum = @import("types.zig").NodeNum;
 const Vfs = @import("Vfs.zig");
 const FD = @import("fd.zig").FD;
 const File = @import("File.zig");
@@ -25,27 +25,26 @@ pub const Type = enum {
 //Fields
 ptr: *anyopaque,
 vtable: *const VTable,
+partition: *const Partition,
 
 pub const VTable = struct {
     destroy: iface.Fn(.{}, void),
     //open: iface.Fn(.{ std.mem.Allocator, []const u8, File.Flags, File.Mode }, anyerror!FD),
     //superblock: iface.Fn(.{}, Superblock),
-    lookupNodeNum: iface.Fn(.{ []const u8, NodeNum }, anyerror!NodeNum),
+    lookupNodeNum: iface.Fn(.{ []const u8, NodeNum }, anyerror!NodeNum), //TODO: do we need it in the impl
     readNode: iface.Fn(.{ std.mem.Allocator, NodeNum }, anyerror!Node),
+    getPageSize: iface.Fn(.{}, usize),
 };
 
-pub fn init(ctx: anytype) Filesystem {
-    return .{
-        .ptr = ctx,
-        .vtable = iface.gen(@TypeOf(ctx), VTable),
-    };
+pub fn init(ctx: anytype, partition: *const Partition) Filesystem {
+    return .{ .ptr = ctx, .vtable = iface.gen(@TypeOf(ctx), VTable), .partition = partition };
 }
 
 pub fn deinit(_: *const Filesystem) void {
     //do nothing right now
 }
 
-pub fn open(self: *const Filesystem, allocator: std.mem.Allocator, file_path: []const u8, flags: FD.Flags, mode: FD.Mode) anyerror!*File {
+pub fn open(self: Filesystem, allocator: std.mem.Allocator, file_path: []const u8, flags: FD.Flags, mode: FD.Mode) anyerror!*File {
     // Parse path
     var parser = pp.PathParser.init(allocator);
     defer parser.deinit();
@@ -59,7 +58,11 @@ pub fn open(self: *const Filesystem, allocator: std.mem.Allocator, file_path: []
     errdefer node.deinit();
 
     // Create a file
-    return try File.new(allocator, node, flags, mode);
+    return try File.new(allocator, self, node, flags, mode);
+}
+
+pub fn getPageSize(self: *const Filesystem) usize {
+    return self.vtable.getPageSize(self.ptr, {});
 }
 
 pub fn scanBlockDevices(allocator: std.mem.Allocator, bus: *const Bus, registry: *const Registry, vfs: *Vfs) !void {

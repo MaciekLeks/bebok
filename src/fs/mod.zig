@@ -7,6 +7,8 @@ pub const Vfs = @import("Vfs.zig");
 pub const Node = @import("Node.zig");
 pub const FD = @import("fd.zig").FD;
 pub const FDTable = @import("fd.zig").FDTable;
+pub const PageNum = @import("types.zig").PageNum;
+pub const NodeNum = @import("types.zig").NodeNum;
 
 test {
     _ = @import("pathparser.zig");

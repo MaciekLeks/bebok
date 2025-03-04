@@ -100,7 +100,7 @@ parent: *BlockDevice, //e.g. NvmeNamespace
 partition_type: Type,
 attributes: Attributes,
 name: []u8,
-filesystem: ?Filesystem,
+//filesystem: ?Filesystem,
 
 // Device interface vtable for NvmeController
 const device_vtable = Device.VTable{
@@ -131,7 +131,7 @@ pub fn init(allocator: std.mem.Allocator, entry: Entry, parent: *BlockDevice) !*
         .partition_type = entry.partition_type,
         .attributes = entry.attributes,
         .name = try allocator.dupeZ(u8, entry.name[0..entry.name_len]),
-        .filesystem = null, //if present, will be set by the filesystem driver
+        //.filesystem = null, //if present, will be set by the filesystem driver
     };
 
     return self;
@@ -151,7 +151,7 @@ pub fn deinit(dev: *Device) void {
     const self: *Partition = fromBlockDevice(block_device);
 
     block_device.deinit(); //should be safe here
-    if (self.filesystem) |fs| fs.deinit();
+    //if (self.filesystem) |fs| fs.deinit();
     self.alloctr.free(self.name);
     self.alloctr.destroy(self);
 }

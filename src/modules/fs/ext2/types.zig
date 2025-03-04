@@ -1,6 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const fs = @import("fs");
+
 // pub const BlockAddressing = struct {
 //     /// Convert byte offset to block number
 //     pub fn getBlockId(comptime block_size: usize, offset: usize) usize {
@@ -27,9 +29,9 @@ const builtin = @import("builtin");
 //     }
 // };
 
-pub const BlockNum = u32;
+pub const BlockNum = fs.PageNum;
 pub const BlockGroupNum = u32;
-pub const InodeNum = u32; //starts from 1
+pub const InodeNum = fs.NodeNum; //starts from 1
 pub const InodeIdx = u32;
 
 pub const Superblock = extern struct {

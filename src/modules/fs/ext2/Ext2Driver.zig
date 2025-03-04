@@ -77,7 +77,7 @@ pub fn resolve(_: *Ext2Driver, allocator: std.mem.Allocator, partition: *Partiti
 
     // Attach filesystem to the partition
     const ext_fs = try Ext2.new(allocator, partition, superblock, bgdt);
-    partition.filesystem = ext_fs.filesystem();
+    //partition.filesystem = ext_fs.filesystem();
 
     //{TODO: remove this
     var tmp_arena = std.heap.ArenaAllocator.init(heap.page_allocator);
