@@ -9,7 +9,7 @@ pub const FDTable = struct {
     files: [max_fds]?*File = .{null} ** max_fds,
 
     // Find free file descriptor and assign it to the file
-    pub fn getNewFD(self: *const Self, file: *const File) FD {
+    pub fn getNewFD(self: *Self, file: *File) FD {
         for (&self.files, 0..) |*maybe_file, i| {
             if (maybe_file.* == null) {
                 maybe_file.* = file;
@@ -28,15 +28,15 @@ pub const FDTable = struct {
         }
     }
 
-    pub fn getFile(self: *const Self, fd: FD) !*const File {
-        if (fd >= 0 and fd < max_fds and self.files[fd] != null) {
-            return self.files[fd];
+    pub fn getFile(self: *const Self, fd: FD) !*File {
+        if (fd >= 0 and fd < max_fds and self.files[@intCast(fd)] != null) {
+            return self.files[@intCast(fd)].?;
         }
         return File.Error.NotFound;
     }
 
     pub fn deinit(self: *Self) void {
-        for (self.files) |maybe_file| {
+        for (&self.files) |*maybe_file| {
             if (maybe_file) |file| {
                 file.destroy();
             }

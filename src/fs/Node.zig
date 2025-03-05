@@ -35,15 +35,15 @@ pub fn init(ctx: anytype, node_num: NodeNum, data: *anyopaque) Node {
 }
 
 pub fn deinit(self: Node) void {
-    self.vtable.destroy(self.ctx);
+    self.vtable.destroy(self.ctx, .{});
 }
 
 // pub fn readIter(self: *const Self, allocator: std.mem.Allocator) !ReadIterator {
 //     return self.vtable.readIter(self.ctx, allocator);
 // }
 
-pub fn getPageIter(self: Node) !Iterator(PageNum) {
-    return self.vtable.getPageIter(self.ctx, .{self});
+pub fn getPageIter(self: Node, allocator: std.mem.Allocator) !Iterator(NodeNum) {
+    return self.vtable.getPageIter(self.ctx, .{ allocator, self });
 }
 
 pub fn getFileSize(self: Node) ?usize {

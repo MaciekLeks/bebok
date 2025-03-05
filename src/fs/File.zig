@@ -25,9 +25,9 @@ pub const Mode = packed struct(u16) {
         write: bool = false,
         execute: bool = false,
     };
-    owner: SingleMode,
-    group: SingleMode,
-    other: SingleMode,
+    owner: SingleMode = .{},
+    group: SingleMode = .{},
+    other: SingleMode = .{},
     rsrvd: u7 = 0, //padding
 };
 
@@ -55,7 +55,7 @@ page_buffer: []u8 = undefined,
 page_buffer_pos: usize = 0,
 bytes_read: usize = 0,
 
-pub fn new(allocator: std.mem.Allocator, fs: Filesystem, node: *const Node, flags: Flags, mode: Mode) !*Self {
+pub fn new(allocator: std.mem.Allocator, fs: Filesystem, node: Node, flags: Flags, mode: Mode) !*Self {
     const self = try allocator.create(Self);
 
     self.* = .{
@@ -68,8 +68,8 @@ pub fn new(allocator: std.mem.Allocator, fs: Filesystem, node: *const Node, flag
         .count = 1,
         //
         .file_size = node.getFileSize(),
-        .page_iter = try node.getPageIter(),
-        .page_buffer = heap.page_allocator.alloc(u8, fs.getPageSize()),
+        .page_iter = try node.getPageIter(allocator),
+        .page_buffer = try allocator.alloc(u8, fs.getPageSize()),
     };
 
     return self;
@@ -79,7 +79,7 @@ pub fn destroy(self: *const Self) !void {
     if (self.count > 1) return error.FileStillInUse;
     self.alloctr.free(self.page_buffer);
     self.page_iter.deinit();
-    heap.page_allocator.free(self.page_block_buffer);
+    self.alloctr.free(self.page_buffer);
     self.alloctr.destroy(self);
 }
 
@@ -94,20 +94,22 @@ pub fn decrementRefCount(self: *Self) void {
 }
 
 pub fn read(self: *Self, buffer: []u8) !usize {
+    if (self.file_size == null) return error.NotRegularFile;
+
     // If we've read the entire file, return 0
-    if (self.bytes_read >= self.file_size) {
+    if (self.bytes_read >= self.file_size.?) {
         return 0;
     }
 
-    const bytes_to_read = @min(buffer.len, self.file_size - self.bytes_read);
+    const bytes_to_read = @min(buffer.len, self.file_size.? - self.bytes_read);
     var bytes_read: usize = 0;
 
     while (bytes_read < bytes_to_read) {
         // If we've consumed the current block buffer, load the next block
         if (self.page_buffer_pos >= self.page_buffer.len) {
             if (try self.page_iter.next()) |pg_num| {
-                try self.node.readPage(pg_num, self.page_block_buffer);
-                self.buffer_pos = 0;
+                try self.node.readPage(pg_num, self.page_buffer);
+                self.page_buffer_pos = 0;
             } else {
                 // No more blocks to read
                 break;
@@ -120,7 +122,7 @@ pub fn read(self: *Self, buffer: []u8) !usize {
         const copy_size = @min(remaining_in_buffer, remaining_to_read);
 
         // Copy data from block buffer to output buffer
-        @memcpy(buffer[bytes_read..(bytes_read + copy_size)], self.block_buffer[self.buffer_pos..(self.buffer_pos + copy_size)]);
+        @memcpy(buffer[bytes_read..(bytes_read + copy_size)], self.page_buffer[self.page_buffer_pos..(self.page_buffer_pos + copy_size)]);
 
         // Update positions
         bytes_read += copy_size;
@@ -128,7 +130,7 @@ pub fn read(self: *Self, buffer: []u8) !usize {
         self.bytes_read += copy_size;
 
         // If we've read the entire file, break
-        if (self.bytes_read >= self.file_size) {
+        if (self.bytes_read >= self.file_size.?) {
             break;
         }
     }

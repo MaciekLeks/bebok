@@ -2,5 +2,5 @@
 const FDTable = @import("fs").FDTable;
 
 pub const Task = struct {
-    fds: FDTable,
+    fds: FDTable = .{},
 };

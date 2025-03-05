@@ -4,7 +4,7 @@ const File = @import("File.zig");
 const PathParser = @import("PathParser.zig");
 const Partition = @import("devices").Partition;
 const FD = @import("fd.zig").FD;
-const Task = @import("core").task.Task;
+const Task = @import("sched").Task;
 
 pub const MountPoint = struct {
     path: []const u8,

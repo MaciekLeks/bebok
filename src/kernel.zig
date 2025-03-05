@@ -5,23 +5,13 @@ const config = @import("config");
 //const start = @import("start.zig");
 const term = @import("terminal");
 
-//pub const Bus = @import("bus/bus.zig").Bus;
-//pub const BusDeviceAddress = @import("bus/bus.zig").BusDeviceAddress;
-//pub const Driver = @import("drivers/Driver.zig");
 const DriverRegistry = @import("drivers").Registry;
 const devices = @import("devices");
 const Device = devices.Device;
-// const PhysDevice = @import("devices/PhysDevice.zig");
 const BlockDevice = devices.BlockDevice;
-// const PartitionScheme = @import("devices/mod.zig").PartitionScheme;
-// const Partition = @import("devices/mod.zig").Partition;
-// const Guid = @import("commons/guid.zig").Guid;
-// const DummyMutex = @import("commons/thread.zig").DummyMutex;
-// const File = @import("fs/File.zig");
 const NvmeDriver = @import("nvme").NvmeDriver;
-// const NvmeNamespace = @import("nvme").NvmeNamespace;
 const fs = @import("fs");
-const pathparser = fs.pathparser;
+//const pathparser = fs.pathparser;
 const Vfs = fs.Vfs;
 const FilesystemDriver = fs.FilesystemDriver;
 const Filesystem = fs.Filesystem;
@@ -39,6 +29,8 @@ const segmentation = core.segmentation;
 const mem = @import("mem");
 const pmm = mem.pmm;
 const heap = mem.heap;
+
+const sched = @import("sched");
 //
 
 pub const bus = @import("bus");
@@ -251,6 +243,26 @@ fn _start() callconv(.C) noreturn {
             } //partition only
         } //block device condition
     } //loop over bus devices
+
+    //VFS example start
+    var task = sched.Task{};
+    const fd = vfs.open(&task, "/file01.txt", .{ .read = true }, .{}) catch |err| {
+        log.err("VFS open error: {s}", .{@errorName(err)});
+        @panic("VFS open error");
+    };
+    log.info("VFS open and fd is {d}", .{fd});
+
+    var fbuf = [_]u8{0} ** 50;
+    const read_bytes = vfs.read(&task, fd, &fbuf) catch |err| {
+        log.err("VFS read error: {s}", .{@errorName(err)});
+        @panic("VFS read error");
+    };
+    log.info("VFS read {d} bytes", .{read_bytes});
+    //log bytes to the console till read_bytes
+    for (0..read_bytes) |i| {
+        log.info("{x}", .{fbuf[i]});
+    }
+    //VFS example end
 
     var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");
     pty.printf("{s}\n\nversion: {any}", .{ logo, config.kernel_version });

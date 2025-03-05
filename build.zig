@@ -282,6 +282,10 @@ pub fn build(b: *Build) !void {
     const lang_mod = b.addModule("lang", .{ .root_source_file = b.path("src/modules/lang/mod.zig"), .target = kernel_target });
     const lang_ut_mod = b.addModule("lang", .{ .root_source_file = b.path("src/modules/lang/mod.zig"), .target = ut_target });
 
+    // Scheduler modules
+    const sched_mod = b.addModule("sched", .{ .root_source_file = b.path("src/sched/mod.zig"), .target = kernel_target });
+    const sched_ut_mod = b.addModule("sched", .{ .root_source_file = b.path("src/sched/mod.zig"), .target = ut_target });
+
     // Core module dependencies
     core_mod.addImport("limine", limine_zig_mod);
     core_ut_mod.addImport("limine", limine_zig_mod);
@@ -368,7 +372,7 @@ pub fn build(b: *Build) !void {
     fs_mod.addImport("devices", devices_mod);
     fs_ut_mod.addImport("devices", devices_ut_mod);
     fs_mod.addImport("lang", lang_mod);
-    fs_mod.addImport("core", core_mod); //tasks
+    fs_mod.addImport("sched", sched_mod); //tasks
 
     ext2_mod.addImport("mem", mem_mod);
     ext2_ut_mod.addImport("mem", mem_ut_mod);
@@ -384,6 +388,9 @@ pub fn build(b: *Build) !void {
     // UI dependencies
     terminal_mod.addImport("limine", limine_zig_mod);
     terminal_ut_mod.addImport("limine", limine_zig_mod);
+
+    // Scheduler dependencies
+    sched_mod.addImport("fs", fs_mod);
 
     // Root module imports
     kernel_mod.addImport("core", core_mod);
@@ -421,6 +428,9 @@ pub fn build(b: *Build) !void {
 
     kernel_mod.addImport("ext2", ext2_mod);
     kernel_ut_mod.addImport("ext2", ext2_ut_mod);
+
+    kernel_mod.addImport("sched", sched_mod);
+    kernel_ut_mod.addImport("sched", sched_ut_mod);
 
     //Modules end
 
@@ -546,6 +556,12 @@ pub fn build(b: *Build) !void {
     });
     const lang_ut_run = b.addRunArtifact(lang_ut);
 
+    const sched_ut = b.addTest(.{
+        .name = "sched",
+        .root_module = sched_ut_mod,
+    });
+    const sched_ut_run = b.addRunArtifact(sched_ut);
+
     const ut_step = b.step("unit-tests", "Run unit tests");
     ut_step.dependOn(&kernel_ut_run.step);
     ut_step.dependOn(&core_ut_run.step);
@@ -561,6 +577,7 @@ pub fn build(b: *Build) !void {
     ut_step.dependOn(&nvme_ut_run.step);
     ut_step.dependOn(&terminal_ut_run.step);
     ut_step.dependOn(&lang_ut_run.step);
+    ut_step.dependOn(&sched_ut_run.step);
 
     b.default_step = iso_step;
 }

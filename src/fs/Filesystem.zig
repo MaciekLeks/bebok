@@ -32,7 +32,7 @@ pub const VTable = struct {
     destroy: iface.Fn(.{}, void),
     //open: iface.Fn(.{ std.mem.Allocator, []const u8, File.Flags, File.Mode }, anyerror!FD),
     //superblock: iface.Fn(.{}, Superblock),
-    lookupNodeNum: iface.Fn(.{ []const u8, NodeNum }, anyerror!NodeNum), //TODO: do we need it in the impl
+    lookupNodeNum: iface.Fn(.{ []const u8, ?NodeNum }, anyerror!NodeNum), //TODO: do we need it in the impl
     readNode: iface.Fn(.{ std.mem.Allocator, NodeNum }, anyerror!Node),
     getPageSize: iface.Fn(.{}, usize),
 };
@@ -45,14 +45,14 @@ pub fn deinit(_: *const Filesystem) void {
     //do nothing right now
 }
 
-pub fn open(self: Filesystem, allocator: std.mem.Allocator, file_path: []const u8, flags: FD.Flags, mode: FD.Mode) anyerror!*File {
+pub fn open(self: Filesystem, allocator: std.mem.Allocator, file_path: []const u8, flags: File.Flags, mode: File.Mode) anyerror!*File {
     // Parse path
     var parser = PathParser.init(allocator);
     defer parser.deinit();
     try parser.parse(file_path);
 
     // Find node number for the file
-    const node_num = try self.vtable.lookupNode(self.ptr, .{file_path});
+    const node_num = try self.vtable.lookupNodeNum(self.ptr, .{ file_path, null });
 
     // Read node
     const node = try self.vtable.readNode(self.ptr, .{ allocator, node_num });
@@ -63,7 +63,7 @@ pub fn open(self: Filesystem, allocator: std.mem.Allocator, file_path: []const u
 }
 
 pub fn getPageSize(self: *const Filesystem) usize {
-    return self.vtable.getPageSize(self.ptr, {});
+    return self.vtable.getPageSize(self.ptr, .{});
 }
 
 pub fn scanBlockDevices(allocator: std.mem.Allocator, bus: *const Bus, registry: *const Registry, vfs: *Vfs) !void {
