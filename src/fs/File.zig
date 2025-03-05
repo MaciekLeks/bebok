@@ -106,7 +106,7 @@ pub fn read(self: *Self, buffer: []u8) !usize {
 
     while (bytes_read < bytes_to_read) {
         // If we've consumed the current block buffer, load the next block
-        if (self.page_buffer_pos >= self.page_buffer.len) {
+        if (self.page_buffer_pos == 0 or self.page_buffer_pos >= self.page_buffer.len) {
             if (try self.page_iter.next()) |pg_num| {
                 try self.node.readPage(pg_num, self.page_buffer);
                 self.page_buffer_pos = 0;

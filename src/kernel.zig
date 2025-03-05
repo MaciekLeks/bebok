@@ -262,6 +262,7 @@ fn _start() callconv(.C) noreturn {
     for (0..read_bytes) |i| {
         log.info("{x}", .{fbuf[i]});
     }
+    log.info("VFS read:\'{s}\'", .{fbuf});
     //VFS example end
 
     var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");
