@@ -17,11 +17,11 @@ pub fn Iterator(comptime RetType: type) type {
             return .{ .ctx = ctx, .vtable = iface.gen(@TypeOf(ctx), VTable) };
         }
 
-        pub fn next(self: *Self) !?RetType {
+        pub fn next(self: *const Self) !?RetType {
             return self.vtable.next(self.ctx, .{});
         }
 
-        pub fn deinit(self: *Self) void {
+        pub fn deinit(self: *const Self) void {
             self.vtable.destroy(self.ctx, .{});
         }
     };

@@ -34,7 +34,7 @@ pub const Mode = packed struct(u16) {
 pub const Error = error{
     NotFound,
     MaxFDsReached,
-    FileStillInUse,
+    StillInUse,
     NotRegularFile,
 };
 pub const max_name_len = 256;
@@ -76,7 +76,7 @@ pub fn new(allocator: std.mem.Allocator, fs: Filesystem, node: Node, flags: Flag
 }
 
 pub fn destroy(self: *const Self) !void {
-    if (self.count > 1) return error.FileStillInUse;
+    if (self.count > 1) return Error.StillInUse;
     self.alloctr.free(self.page_buffer);
     self.page_iter.deinit();
     self.alloctr.free(self.page_buffer);
@@ -94,7 +94,7 @@ pub fn decrementRefCount(self: *Self) void {
 }
 
 pub fn read(self: *Self, buffer: []u8) !usize {
-    if (self.file_size == null) return error.NotRegularFile;
+    if (self.file_size == null) return Error.NotRegularFile;
 
     // If we've read the entire file, return 0
     if (self.bytes_read >= self.file_size.?) {

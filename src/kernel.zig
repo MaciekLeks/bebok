@@ -245,24 +245,33 @@ fn _start() callconv(.C) noreturn {
     } //loop over bus devices
 
     //VFS example start
-    var task = sched.Task{};
-    const fd = vfs.open(&task, "/file01.txt", .{ .read = true }, .{}) catch |err| {
-        log.err("VFS open error: {s}", .{@errorName(err)});
-        @panic("VFS open error");
-    };
-    log.info("VFS open and fd is {d}", .{fd});
+    {
+        log.info("VFS example start", .{});
+        defer log.info("VFS example end", .{});
 
-    var fbuf = [_]u8{0} ** 50;
-    const read_bytes = vfs.read(&task, fd, &fbuf) catch |err| {
-        log.err("VFS read error: {s}", .{@errorName(err)});
-        @panic("VFS read error");
-    };
-    log.info("VFS read {d} bytes", .{read_bytes});
-    //log bytes to the console till read_bytes
-    for (0..read_bytes) |i| {
-        log.info("{x}", .{fbuf[i]});
+        var task = sched.Task{};
+        const fd = vfs.open(&task, "/file01.txt", .{ .read = true }, .{}) catch |err| {
+            log.err("VFS open error: {s}", .{@errorName(err)});
+            @panic("VFS open error");
+        };
+        log.info("VFS open and fd is {d}", .{fd});
+
+        var fbuf = [_]u8{0} ** 50;
+        const read_bytes = vfs.read(&task, fd, &fbuf) catch |err| {
+            log.err("VFS read error: {s}", .{@errorName(err)});
+            @panic("VFS read error");
+        };
+        log.info("VFS read {d} bytes", .{read_bytes});
+        //log bytes to the console till read_bytes
+        for (0..read_bytes) |i| {
+            log.info("c={c} hex={0x}", .{fbuf[i]});
+        }
+        log.info("VFS read:\'{s}\'", .{fbuf});
+        vfs.close(&task, fd) catch |err| {
+            log.err("VFS close error: {s}", .{@errorName(err)});
+            @panic("VFS close error");
+        };
     }
-    log.info("VFS read:\'{s}\'", .{fbuf});
     //VFS example end
 
     var pty = term.GenericTerminal(term.FontPsf1Lat2Vga16).init(255, 0, 0, 255) catch @panic("cannot initialize terminal");

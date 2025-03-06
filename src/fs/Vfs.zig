@@ -120,3 +120,18 @@ pub fn read(_: *Vfs, task: *Task, fd: FD, buf: []u8) !usize {
     const file = try task.fds.getFile(fd);
     return file.read(buf);
 }
+
+pub fn close(_: *Vfs, task: *Task, fd: FD) !void {
+    const file = try task.fds.getFile(fd);
+
+    file.destroy() catch |err| {
+        switch (err) {
+            File.Error.StillInUse => {
+                return;
+            },
+            else => {
+                return err;
+            },
+        }
+    };
+}
