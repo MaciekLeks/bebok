@@ -257,6 +257,10 @@ fn _start() callconv(.C) noreturn {
         log.info("VFS open and fd is {d}", .{fd});
 
         var fbuf = [_]u8{0} ** 50;
+        _ = vfs.lseek(&task, fd, 1, .set) catch |err| {
+            log.err("VFS lseek error: {s}", .{@errorName(err)});
+            @panic("VFS lseek error");
+        };
         const read_bytes = vfs.read(&task, fd, &fbuf) catch |err| {
             log.err("VFS read error: {s}", .{@errorName(err)});
             @panic("VFS read error");

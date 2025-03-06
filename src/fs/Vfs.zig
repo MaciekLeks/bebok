@@ -135,3 +135,8 @@ pub fn close(_: *Vfs, task: *Task, fd: FD) !void {
         }
     };
 }
+
+pub fn lseek(_: *Vfs, task: *Task, fd: FD, offset: isize, whence: File.SeekWhence) !usize {
+    const file = try task.fds.getFile(fd);
+    return try file.lseek(offset, whence);
+}

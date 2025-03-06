@@ -36,7 +36,11 @@ pub const Error = error{
     MaxFDsReached,
     StillInUse,
     NotRegularFile,
+    SeekPastEnd,
 };
+
+pub const SeekWhence = enum { set, cur, end };
+
 pub const max_name_len = 256;
 
 //TODO:
@@ -136,4 +140,48 @@ pub fn read(self: *Self, buffer: []u8) !usize {
     }
 
     return bytes_read;
+}
+
+fn seek(self: *Self, offset: usize) !void {
+    // Reset the iterator if we're seeking from the beginning
+    if (offset < self.bytes_read) {
+        // Reset and start from the beginning
+        self.page_iter.deinit();
+        self.page_iter = try self.node.getPageIter(self.alloctr);
+        self.bytes_read = 0;
+    }
+
+    // Skip ahead to the desired position
+    if (offset > self.bytes_read) {
+        var arena = std.heap.ArenaAllocator.init(heap.page_allocator);
+        defer arena.deinit();
+        const alloctr = arena.allocator();
+
+        const skip_buffer = try alloctr.alloc(u8, self.page_buffer.len);
+        var remaining = offset - self.bytes_read;
+
+        while (remaining > 0) {
+            const to_skip = @min(remaining, skip_buffer.len);
+            const skipped = try self.read(skip_buffer[0..to_skip]);
+            if (skipped == 0) {
+                // Reached end of file before desired position
+                return Error.SeekPastEnd;
+            }
+            remaining -= skipped;
+        }
+    }
+}
+
+pub fn lseek(self: *Self, offset: isize, whence: SeekWhence) !usize {
+    var pos = self.offset;
+    switch (whence) {
+        .set => pos = @intCast(offset),
+        .cur => pos += @intCast(offset),
+        .end => pos = self.file_size.? + @as(usize, @intCast(offset)),
+    }
+
+    try self.seek(pos);
+
+    self.offset = pos;
+    return self.offset;
 }
