@@ -142,6 +142,9 @@ pub fn read(self: *Self, buffer: []u8) !usize {
     return bytes_read;
 }
 
+/// Seek to a specific position
+/// TODO:
+/// - upon modified node iterator set offset as a node iterator start offset
 fn seek(self: *Self, offset: usize) !void {
     // Reset the iterator if we're seeking from the beginning
     if (offset < self.bytes_read) {
