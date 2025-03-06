@@ -222,6 +222,9 @@ const LinkedDirectoryIterator = struct {
     }
 };
 
+/// Iterator for traversing inode blocks
+/// TODO:
+///- add start offset to fast forward to a specific block (1..16) in Inode blocks
 pub const InodeBlockIterator = struct {
     const Self = @This();
     const ReadBlockFn = *const fn (*const Ext2, u32, []u8) anyerror!void;
