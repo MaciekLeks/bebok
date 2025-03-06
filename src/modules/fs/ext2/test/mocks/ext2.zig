@@ -12,7 +12,7 @@ pub fn createMockExt2(allocator: std.mem.Allocator) !*Ext2 {
     mock.* = .{
         .alloctr = allocator,
         .partition = try mdev.createMockPartition(allocator),
-        .superblock = try msuper.createMockSupeblock(allocator),
+        .sb = try msuper.createMockSupeblock(allocator),
         .block_group_descriptor_table = bgdt,
     };
     return mock;

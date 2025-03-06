@@ -372,8 +372,11 @@ pub fn build(b: *Build) !void {
     fs_mod.addImport("devices", devices_mod);
     fs_ut_mod.addImport("devices", devices_ut_mod);
     fs_mod.addImport("lang", lang_mod);
+    fs_ut_mod.addImport("lang", lang_ut_mod);
     fs_mod.addImport("sched", sched_mod); //tasks
+    fs_ut_mod.addImport("sched", sched_ut_mod);
     fs_mod.addImport("mem", mem_mod);
+    fs_ut_mod.addImport("mem", mem_ut_mod);
 
     ext2_mod.addImport("mem", mem_mod);
     ext2_ut_mod.addImport("mem", mem_ut_mod);

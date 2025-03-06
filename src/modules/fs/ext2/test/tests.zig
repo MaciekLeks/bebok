@@ -117,7 +117,8 @@ test "InodeBlockIterator" {
 
     //std.debug.print("mext: {}\n", .{ext2});
 
-    var iter = Ext2.InodeBlockIterator.init(allocator, ext2, inode);
+    var iter = try Ext2.InodeBlockIterator.new(allocator, ext2, inode);
+    defer iter.destroy();
     iter.readBlockFn = mockReadBlock;
     const expected_results = [_]BlockNum{
         1001, //{direct access 0th-11th
@@ -189,9 +190,3 @@ test "InodeBlockIterator" {
         return err;
     }
 }
-
-test "dwa" {}
-
-test "trzy" {}
-
-test "cztery" {}
