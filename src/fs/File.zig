@@ -43,8 +43,12 @@ pub const SeekWhence = enum { set, cur, end };
 
 pub const max_name_len = 256;
 
-//TODO:
-//dentry: *const DEntry, //TODO: DEntry needed
+// Unit tests equpiment start
+//threadlocal var test_overwrite_block_size: ?u16 = null;
+
+// Unit tests equpiment end
+
+// Fields
 alloctr: std.mem.Allocator,
 fs: Filesystem, //filesystem instance the file belongs to
 offset: usize, //file read/write offset

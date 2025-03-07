@@ -12,4 +12,5 @@ pub const NodeNum = @import("types.zig").NodeNum;
 
 test {
     _ = @import("PathParser.zig");
+    _ = @import("test/tests.zig");
 }

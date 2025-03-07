@@ -13,7 +13,7 @@ pub const VTable = struct {
     destroy: iface.Fn(.{}, void),
     //create: iface.Fn(.{}, void),
     readPage: iface.Fn(.{ PageNum, []u8 }, anyerror!void),
-    getPageIter: iface.Fn(.{ std.mem.Allocator, Node }, anyerror!Iterator(NodeNum)),
+    getPageIter: iface.Fn(.{ std.mem.Allocator, Node }, anyerror!Iterator(PageNum)),
     getFileSize: iface.Fn(.{Node}, ?usize),
 };
 
