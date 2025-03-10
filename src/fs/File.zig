@@ -85,7 +85,6 @@ pub fn new(allocator: std.mem.Allocator, fs: Filesystem, node: Node, flags: Flag
 
 pub fn destroy(self: *const Self) !void {
     if (self.count > 1) return Error.StillInUse;
-    self.alloctr.free(self.page_buffer);
     self.page_iter.deinit();
     self.alloctr.free(self.page_buffer);
     self.alloctr.destroy(self);

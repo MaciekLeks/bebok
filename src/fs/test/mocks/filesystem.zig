@@ -6,7 +6,7 @@ const Filesystem = @import("../../Filesystem.zig");
 const Node = @import("../../Node.zig");
 const NodeNum = @import("../../types.zig").NodeNum;
 
-pub fn createMockFilesystem(allocator: std.mem.Allocator, pg_size: comptime_int) !Filesystem {
+pub fn createMockFilesystem(allocator: std.mem.Allocator, pg_size: comptime_int, mpartition: *mdev.Partition) !Filesystem {
     const MockFilesystemImpl = struct {
         const Self = @This();
 
@@ -40,5 +40,5 @@ pub fn createMockFilesystem(allocator: std.mem.Allocator, pg_size: comptime_int)
     };
 
     const mockFilesystemImpl = try MockFilesystemImpl.new(allocator);
-    return Filesystem.init(mockFilesystemImpl, try mdev.createMockPartition(allocator));
+    return Filesystem.init(mockFilesystemImpl, mpartition);
 }

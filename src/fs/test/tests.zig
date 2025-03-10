@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const mdev = @import("devices");
 const mnode = @import("mocks/node.zig");
 const mfs = @import("mocks/filesystem.zig");
 const MockPage = @import("mocks/page.zig").MockPage;
@@ -34,7 +35,12 @@ test "File read" {
     const mocknode = try mnode.createMockNode(allocator, pg_slice);
     mocknode.deinit();
 
-    const mockfs = try mfs.createMockFilesystem(allocator, @sizeOf(MockPage));
+    // we create partition here cause in real life it's created by the kernelthe bus/devices layer and it's managed from there
+    const mpartition = try mdev.createMockPartition(allocator);
+    defer mpartition.destroy();
+
+    const mockfs = try mfs.createMockFilesystem(allocator, @sizeOf(MockPage), mpartition);
+    defer mockfs.deinit();
 
     var file = try File.new(std.testing.allocator, mockfs, mocknode, .{ .read = true }, .{});
     try file.destroy();

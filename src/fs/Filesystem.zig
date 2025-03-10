@@ -41,8 +41,8 @@ pub fn init(ctx: anytype, partition: *const Partition) Filesystem {
     return .{ .ptr = ctx, .vtable = iface.gen(@TypeOf(ctx), VTable), .partition = partition };
 }
 
-pub fn deinit(_: *const Filesystem) void {
-    //do nothing right now
+pub fn deinit(self: *const Filesystem) void {
+    self.vtable.destroy(self.ptr, .{});
 }
 
 pub fn open(self: Filesystem, allocator: std.mem.Allocator, file_path: []const u8, flags: File.Flags, mode: File.Mode) anyerror!*File {

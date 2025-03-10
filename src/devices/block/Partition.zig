@@ -100,18 +100,18 @@ parent: *BlockDevice, //e.g. NvmeNamespace
 partition_type: Type,
 attributes: Attributes,
 name: []u8,
-//filesystem: ?Filesystem,
+//filesystem: ?Filesystem, //Filesystem is holds the partition pointer
 
 // Device interface vtable for NvmeController
 const device_vtable = Device.VTable{
-    .deinit = deinit,
+    .deinit = destroyAsDevice,
 };
 
 const block_device_vtable = BlockDevice.VTable{
     .streamer = streamer,
 };
 
-pub fn init(allocator: std.mem.Allocator, entry: Entry, parent: *BlockDevice) !*Partition {
+pub fn new(allocator: std.mem.Allocator, entry: Entry, parent: *BlockDevice) !*Partition {
     const self = try allocator.create(Partition);
     errdefer allocator.destroy(self); //if internal dupe signals error
     self.* = .{
@@ -146,12 +146,16 @@ pub fn fromBlockDevice(block_device: *BlockDevice) *Partition {
     return @alignCast(@fieldParentPtr("block_device", block_device));
 }
 
-pub fn deinit(dev: *Device) void {
+pub fn destroyAsDevice(dev: *Device) void {
     const block_device: *BlockDevice = BlockDevice.fromDevice(dev);
     const self: *Partition = fromBlockDevice(block_device);
 
-    block_device.deinit(); //should be safe here
+    self.destroy();
+}
+
+pub fn destroy(self: *Partition) void {
     //if (self.filesystem) |fs| fs.deinit();
+    self.block_device.deinit();
     self.alloctr.free(self.name);
     self.alloctr.destroy(self);
 }
