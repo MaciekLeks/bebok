@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const lang = @import("lang");
 const iface = lang.iface;
@@ -37,21 +38,16 @@ pub const Error = error{
     StillInUse,
     NotRegularFile,
     SeekPastEnd,
+    SeekBeforeStart,
 };
 
 pub const SeekWhence = enum { set, cur, end };
 
 pub const max_name_len = 256;
 
-// Unit tests equpiment start
-//threadlocal var test_overwrite_block_size: ?u16 = null;
-
-// Unit tests equpiment end
-
 // Fields
 alloctr: std.mem.Allocator,
 fs: Filesystem, //filesystem instance the file belongs to
-offset: usize, //file read/write offset
 count: u32, //reference count by subprocesses
 flags: Flags,
 mode: Mode,
@@ -69,7 +65,6 @@ pub fn new(allocator: std.mem.Allocator, fs: Filesystem, node: Node, flags: Flag
     self.* = .{
         .alloctr = allocator,
         .fs = fs,
-        .offset = 0,
         .flags = flags,
         .mode = mode,
         .node = node,
@@ -135,6 +130,7 @@ pub fn read(self: *Self, buffer: []u8) !usize {
         bytes_read += copy_size;
         self.page_buffer_pos += copy_size;
         self.bytes_read += copy_size;
+        //self.offset += copy_size;
 
         // If we've read the entire file, break
         if (self.bytes_read >= self.file_size.?) {
@@ -154,12 +150,13 @@ fn seek(self: *Self, offset: usize) !void {
         // Reset and start from the beginning
         self.page_iter.deinit();
         self.page_iter = try self.node.getPageIter(self.alloctr);
+        self.page_buffer_pos = 0;
         self.bytes_read = 0;
     }
 
     // Skip ahead to the desired position
     if (offset > self.bytes_read) {
-        var arena = std.heap.ArenaAllocator.init(heap.page_allocator);
+        var arena = std.heap.ArenaAllocator.init(if (builtin.is_test) std.heap.page_allocator else heap.page_allocator);
         defer arena.deinit();
         const alloctr = arena.allocator();
 
@@ -178,16 +175,30 @@ fn seek(self: *Self, offset: usize) !void {
     }
 }
 
+fn chgPos(u: usize, i: isize, max: usize) !usize {
+    if (i < 0) {
+        if (u < @as(usize, @intCast(-i))) {
+            return Error.SeekBeforeStart;
+        }
+        return u - @as(usize, @intCast(-i));
+    } else {
+        const result = u + @as(usize, @intCast(i));
+        if (result >= max) {
+            return Error.SeekPastEnd;
+        }
+        return result;
+    }
+}
+
 pub fn lseek(self: *Self, offset: isize, whence: SeekWhence) !usize {
-    var pos = self.offset;
+    var pos = self.bytes_read;
     switch (whence) {
-        .set => pos = @intCast(offset),
-        .cur => pos += @intCast(offset),
-        .end => pos = self.file_size.? + @as(usize, @intCast(offset)),
+        .set => pos = try chgPos(0, offset, self.file_size.?),
+        .cur => pos = try chgPos(pos, offset, self.file_size.?),
+        .end => pos = try chgPos(self.file_size.?, offset, self.file_size.?),
     }
 
     try self.seek(pos);
 
-    self.offset = pos;
-    return self.offset;
+    return pos;
 }

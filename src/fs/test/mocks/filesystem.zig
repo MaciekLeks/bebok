@@ -23,7 +23,6 @@ pub fn createMockFilesystem(allocator: std.mem.Allocator, pg_size: comptime_int,
 
         pub fn destroy(self: *const Self) void {
             self.alloctr.destroy(self);
-            std.debug.print("MockFilesystem destroy\n", .{});
         }
 
         pub fn lookupNodeNum(_: *const Self, _: []const u8, _: ?NodeNum) anyerror!NodeNum {

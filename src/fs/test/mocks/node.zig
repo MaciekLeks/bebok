@@ -18,8 +18,8 @@ pub fn createMockNode(allocator: std.mem.Allocator, pages: []const MockPage) !No
             return self.page_num;
         }
 
-        pub fn destroy(_: *const Self) void {
-            std.debug.print("MockPageIter destroy\n", .{});
+        pub fn destroy(self: *Self) void {
+            self.page_num = 0;
         }
     };
 
@@ -29,7 +29,7 @@ pub fn createMockNode(allocator: std.mem.Allocator, pages: []const MockPage) !No
         //Fields
         alloctr: std.mem.Allocator,
         page_num: PageNum = 0,
-        data: usize = 0,
+        data: usize = 1,
         pages: []const MockPage,
         page_iter: MockPageIter = undefined,
 
@@ -55,7 +55,7 @@ pub fn createMockNode(allocator: std.mem.Allocator, pages: []const MockPage) !No
         }
 
         pub fn getFileSize(ctx: *Self, _: Node) ?usize {
-            return ctx.pages.len;
+            return ctx.pages.len * @sizeOf(MockPage);
         }
 
         // pub fn next(self: *Self) !?PageNum {
@@ -65,7 +65,6 @@ pub fn createMockNode(allocator: std.mem.Allocator, pages: []const MockPage) !No
         // }
 
         pub fn destroy(self: *const Self) void {
-            std.debug.print("MockNode destroy\n", .{});
             self.alloctr.free(self.pages);
             self.alloctr.destroy(self);
         }
