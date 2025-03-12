@@ -3,32 +3,6 @@ const builtin = @import("builtin");
 
 const fs = @import("fs");
 
-// pub const BlockAddressing = struct {
-//     /// Convert byte offset to block number
-//     pub fn getBlockId(comptime block_size: usize, offset: usize) usize {
-//         return offset / block_size;
-//     }
-//
-//     /// Get offset within a block
-//     pub fn getOffsetInBlock(comptime block_size: usize, offset: usize) usize {
-//         return offset % block_size;
-//     }
-//
-//     /// Convert block number to byte offset
-//     pub fn blockIdToOffset(comptime block_size: usize, block_id: usize) usize {
-//         return block_id * block_size;
-//     }
-//
-//     /// Get block number containing BGDT
-//     /// Returns 2 for 1024-byte blocks, 1 for larger blocks
-//     pub fn getBGDTStartBlockId(comptime block_size: usize) usize {
-//         if (block_size <= 1024) {
-//             return 2;
-//         }
-//         return 1;
-//     }
-// };
-
 pub const BlockNum = fs.PageNum;
 pub const BlockGroupNum = u32;
 pub const InodeNum = fs.NodeNum; //starts from 1

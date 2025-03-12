@@ -31,25 +31,3 @@ pub fn destroy(self: *Registry) void {
 pub fn registerFileSystemDriver(self: *Registry, fs: FilesystemDriver) !void {
     try self.fs_drivers.append(fs);
 }
-
-// pub fn addMountedFilesystem(self: *Registry, partition: *Partition, fs_instance: *Filesystem) !void {
-//     _ = self;
-//
-//     // Mount at root if this is the first filesystem
-//     const vfs = try VfsManager.getInstance();
-//     const mount_path = if (vfs.root_fs == null)
-//         "/"
-//     else
-//         try std.fmt.allocPrint(alloctr, "/dev/{s}", .{partition.getName()});
-//
-//     try VfsManager.mount(mount_path, fs_instance);
-// }
-
-// pub fn findDriverForDevice(self: *Registry, device: *Device) ?FileSystem {
-//     for (self.drivers.items) |driver| {
-//         if (driver.probe(device)) {
-//             return driver;
-//         }
-//     }
-//     return null;
-// }

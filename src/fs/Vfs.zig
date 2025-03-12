@@ -46,16 +46,6 @@ pub fn deinit(self: *Vfs) void {
     self.alloctr.destroy(self);
 }
 
-// pub fn addMountedFilesystem(self: *Vfs, partition: *Partition, fs_instance: *Filesystem) !void {
-//     // Mount at root if this is the first filesystem
-//     const mount_path = if (self.root_fs == null)
-//         "/"
-//     else
-//         try std.fmt.allocPrint(self.alloctr, "/dev/{s}", .{partition.getName()});
-//
-//     try self.mount(mount_path, fs_instance);
-// }
-
 pub fn mount(self: *Vfs, path: []const u8, filesystem: Filesystem) !void {
     const path_copy = try self.alloctr.dupe(u8, path);
     errdefer self.alloctr.free(path_copy);
@@ -75,14 +65,6 @@ pub fn mount(self: *Vfs, path: []const u8, filesystem: Filesystem) !void {
 }
 
 pub fn findMountPoint(self: *Vfs, path: []const u8) ?*MountPoint {
-    // // First check if this is root
-    // if (path.len == 0 or (path.len == 1 and path[0] == '/')) {
-    //     if (self.root_fs) |_| {
-    //         return &self.mount_points.items[0];
-    //     }
-    //     return null;
-    // }
-
     // Find the longest matching mount point
     var longest_match: ?*MountPoint = null;
     var longest_len: usize = 0;

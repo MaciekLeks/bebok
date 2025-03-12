@@ -80,56 +80,34 @@ pub fn resolve(_: *Ext2Driver, allocator: std.mem.Allocator, partition: *Partiti
     //partition.filesystem = ext_fs.filesystem();
 
     //{TODO: remove this
-    var tmp_arena = std.heap.ArenaAllocator.init(heap.page_allocator);
-    defer tmp_arena.deinit();
-    const tmp_alloc = tmp_arena.allocator();
-    const block_buffer = try tmp_alloc.alloc(u8, superblock.getBlockSize());
-
-    const inode = try ext_fs.readInodeInternal(2, block_buffer);
-    var diter = try ext_fs.linkedDirectoryIterator(tmp_alloc, &inode);
-    var name_buffer: [256]u8 = undefined;
-    while (diter.next(&name_buffer)) |opt_entry| {
-        if (opt_entry) |entry|
-            log.debug("Entry: header: {} name: {s}", .{ entry.header, entry.getName() })
-        else
-            break;
-    } else |err| {
-        log.err("Error: {}", .{err});
-    }
-
-    //_ = ext_fs.findInodeByPath("/dir01/", null) catch |err| {
-    //_ = ext_fs.findInodeByPath("test-file2.txt", 16385) catch |err| { //16385 is the inode number of the dir01 directory
-    _ = ext_fs.findInodeByPath("/file01.txt", null) catch |err| {
-        //_ = ext_fs.findInodeByPath("/", null) catch |err| {
-        //? _ = ext_fs.findInodeByPath("/no-file-there", null) catch |err| {
-        log.err("findInodeByPath error: {any}", .{err});
-    };
+    // var tmp_arena = std.heap.ArenaAllocator.init(heap.page_allocator);
+    // defer tmp_arena.deinit();
+    // const tmp_alloc = tmp_arena.allocator();
+    // const block_buffer = try tmp_alloc.alloc(u8, superblock.getBlockSize());
+    //
+    // const inode = try ext_fs.readInodeInternal(2, block_buffer);
+    // var diter = try ext_fs.linkedDirectoryIterator(tmp_alloc, &inode);
+    // var name_buffer: [256]u8 = undefined;
+    // while (diter.next(&name_buffer)) |opt_entry| {
+    //     if (opt_entry) |entry|
+    //         log.debug("Entry: header: {} name: {s}", .{ entry.header, entry.getName() })
+    //     else
+    //         break;
+    // } else |err| {
+    //     log.err("Error: {}", .{err});
+    // }
+    //
+    // //_ = ext_fs.findInodeByPath("/dir01/", null) catch |err| {
+    // //_ = ext_fs.findInodeByPath("test-file2.txt", 16385) catch |err| { //16385 is the inode number of the dir01 directory
+    // _ = ext_fs.findInodeByPath("/file01.txt", null) catch |err| {
+    //     //_ = ext_fs.findInodeByPath("/", null) catch |err| {
+    //     //? _ = ext_fs.findInodeByPath("/no-file-there", null) catch |err| {
+    //     log.err("findInodeByPath error: {any}", .{err});
+    // };
 
     return ext_fs.filesystem();
 }
 
-// fn listInodes(allocator: std.mem.Allocator, sb: *const Superblock, bgd: *const BlockGroupDescriptor, streamer: BlockDevice.Streamer) !void {
-//     //find block id in Block Group Descriptor
-//     const inode_size = sb.inode_size;
-//     const inode_count = sb.inodes_per_group;
-//     const inode_table_size = inode_size * inode_count;
-//
-//     var inode_stream = BlockDevice.Stream(u8).init(streamer);
-//     inode_stream.seek(BlockAddressing.blockIdToOffset(block_size, bgd.inode_table_id), .start);
-//
-//     const raw_inode_table = try allocator.alloc(u8, inode_table_size);
-//     defer allocator.free(raw_inode_table);
-//
-//     try inode_stream.readAll(raw_inode_table);
-//
-//     // map inode_count Inodes from []u8
-//     for (0..inode_count) |i| {
-//         const inode_table = raw_inode_table[i * inode_size .. (i + 1) * inode_size];
-//         const inode: *const Inode = @ptrCast(@alignCast(inode_table.ptr));
-//         log.debug("Inode[{d}]: {}", .{ i, inode.* });
-//     }
-// }
-//
 pub fn driver(self: *Ext2Driver) FilesystemDriver {
     return FilesystemDriver.init(self);
 }
