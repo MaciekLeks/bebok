@@ -18,10 +18,11 @@ In Silesian language, a creature from our (Upper Silesians) demonology.
 - NVMe (Non-Volatile Memory Express) module (including driver, controller, etc.)
 - Basic stream operations (read, write, seek) on block devices
 - Partition schemes handling with GPT support (no CRC32 validation and no mirroring)
+- ext2 filesystem support (read-only, no security)
 
 # In progress
 - [ ] Ongoing refactoring and bug fixing
-- [ ] ext2 filesystem support
+- [ ] Processes support
 
 # Pre-requisites
 ## Installed tools

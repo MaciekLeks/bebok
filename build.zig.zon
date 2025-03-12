@@ -1,6 +1,7 @@
 .{
-    .name = "bebok",
+    .name = .bebok,
     .version = "0.1.0-dev",
+    .fingerprint = 0x5a7e04f7691033c3,
     .dependencies = .{
         .limine_zig = .{ .url = "git+https://github.com/MaciekLeks/limine-zig#trunk", .hash = "122021bb754764323f91dc9b85dfd9375f0f47d341d8df23fd39c4001da39df0b483" },
         .limine = .{

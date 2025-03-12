@@ -144,5 +144,11 @@ test "File: Seek and read" {
     try testing.expectEqual(read_count_3, 1);
     try testing.expectEqualSlices(u8, pages_as_bytes[pages_as_bytes.len - 2 .. pages_as_bytes.len - 1], buf[0..]);
 
+    // Test SeekPastEnd
+    try testing.expectError(error.SeekPastEnd, file.lseek(1, .end));
+
+    // Test SeekBeforeStart
+    try testing.expectError(error.SeekBeforeStart, file.lseek(-1, .set));
+
     try file.destroy();
 }
