@@ -18,11 +18,12 @@ In Silesian language, a creature from our (Upper Silesians) demonology.
 - NVMe (Non-Volatile Memory Express) module (including driver, controller, etc.)
 - Basic stream operations (read, write, seek) on block devices
 - Partition schemes handling with GPT support (no CRC32 validation and no mirroring)
-- ext2 filesystem support (read-only, no security)
+- VFS (Virtual File System) Basics: Initial implementation of the Virtual File System, providing a unified interface for interacting with different file systems.
+- ext2 File System Support: Read-only support for ext2 file system, allowing access to files and directories in a read-only mode.
 
 # In progress
 - [ ] Ongoing refactoring and bug fixing
-- [ ] Processes support
+- [ ] Process management 
 
 # Pre-requisites
 ## Installed tools
