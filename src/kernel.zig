@@ -263,7 +263,7 @@ fn _start() callconv(.C) noreturn {
         };
         const read_bytes = vfs.read(&task, fd, &fbuf) catch |err| {
             log.err("VFS read error: {s}", .{@errorName(err)});
-            @panic("VFS read error");
+            //@panic("VFS read error");
         };
         log.info("VFS read {d} bytes", .{read_bytes});
         //log bytes to the console till read_bytes
@@ -273,7 +273,7 @@ fn _start() callconv(.C) noreturn {
         log.info("VFS read:\'{s}\'", .{fbuf});
         vfs.close(&task, fd) catch |err| {
             log.err("VFS close error: {s}", .{@errorName(err)});
-            @panic("VFS close error");
+            //@panic("VFS close error");
         };
     }
     //VFS example end

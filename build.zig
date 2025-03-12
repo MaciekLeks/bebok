@@ -5,7 +5,7 @@ const Feature = std.Target.Cpu.Feature;
 
 const bebok_iso_filename = "bebok.iso";
 const bebok_disk_img_filename = "disk.img";
-const kernel_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 };
+const kernel_version = std.SemanticVersion{ .major = 0, .minor = 0, .patch = 6 };
 
 fn resolveTarget(b: *Build, arch: Target.Cpu.Arch) !Build.ResolvedTarget {
     const target = b.resolveTargetQuery(.{
