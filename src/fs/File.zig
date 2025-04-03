@@ -175,14 +175,14 @@ fn seek(self: *Self, offset: usize) !void {
     }
 }
 
-fn chgPos(u: usize, i: isize, max: usize) !usize {
+fn chgPos(base: usize, i: isize, max: usize) !usize {
     if (i < 0) {
-        if (u < @as(usize, @intCast(-i))) {
+        if (base < @as(usize, @intCast(-i))) {
             return Error.SeekBeforeStart;
         }
-        return u - @as(usize, @intCast(-i));
+        return base - @as(usize, @intCast(-i));
     } else {
-        const result = u + @as(usize, @intCast(i));
+        const result = base + @as(usize, @intCast(i));
         if (result >= max) {
             return Error.SeekPastEnd;
         }

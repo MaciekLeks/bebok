@@ -73,7 +73,8 @@ fn execIoCommand(CDw0Type: type, dev: *NvmeController, cmd: com.SQEntry, sqn: u1
 
         if (req_ints == 0) {
             cpu.halt();
-            continue;
+            //continue; //commented out to avoid deadlock at the 3rd of April 2025
+            break; //break to avoid deadlock at the 3rd of April 2025
         }
 
         log.debug("commented out /5.1 irqs={d}, cq_entry_ptr={}, expected_phase={}", .{ req_ints, cq_entry_ptr, dev.cq[cqn].expected_phase });
