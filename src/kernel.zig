@@ -29,12 +29,9 @@ const segmentation = core.segmentation;
 const mem = @import("mem");
 const pmm = mem.pmm;
 const heap = mem.heap;
-
 const sched = @import("sched");
-//
 
 pub const bus = @import("bus");
-//?const apic_test = @import("core/arch/x86_64/apic.zig");
 
 const log = std.log.scoped(.kernel);
 
@@ -96,7 +93,6 @@ comptime {
 }
 
 fn _start() callconv(.C) noreturn {
-    //export fn _start() callconv(.C) noreturn {
     // Ensure the bootloader actually understands our base revision (see spec).
     if (!base_revision.is_supported()) {
         cpu.halt();
