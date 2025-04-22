@@ -154,7 +154,7 @@ const gdt = [_]GdtEntry{
         },
         .base_high = 0,
     },
-    //@bitCast(@as(u64, 0)),
+    @bitCast(@as(u64, 0)),
     // @bitCast(@as(u64, 0)),
 };
 
@@ -187,6 +187,14 @@ pub fn init() void {
     };
 
     logDebugInfo();
+
+    // const kernel_gs_base: usize = cpu.rdmsr(0xc000_0102);
+    // const gs_base: usize = cpu.rdmsr(0xc000_0101);
+    // const fs_base: usize = cpu.rdmsr(0xc000_0100);
+    //
+    // log.info("GDT: Base of kernel gs segment: {x},", .{kernel_gs_base});
+    // log.info("GDT: Base of gs segment: {x},", .{gs_base});
+    // log.info("GDT: Base of fs segment: {x},", .{fs_base});
 
     cpu.lgdt(&gdtd, @intFromEnum(segment_selector.kernel_code), @intFromEnum(segment_selector.kernel_data));
 }

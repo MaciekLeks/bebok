@@ -153,15 +153,15 @@ pub inline fn lidt(idtd: *const idt.Idtd) void {
 }
 
 // Load the GDT and set the code and data segment registers; Setting the segment registers is necessary even if Limine already had set the same selectors.
-pub inline fn lgdt(gdtd: *const gdt.Gdtd, code_selector: usize, data_selector: usize) void {
+pub inline fn lgdt(gdtd: *const gdt.Gdtd, code_seg_sel: usize, data_seg_sel: usize) void {
     asm volatile (
-        \\lgdt (%%rax)
-        \\pushq %%rdi
+        \\lgdt %[gdtd]
+        \\pushq %[code_seg_sel]
         \\leaq 1f(%%rip), %%rax
         \\pushq %%rax
         \\lretq
         \\1:
-        \\movq %%rsi, %%rax
+        \\movq %[data_seg_sel], %%rax
         \\mov %%ax, %%ds
         \\mov %%ax, %%es
         \\mov %%ax, %%fs
@@ -169,9 +169,16 @@ pub inline fn lgdt(gdtd: *const gdt.Gdtd, code_selector: usize, data_selector: u
         \\mov %%ax, %%ss
         :
         : [gdtd] "{rax}" (gdtd),
-          [code_selector_idx] "{rdi}" (code_selector),
-          [data_selector_idx] "{rsi}" (data_selector),
+          [code_seg_sel] "{rdi}" (code_seg_sel),
+          [data_seq_sel] "{rsi}" (data_seg_sel),
         : "rax"
+    );
+}
+
+pub inline fn ltr(task_seg_sel: u16) void {
+    asm volatile ("ltr %[task_seg_sel]"
+        :
+        : [task_seg_sel] "r" (task_seg_sel),
     );
 }
 
