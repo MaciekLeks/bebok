@@ -242,7 +242,7 @@ fn bindLapicHandlerWithAck(comptime vec_no: VectorIndex, comptime isr_handle_loo
 
 fn setIdtEntry(comptime idx: VectorIndex, handle: HandleFn, gate_type: IdtEntry.GateType, privilege: dpl.PrivilegeLevel, present: bool) void {
     idt[idx].setOffset(@intFromPtr(&handle));
-    idt[idx].segment_selector = gdt.segment_selectors.kernel_code_x64;
+    idt[idx].segment_selector = @intFromEnum(gdt.segment_selector.kernel_code);
     idt[idx].interrupt_stack_table = 0;
     idt[idx].gate_type = gate_type;
     idt[idx].privilege = privilege;

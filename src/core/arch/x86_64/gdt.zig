@@ -75,87 +75,6 @@ pub const Gdtd = packed struct(u80) {
 // src: https://wiki.osdev.org/GDT_Tutorial
 const gdt = [_]GdtEntry{
     @bitCast(@as(u64, 0)),
-    .{ //Kernel Mode Code Segment - x16
-        .limit_low = 0xffff,
-        .base_low = 0,
-        .access = .{
-            // equals to 0x9a
-            .accessed = false,
-            .readable_writable = .{ .code = .readable },
-            .direction_conforming = .{ .code = .restricted },
-            .executable = true,
-            .type = .code_data,
-            .privilege = .ring0,
-        },
-        .limit_high = 0,
-        .flags = .{
-            // equals to 0xa
-            .long_mode = false,
-            .db = .default,
-            .granularity = .byte,
-        },
-        .base_high = 0,
-    },
-    .{
-        //Kernel Mode Data Segment - x16
-        .limit_low = 0xffff,
-        .base_low = 0,
-        .access = .{
-            .accessed = false,
-            .readable_writable = .{ .data = .writable },
-            .direction_conforming = .{ .data = .grows_up },
-            .executable = false,
-            .type = .code_data,
-            .privilege = .ring0,
-        },
-        .limit_high = 0,
-        .flags = .{
-            // equals to 0xc
-            .long_mode = false,
-            .db = .x32,
-            .granularity = .byte,
-        },
-        .base_high = 0,
-    },
-    .{ //Kernel Mode Code Segment - x32
-        .limit_low = 0xffff,
-        .base_low = 0,
-        .access = .{
-            .accessed = false,
-            .readable_writable = .{ .code = .readable },
-            .direction_conforming = .{ .code = .restricted },
-            .executable = true,
-            .type = .code_data,
-            .privilege = .ring0,
-        },
-        .limit_high = 0xf,
-        .flags = .{
-            .long_mode = false,
-            .db = .x32,
-            .granularity = .page,
-        },
-        .base_high = 0,
-    },
-    .{
-        //Kernel Mode Data Segment - x32
-        .limit_low = 0xffff,
-        .base_low = 0,
-        .access = .{
-            .accessed = false,
-            .readable_writable = .{ .data = .writable },
-            .direction_conforming = .{ .data = .grows_up },
-            .executable = false,
-            .type = .code_data,
-            .privilege = .ring0,
-        },
-        .limit_high = 0xf,
-        .flags = .{
-            .long_mode = false,
-            .db = .x32,
-            .granularity = .page,
-        },
-        .base_high = 0,
-    },
     .{ //Kernel Mode Code Segment - x64
         .limit_low = 0, //irrelevant
         .base_low = 0,
@@ -190,7 +109,7 @@ const gdt = [_]GdtEntry{
         .limit_high = 0, //irrelevant
         .flags = .{
             .long_mode = false,
-            .db = .x32,
+            .db = .default,
             .granularity = .page,
         },
         .base_high = 0,
@@ -235,20 +154,17 @@ const gdt = [_]GdtEntry{
         },
         .base_high = 0,
     },
-    //TODO add TSS
+    //@bitCast(@as(u64, 0)),
+    // @bitCast(@as(u64, 0)),
 };
 
 var gdtd: Gdtd = undefined;
 
-pub const segment_selectors = .{
-    .kernel_code_x16 = 0x08,
-    .kernel_data_x16 = 0x10,
-    .kernel_code_x32 = 0x18,
-    .kernel_data_x32 = 0x20,
-    .kernel_code_x64 = 0x28,
-    .kernel_data_x64 = 0x30,
-    .user_code = 0x38,
-    .user_data = 0x40,
+pub const segment_selector = enum(u8) {
+    kernel_code = 0x08,
+    kernel_data = 0x10,
+    user_code = 0x18,
+    user_data = 0x20,
 };
 
 fn logDebugInfo() void {
@@ -272,5 +188,5 @@ pub fn init() void {
 
     logDebugInfo();
 
-    cpu.lgdt(&gdtd, segment_selectors.kernel_code_x64, segment_selectors.kernel_data_x64);
+    cpu.lgdt(&gdtd, @intFromEnum(segment_selector.kernel_code), @intFromEnum(segment_selector.kernel_data));
 }

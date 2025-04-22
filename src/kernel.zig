@@ -102,7 +102,7 @@ fn _start() callconv(.C) noreturn {
     smp.init();
 
     cpu.cli();
-    segmentation.init();
+    segmentation.init(); //(gdt) must be called before idt initialization
 
     paging.init() catch |err| {
         log.err("Paging initialization error: {}", .{err});
