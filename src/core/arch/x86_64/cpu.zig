@@ -175,10 +175,10 @@ pub inline fn lgdt(gdtd: *const gdt.Gdtd, code_seg_sel: usize, data_seg_sel: usi
     );
 }
 
-pub inline fn ltr(task_seg_sel: u16) void {
-    asm volatile ("ltr %[task_seg_sel]"
+pub inline fn ltr(tss_sel: u16) void {
+    asm volatile ("ltr %[tss_sel]"
         :
-        : [task_seg_sel] "r" (task_seg_sel),
+        : [task_seg_sel] "r" (tss_sel),
     );
 }
 
