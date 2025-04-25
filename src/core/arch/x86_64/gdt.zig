@@ -4,32 +4,37 @@ const dpl = @import("./dpl.zig");
 
 const log = std.log.scoped(.gdt);
 
+const Flags = packed struct(u4) {
+    reserved: u1 = 0, //Reserved
+    long_mode_code: bool, //Reserved
+    db: SegmentMode, //Size bit must be cleared for long_mode
+    granularity: GranularityType, //Granularity bit
+
+    const SegmentMode = enum(u1) {
+        default = 0, //clear for long_mode
+        x32 = 1,
+    };
+
+    const GranularityType = enum(u1) {
+        byte = 0,
+        page = 1,
+    };
+};
+
+const DescriptorType = enum(u1) {
+    system = 0,
+    code_data = 1,
+};
+
 const GdtEntry = packed struct(u64) {
     limit_low: u16, //0-15
     base_low: u24, //16-39
-    access: AccessType, //40-47
+    access: AccessByte, //40-47
     limit_high: u4, //48-51
     flags: Flags, //52-55
     base_high: u8, //56-63
 
-    const Flags = packed struct(u4) {
-        reserved: u1 = 0, //Reserved
-        long_mode_code: bool, //Reserved
-        db: SegmentMode, //Size bit must be cleared for long_mode
-        granularity: GranularityType, //Granularity bit
-
-        const SegmentMode = enum(u1) {
-            default = 0, //clear for long_mode and x16 for 16-bit protected mode
-            x32 = 1,
-        };
-
-        const GranularityType = enum(u1) {
-            byte = 0,
-            page = 1,
-        };
-    };
-
-    const AccessType = packed struct(u8) {
+    const AccessByte = packed struct(u8) {
         accessed: bool, //Accessed bit
         readable_writable: ReadableWritable, //Readable bit/Writable bit
         direction_conforming: DirectionConforming, //Direction bit/Conforming bit
@@ -59,14 +64,9 @@ const GdtEntry = packed struct(u64) {
                 unrestricted = 1, //If set (1) code in this segment can be executed from an equal or lower privilege level. For example, code in ring 3 can far-jump to conforming code in a ring 2 segment.
             },
         };
-
-        const DescriptorType = enum(u1) {
-            system = 0,
-            code_data = 1,
-        };
     };
 
-    pub fn init(base: usize, limit: usize, access: AccessType, flags: Flags) GdtEntry {
+    pub fn init(base: usize, limit: usize, access: AccessByte, flags: Flags) GdtEntry {
         return .{
             .limit_low = @as(u16, limit & 0xFFFF),
             .base_low = @as(u24, base & 0xFFFFFF),
@@ -78,19 +78,47 @@ const GdtEntry = packed struct(u64) {
     }
 };
 
-const TssGdtEntry = packed struct(u64) {
-    low: GdtEntry,
-    high: packed struct(u64) {
-        upper_bits: u32, //32:64 bits of the linear address of the TSS
-        rsrvd: u32 = 0,
-    },
+const TssGdtEntry = packed struct(u128) {
+    limit_low: u16, //0-15
+    base_low: u24, //16-39
+    access: AccessByte, //40-47
+    limit_high: u4, //48-51
+    flags: Flags, //52-55
+    base_high: u40, //56-95
+    rsrvd: u32 = 0, //96-127
 
-    pub fn init(base: usize, limit: usize, access: GdtEntry.AccessType, flags: GdtEntry.Flags) TssGdtEntry {
-        return .{
-            .low = GdtEntry.init(base, limit, access, flags),
-            .high = .{
-                .upper_bits = @as(u32, (base >> 32) & 0xFFFFFFFF),
+    const AccessByte = packed struct(u8) {
+        sdtype: SystemDescriptorType, //System Descriptor Type,
+        dtype: DescriptorType, //Type bit
+        privilege: dpl.PrivilegeLevel, //Privilege level
+        present: bool = true, //Present bit
+
+        const ReadableWritable = packed union {
+            code: enum(u1) { //for code segments
+                not_readable = 0,
+                readable = 1,
             },
+            data: enum(u1) { //for data segments
+                not_writable = 0,
+                writable = 1,
+            },
+        };
+
+        const SystemDescriptorType = enum(u4) {
+            ldt = 0x2, //Local Descriptor Table
+            tss_available = 0x9, //Available TSS
+            tss_busy = 0xB, //Busy TSS
+        };
+    };
+
+    pub fn init(base: usize, limit: usize, access: AccessByte, flags: Flags) TssGdtEntry {
+        return .{
+            .limit_low = @as(u16, limit & 0xFFFF),
+            .base_low = @as(u24, base & 0xFFFFFF),
+            .access = access,
+            .limit_high = @as(u4, (limit >> 16) & 0xF),
+            .flags = flags,
+            .base_high = @as(u40, (base >> 24) & 0xFFFFFFFFFF),
         };
     }
 };
@@ -123,7 +151,6 @@ const gdt = [_]GdtEntry{
         .readable_writable = .{ .data = .writable },
         .direction_conforming = .{ .data = .grows_up },
         .executable = false,
-        .present = true,
         .dtype = .code_data,
         .privilege = dpl.PrivilegeLevel.ring0,
         .present = true,
@@ -134,8 +161,8 @@ const gdt = [_]GdtEntry{
     }),
     // User Mode Code Segment - x64
     GdtEntry.init(0, 0, .{
-        .accessed = false,
-        .readable_writable = { .code = .readable },
+        .accessed = true,
+        .readable_writable = .{ .code = .readable },
         .direction_conforming = .{ .code = .restricted },
         .executable = true,
         .dtype = .code_data,
@@ -146,6 +173,7 @@ const gdt = [_]GdtEntry{
         .db = .default,
         .granularity = .page,
     }),
+    // User Mode Data Segment - x64
     GdtEntry.init(0, 0, .{
         .accessed = false,
         .readable_writable = .{ .data = .writable },
@@ -159,8 +187,8 @@ const gdt = [_]GdtEntry{
         .db = .default,
         .granularity = .page,
     }),
-    @bitCast(@as(u64, 0)),
-    @bitCast(@as(u64, 0)),
+    //    @bitCast(@as(u64, 0)), //TODO: only one TSS entry for now (one processor supported))
+    //    @bitCast(@as(u64, 0)), //TODO: only one TSS entry for now (one processor supported))
 };
 
 var gdtd: Gdtd = undefined;
@@ -193,10 +221,6 @@ pub fn init() void {
 
     logDebugInfo();
 
-    //load GS segment selector via cpu.rdmsr but
-
-    const gs = cpu.rdmsr(0x0);
-
     // const kernel_gs_base: usize = cpu.rdmsr(0xc000_0102);
     // const gs_base: usize = cpu.rdmsr(0xc000_0101);
     // const fs_base: usize = cpu.rdmsr(0xc000_0100);
@@ -205,5 +229,9 @@ pub fn init() void {
     // log.info("GDT: Base of gs segment: {x},", .{gs_base});
     // log.info("GDT: Base of fs segment: {x},", .{fs_base});
 
+    log.info("Loading GDT", .{});
+
     cpu.lgdt(&gdtd, @intFromEnum(segment_selector.kernel_code), @intFromEnum(segment_selector.kernel_data));
+
+    log.info("GDT loaded", .{});
 }
