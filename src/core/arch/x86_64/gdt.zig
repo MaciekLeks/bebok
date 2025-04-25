@@ -14,7 +14,7 @@ const GdtEntry = packed struct(u64) {
 
     const Flags = packed struct(u4) {
         reserved: u1 = 0, //Reserved
-        long_mode: bool, //Reserved
+        long_mode_code: bool, //Reserved
         db: SegmentMode, //Size bit must be cleared for long_mode
         granularity: GranularityType, //Granularity bit
 
@@ -34,7 +34,7 @@ const GdtEntry = packed struct(u64) {
         readable_writable: ReadableWritable, //Readable bit/Writable bit
         direction_conforming: DirectionConforming, //Direction bit/Conforming bit
         executable: bool, //Executable bit
-        type: DescriptorType, //Descriptor type bit
+        dtype: DescriptorType, //Type bit
         privilege: dpl.PrivilegeLevel, //Privilege level
         present: bool = true, //Present bit
 
@@ -65,6 +65,34 @@ const GdtEntry = packed struct(u64) {
             code_data = 1,
         };
     };
+
+    pub fn init(base: usize, limit: usize, access: AccessType, flags: Flags) GdtEntry {
+        return .{
+            .limit_low = @as(u16, limit & 0xFFFF),
+            .base_low = @as(u24, base & 0xFFFFFF),
+            .access = access,
+            .limit_high = @as(u4, (limit >> 16) & 0xF),
+            .flags = flags,
+            .base_high = @as(u8, (base >> 24) & 0xFF),
+        };
+    }
+};
+
+const TssGdtEntry = packed struct(u64) {
+    low: GdtEntry,
+    high: packed struct(u64) {
+        upper_bits: u32, //32:64 bits of the linear address of the TSS
+        rsrvd: u32 = 0,
+    },
+
+    pub fn init(base: usize, limit: usize, access: GdtEntry.AccessType, flags: GdtEntry.Flags) TssGdtEntry {
+        return .{
+            .low = GdtEntry.init(base, limit, access, flags),
+            .high = .{
+                .upper_bits = @as(u32, (base >> 32) & 0xFFFFFFFF),
+            },
+        };
+    }
 };
 
 pub const Gdtd = packed struct(u80) {
@@ -75,87 +103,64 @@ pub const Gdtd = packed struct(u80) {
 // src: https://wiki.osdev.org/GDT_Tutorial
 const gdt = [_]GdtEntry{
     @bitCast(@as(u64, 0)),
-    .{ //Kernel Mode Code Segment - x64
-        .limit_low = 0, //irrelevant
-        .base_low = 0,
-        .access = .{
-            .accessed = true, //to avoid page fault in interrupts
-            .readable_writable = .{ .code = .readable },
-            .direction_conforming = .{ .code = .restricted },
-            .executable = true,
-            .type = .code_data,
-            .privilege = .ring0,
-        },
-        .limit_high = 0,
-        .flags = .{
-            .long_mode = true,
-            .db = .default,
-            .granularity = .page,
-        },
-        .base_high = 0,
-    },
-    .{
-        //Kernel Mode Data Segment - x64
-        .limit_low = 0, //irrelevant
-        .base_low = 0,
-        .access = .{
-            .accessed = true, //to avoid page fault
-            .readable_writable = .{ .data = .writable },
-            .direction_conforming = .{ .data = .grows_up },
-            .executable = false,
-            .type = .code_data,
-            .privilege = .ring0,
-        },
-        .limit_high = 0, //irrelevant
-        .flags = .{
-            .long_mode = false,
-            .db = .default,
-            .granularity = .page,
-        },
-        .base_high = 0,
-    },
-    .{
-        //User Mode Code Segment
-        .limit_low = 0xffff,
-        .base_low = 0,
-        .access = .{
-            .accessed = false,
-            .readable_writable = .{ .code = .readable },
-            .direction_conforming = .{ .code = .restricted },
-            .executable = true,
-            .type = .code_data,
-            .privilege = .ring3,
-        },
-        .limit_high = 0,
-        .flags = .{
-            .long_mode = true,
-            .db = .default,
-            .granularity = .page,
-        },
-        .base_high = 0,
-    },
-    .{
-        //User Mode Data Segment
-        .limit_low = 0xffff,
-        .base_low = 0,
-        .access = .{
-            .accessed = false,
-            .readable_writable = .{ .data = .writable },
-            .direction_conforming = .{ .data = .grows_up },
-            .executable = false,
-            .type = .code_data,
-            .privilege = .ring3,
-        },
-        .limit_high = 0,
-        .flags = .{
-            .long_mode = false,
-            .db = .x32,
-            .granularity = .page,
-        },
-        .base_high = 0,
-    },
+    // Kernel Mode Code Segment - x64
+    GdtEntry.init(0, 0, .{
+        .accessed = true, //to avoid page fault in interrupts
+        .readable_writable = .{ .code = .readable },
+        .direction_conforming = .{ .code = .restricted },
+        .executable = true,
+        .dtype = .code_data,
+        .privilege = dpl.PrivilegeLevel.ring0,
+        .present = true,
+    }, .{
+        .long_mode_code = true,
+        .db = .default,
+        .granularity = .page,
+    }),
+    // Kernel Mode Data Segment - x64
+    GdtEntry.init(0, 0, .{
+        .accessed = true, //to avoid page fault in interrupts
+        .readable_writable = .{ .data = .writable },
+        .direction_conforming = .{ .data = .grows_up },
+        .executable = false,
+        .present = true,
+        .dtype = .code_data,
+        .privilege = dpl.PrivilegeLevel.ring0,
+        .present = true,
+    }, .{
+        .long_mode_code = false,
+        .db = .default,
+        .granularity = .page,
+    }),
+    // User Mode Code Segment - x64
+    GdtEntry.init(0, 0, .{
+        .accessed = false,
+        .readable_writable = { .code = .readable },
+        .direction_conforming = .{ .code = .restricted },
+        .executable = true,
+        .dtype = .code_data,
+        .privilege = dpl.PrivilegeLevel.ring3,
+        .present = true,
+    }, .{
+        .long_mode_code = true,
+        .db = .default,
+        .granularity = .page,
+    }),
+    GdtEntry.init(0, 0, .{
+        .accessed = false,
+        .readable_writable = .{ .data = .writable },
+        .direction_conforming = .{ .data = .grows_up },
+        .executable = false,
+        .dtype = .code_data,
+        .privilege = dpl.PrivilegeLevel.ring3,
+        .present = true,
+    }, .{
+        .long_mode_code = false,
+        .db = .default,
+        .granularity = .page,
+    }),
     @bitCast(@as(u64, 0)),
-    // @bitCast(@as(u64, 0)),
+    @bitCast(@as(u64, 0)),
 };
 
 var gdtd: Gdtd = undefined;
@@ -187,6 +192,10 @@ pub fn init() void {
     };
 
     logDebugInfo();
+
+    //load GS segment selector via cpu.rdmsr but
+
+    const gs = cpu.rdmsr(0x0);
 
     // const kernel_gs_base: usize = cpu.rdmsr(0xc000_0102);
     // const gs_base: usize = cpu.rdmsr(0xc000_0101);
