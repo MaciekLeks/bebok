@@ -26,6 +26,7 @@ const int = core.int;
 const paging = core.paging;
 const smp = core.smp;
 const segmentation = core.segmentation;
+const taskmgmt = core.taskmgmt;
 const mem = @import("mem");
 const pmm = mem.pmm;
 const heap = mem.heap;
@@ -119,6 +120,13 @@ fn _start() callconv(.C) noreturn {
         @panic("PMM initialization error");
     };
     defer pmm.deinit(); //TODO not here
+
+    const tm = taskmgmt.new(heap.page_allocator) catch |err| {
+        log.err("TSS initialization error: {}", .{err});
+        @panic("TSS initialization error");
+    };
+    defer tm.destroy();
+    tm.init();
 
     const allocator = heap.page_allocator;
     const memory = allocator.alloc(u8, 0x3000) catch |err| {

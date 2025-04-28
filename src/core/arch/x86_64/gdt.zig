@@ -1,7 +1,7 @@
 const std = @import("std");
 const cpu = @import("./cpu.zig");
 const dpl = @import("./dpl.zig");
-const Tss = @import("./tss.zig").Tss;
+const Tss = @import("./Tss.zig");
 
 const log = std.log.scoped(.gdt);
 
@@ -115,12 +115,12 @@ const TssGdtEntry = packed struct(u128) {
 
     pub fn init(base: usize, limit: usize, access: AccessByte, flags: Flags) TssGdtEntry {
         return .{
-            .limit_low = @as(u16, limit & 0xFFFF),
-            .base_low = @as(u24, base & 0xFFFFFF),
+            .limit_low = @truncate(limit),
+            .base_low = @truncate(base),
             .access = access,
-            .limit_high = @as(u4, (limit >> 16) & 0xF),
+            .limit_high = @truncate(limit >> 16),
             .flags = flags,
-            .base_high = @as(u40, (base >> 24) & 0xFFFFFFFFFF),
+            .base_high = @truncate(base >> 24),
         };
     }
 };
@@ -131,7 +131,7 @@ pub const Gdtd = packed struct(u80) {
 };
 
 // src: https://wiki.osdev.org/GDT_Tutorial
-const gdt = [_]GdtEntry{
+var gdt = [_]GdtEntry{
     @bitCast(@as(u64, 0)),
     // Kernel Mode Code Segment - x64
     GdtEntry.init(0, 0, .{
@@ -182,7 +182,7 @@ const gdt = [_]GdtEntry{
         .direction_conforming = .{ .data = .grows_up },
         .executable = false,
         .dtype = .code_data,
-        .privilege = dpl.PrivilegeLevel.ring3,
+        .privilege = dpl.PrivilegeLevel.ring0,
         .present = true,
     }, .{
         .long_mode_code = false,
@@ -200,6 +200,7 @@ pub const segment_selector = enum(u8) {
     kernel_data = 0x10,
     user_code = 0x18,
     user_data = 0x20,
+    tss = 0x28,
 };
 
 fn logDebugInfo() void {
@@ -213,10 +214,10 @@ fn logDebugInfo() void {
     }
 }
 
-pub fn setTss(tss: *const Tss) void {
-    TssGdtEntry.init(
+pub fn setTss(tss: *const Tss.TaskStateSegment) void {
+    const tssge = TssGdtEntry.init(
         @intFromPtr(tss),
-        @sizeOf(Tss) - 1,
+        @sizeOf(Tss.TaskStateSegment) - 1,
         .{
             .sdtype = .tss_available,
             .dtype = .system,
@@ -229,6 +230,21 @@ pub fn setTss(tss: *const Tss) void {
             .granularity = .byte,
         },
     );
+
+    log.info("Setting TSS {d}", .{1});
+
+    const idx = @intFromEnum(segment_selector.tss) / @sizeOf(GdtEntry);
+    const target: *TssGdtEntry = @ptrCast(@alignCast(&gdt[idx]));
+    log.info("Setting TSS {d} {*} {*}", .{ 2, target, &gdt[idx] });
+    log.info("Setting TSS {}/{} ", .{ gdt[idx], gdt[idx + 1] });
+
+    target.* = tssge;
+
+    log.info("Setting TSS {d}", .{3});
+
+    cpu.ltr(@intFromEnum(segment_selector.tss));
+
+    log.info("Setting TSS {d}", .{4});
 }
 
 pub fn init() void {
@@ -240,14 +256,6 @@ pub fn init() void {
     };
 
     logDebugInfo();
-
-    // const kernel_gs_base: usize = cpu.rdmsr(0xc000_0102);
-    // const gs_base: usize = cpu.rdmsr(0xc000_0101);
-    // const fs_base: usize = cpu.rdmsr(0xc000_0100);
-    //
-    // log.info("GDT: Base of kernel gs segment: {x},", .{kernel_gs_base});
-    // log.info("GDT: Base of gs segment: {x},", .{gs_base});
-    // log.info("GDT: Base of fs segment: {x},", .{fs_base});
 
     log.info("Loading GDT", .{});
 
