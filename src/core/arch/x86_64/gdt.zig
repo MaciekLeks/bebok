@@ -1,6 +1,7 @@
 const std = @import("std");
 const cpu = @import("./cpu.zig");
 const dpl = @import("./dpl.zig");
+const Tss = @import("./tss.zig").Tss;
 
 const log = std.log.scoped(.gdt);
 
@@ -15,6 +16,7 @@ const Flags = packed struct(u4) {
         x32 = 1,
     };
 
+    /// Granularity bit how to treat the limit field
     const GranularityType = enum(u1) {
         byte = 0,
         page = 1,
@@ -187,8 +189,8 @@ const gdt = [_]GdtEntry{
         .db = .default,
         .granularity = .page,
     }),
-    //    @bitCast(@as(u64, 0)), //TODO: only one TSS entry for now (one processor supported))
-    //    @bitCast(@as(u64, 0)), //TODO: only one TSS entry for now (one processor supported))
+    @bitCast(@as(u64, 0)), //TODO: only one TSS entry for now (one processor supported))
+    @bitCast(@as(u64, 0)), //TODO: only one TSS entry for now (one processor supported))
 };
 
 var gdtd: Gdtd = undefined;
@@ -209,6 +211,24 @@ fn logDebugInfo() void {
         const entry_as_u64: u64 = @bitCast(entry);
         log.debug("idx: {d} entry=0x{x:0>16} , while access=0x{x}=0b{b:0>8} flags=0x{x}=0b{b:0>8}", .{ i, entry_as_u64, a, a, f, f });
     }
+}
+
+pub fn setTss(tss: *const Tss) void {
+    TssGdtEntry.init(
+        @intFromPtr(tss),
+        @sizeOf(Tss) - 1,
+        .{
+            .sdtype = .tss_available,
+            .dtype = .system,
+            .privilege = dpl.PrivilegeLevel.ring3,
+            .present = true,
+        },
+        .{
+            .long_mode_code = false,
+            .db = .default,
+            .granularity = .byte,
+        },
+    );
 }
 
 pub fn init() void {
