@@ -259,4 +259,6 @@ pub fn init() void {
     cpu.lgdt(&gdtd, @intFromEnum(segment_selector.kernel_code), @intFromEnum(segment_selector.kernel_data));
 
     log.info("GDT loaded", .{});
+
+    // Set the segment registers to the kernel code and data segments
 }
