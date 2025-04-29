@@ -239,7 +239,9 @@ pub fn setTss(tss: *const Tss.TaskStateSegment) void {
 
     target.* = tssge;
 
+    log.debug("Setting Task Register...", .{});
     cpu.ltr(@intFromEnum(segment_selector.tss));
+    log.debug("Setting Task Register finished.", .{});
 }
 
 pub fn init() void {
