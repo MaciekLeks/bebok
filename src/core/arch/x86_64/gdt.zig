@@ -215,6 +215,9 @@ fn logDebugInfo() void {
 }
 
 pub fn setTss(tss: *const Tss.TaskStateSegment) void {
+    log.info("Setting TSS...", .{});
+    defer log.info("Setting TSS finished.", .{});
+
     const tssge = TssGdtEntry.init(
         @intFromPtr(tss),
         @sizeOf(Tss.TaskStateSegment) - 1,
@@ -231,20 +234,12 @@ pub fn setTss(tss: *const Tss.TaskStateSegment) void {
         },
     );
 
-    log.info("Setting TSS {d}", .{1});
-
     const idx = @intFromEnum(segment_selector.tss) / @sizeOf(GdtEntry);
     const target: *TssGdtEntry = @ptrCast(@alignCast(&gdt[idx]));
-    log.info("Setting TSS {d} {*} {*}", .{ 2, target, &gdt[idx] });
-    log.info("Setting TSS {}/{} ", .{ gdt[idx], gdt[idx + 1] });
 
     target.* = tssge;
 
-    log.info("Setting TSS {d}", .{3});
-
     cpu.ltr(@intFromEnum(segment_selector.tss));
-
-    log.info("Setting TSS {d}", .{4});
 }
 
 pub fn init() void {
