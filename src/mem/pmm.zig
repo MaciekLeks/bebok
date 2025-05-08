@@ -70,7 +70,7 @@ pub fn init() !void {
         }
 
         if (best_region) |p_region| {
-            const v_region = @as([*]u8, @ptrFromInt(paging.virtFromMME(@intFromPtr(p_region.ptr))))[0..p_region.len];
+            const v_region = @as([*]u8, @ptrFromInt(paging.hhdmVirtFromPhys(@intFromPtr(p_region.ptr))))[0..p_region.len];
             log.debug("init(): Best physical region address: 0x{x} -> 0x{x}, constituting virtual region address: 0x{x} -> 0x{x}", .{
                 @intFromPtr(p_region.ptr),
                 @intFromPtr(p_region.ptr) + p_region.len,
@@ -126,7 +126,7 @@ pub fn init() !void {
 /// We register at leat one zone per region
 fn registerRegionZone(base: usize, len: usize) !void {
     if (len <= min_region_size_pow2) return;
-    const v_region = @as([*]u8, @ptrFromInt(paging.virtFromMME(base)))[0..len];
+    const v_region = @as([*]u8, @ptrFromInt(paging.hhdmVirtFromPhys(base)))[0..len];
     log.debug("registerRegionZone(): Inserting region zone: 0x{x} -> 0x{x}", .{ @intFromPtr(v_region.ptr), @intFromPtr(v_region.ptr) + v_region.len });
     const zone_buddy_allocator = try BuddyAllocatorPreconfigured.init(v_region);
     _ = try avl_tree_by_size.insert(len, zone_buddy_allocator);

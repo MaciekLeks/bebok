@@ -130,7 +130,7 @@ pub fn setup(ctx: *anyopaque, allocator: std.mem.Allocator, bus: *Bus, address: 
     Pcie.writeRegisterWithArgs(u16, .command, addr, command | 0b110);
 
     const virt = switch (ctrl.bar.address) {
-        inline else => |phys| paging.virtFromMME(phys),
+        inline else => |phys| paging.hhdmVirtFromPhys(phys),
     };
 
     // Adjust if needed page PAT to write-through
@@ -144,7 +144,7 @@ pub fn setup(ctx: *anyopaque, allocator: std.mem.Allocator, bus: *Bus, address: 
         log.err("Failed to adjust page area PAT for NVMe BAR: {}", .{err});
         return;
     };
-    paging.debugLowestEntryFromVirt(virt); //to be commented out
+    paging.logLowestEntryFromVirt(virt); //to be commented out
     // End of adjustment
 
     // dumpRegisters(ctrl); //TODO: Uncomment this if needed
@@ -706,7 +706,7 @@ fn identifyController(ctrl: *NvmeController) !void {
 /// logRegisters logs the content of the NVMe register set directly using the pointer to the register set
 fn dumpRegisters(ctrl: *const NvmeController) void {
     const virt = switch (ctrl.bar.address) {
-        inline else => |phys| paging.virtFromMME(phys),
+        inline else => |phys| paging.hhdmVirtFromPhys(phys),
     };
 
     const cap_reg_ptr: *volatile u64 = @ptrFromInt(virt);
