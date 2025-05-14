@@ -82,7 +82,7 @@ const PAT = struct {
 fn retrievePagePAT(page_entry_info: GenericEntryInfo) PATType {
     switch (page_entry_info.ps) {
         inline else => |ps| {
-            const entry: *PageEntry(ps) = @ptrCast(page_entry_info.entry_ptr);
+            const entry: *PageLeafEntry(ps) = @ptrCast(page_entry_info.entry_ptr);
             return pat.patFromPageFlags(entry.pat, entry.cache_disabled, entry.write_through);
         },
     }
@@ -92,7 +92,7 @@ fn setPagePAT(page_entry_info: GenericEntryInfo, req_pat: PATType) void {
     const page_req_pat_flags = pat.pageFlagsFromPat(req_pat);
     switch (page_entry_info.ps) {
         inline else => |ps| {
-            const entry: *PageEntry(ps) = @ptrCast(page_entry_info.entry_ptr);
+            const entry: *PageLeafEntry(ps) = @ptrCast(page_entry_info.entry_ptr);
             entry.pat = page_req_pat_flags.page_pat;
             entry.cache_disabled = page_req_pat_flags.page_pcd;
             entry.write_through = page_req_pat_flags.page_pwt;
@@ -147,7 +147,7 @@ fn flushTLB(virt: usize) void {
 fn RecursiveInfo(comptime recursive_index: u9) type {
     return struct {
         const rec_idx: usize = recursive_index; //510
-        const sign = 0o177777 << 48; //sign extension
+        const sign = 0o177777 << 48; //sign extension (always 1 for second half of the memory space)
 
         // retrieve the page table indices of the address that we want to translate
         pub inline fn pml4TableAddr() usize {
@@ -171,16 +171,6 @@ pub const default_page_size: PageSize = @enumFromInt(config.mem_page_size);
 const PagingMode = enum(u1) {
     four_level = 0,
     five_level = 1,
-};
-
-const GenericEntry = usize;
-const default_recursive_index: u9 = 510; //0x1FE
-const RecInfo = RecursiveInfo(default_recursive_index); //0x776
-
-pub const GenericEntryInfo = struct {
-    entry_ptr: ?*GenericEntry,
-    lvl: Level,
-    ps: PageSize,
 };
 
 pub fn Cr3Structure(comptime pcid: bool) type {
@@ -212,26 +202,25 @@ pub fn Cr3Structure(comptime pcid: bool) type {
     }
 }
 
-pub const entries_count: usize = 512;
-pub const Pml4e = PagingStructureEntry(default_page_size, .pml4);
-pub const Pdpte = PagingStructureEntry(default_page_size, .pdpt);
-pub const Pdpte1Gbyte = PagingStructureEntry(.ps1g, .pdpt);
-pub const Pde = PagingStructureEntry(default_page_size, .pd);
-pub const Pde2MByte = PagingStructureEntry(.ps2m, .pd);
-pub const Pte = PagingStructureEntry(default_page_size, .pt);
-pub const Pml4 = [entries_count]Pml4e;
-pub const Pdpt = [entries_count]Pdpte;
-pub const Pd = [entries_count]Pde;
-pub const Pt = [entries_count]Pte;
-
 // the lowest level entry stoing the frame address
-fn PageEntry(comptime ps: PageSize) type {
+fn PageLeafEntry(comptime ps: PageSize) type {
     return switch (ps) {
         .ps4k => Pte,
         .ps2m => Pde2MByte,
         .ps1g => Pdpte1Gbyte,
     };
 }
+
+pub const entries_count: usize = 512;
+const default_recursive_index: u9 = 510; //0x1FE
+const RecInfo = RecursiveInfo(default_recursive_index); //0x776
+
+const GenericEntry = usize;
+pub const GenericEntryInfo = struct {
+    entry_ptr: ?*GenericEntry,
+    lvl: Level,
+    ps: PageSize,
+};
 
 // TODO: usngnamespace does not work in case of the fields
 pub fn PagingStructureEntry(comptime ps: PageSize, comptime lvl: Level) type {
@@ -394,6 +383,17 @@ pub fn PagingStructureEntry(comptime ps: PageSize, comptime lvl: Level) type {
     };
 }
 
+pub const Pml4e = PagingStructureEntry(default_page_size, .pml4);
+pub const Pdpte = PagingStructureEntry(default_page_size, .pdpt);
+pub const Pdpte1Gbyte = PagingStructureEntry(.ps1g, .pdpt);
+pub const Pde = PagingStructureEntry(default_page_size, .pd);
+pub const Pde2MByte = PagingStructureEntry(.ps2m, .pd);
+pub const Pte = PagingStructureEntry(default_page_size, .pt);
+pub const Pml4 = [entries_count]Pml4e;
+pub const Pdpt = [entries_count]Pdpte;
+pub const Pd = [entries_count]Pde;
+pub const Pt = [entries_count]Pte;
+
 /// Holds indexes of all paging tables
 /// each table holds indexes of 512 entries, so we need only 9 bytes to store index
 /// Offset is 12 bits to address 4KiB page
@@ -459,40 +459,6 @@ pub inline fn virtFromIndex(pidx: Index) usize {
     }
 }
 
-// test virtFromIndex {
-//     try std.testing.expect(0x2001, virtFromIndex(.{ .lvl4 = 0, .lvl3 = 0, .lvl2 = 0, .lvl1 = 2, .offset = 1 }));
-//     try std.testing.expect(0xffff800000100000, virtFromIndex(.{ .lvl4 = 0x100, .lvl3 = 0x0, .lvl2 = 0x0, .lvl1 = 0x100, .offset = 0x0 }));
-// }
-
-pub fn physFromVirtInfo(virt: usize) !struct { phys: usize, lvl: Level, ps: PageSize } {
-    const pidx = buildIndex(virt);
-    log.debug("pidx: {any}", .{pidx});
-
-    const pml4_table: ?[]Pml4e = tableFromIndex(.pml4, pidx) orelse return error.PageFault;
-    const pdpt_table: ?[]Pdpte = pml4_table.?[pidx.pml4_idx].retrieveTable() orelse return error.PageFault;
-
-    const pdpte = pdpt_table.?[pidx.pdpt_idx];
-    if (!pdpte.present) return error.PageFault;
-
-    if (pdpte.hudge) {
-        return .{ .phys = (@as(PagingStructureEntry(.ps1g, .pdpt), @bitCast(pdpte)).retrieveFrameVirt().? << @bitSizeOf(u30)) + pidx.yieldOffset(.ps1g), .lvl = .pdpt, .ps = .ps1g };
-    }
-
-    const pd_table: ?[]Pde = pdpte.retrieveTable() orelse return error.PageFault;
-    const pde = pd_table.?[pidx.pd_idx_or_high_offset];
-    if (!pde.present) return error.PageFault;
-
-    if (pde.hudge) {
-        return .{ .phys = (@as(PagingStructureEntry(.ps2m, .pd), @bitCast(pde)).retrieveFrameVirt().? << @bitSizeOf(u21)) + pidx.yieldOffset(.ps2m), .lvl = .pd, .ps = .ps2m };
-    }
-
-    const pt_table: ?[]Pte = pde.retrieveTable() orelse return error.PageFault;
-    const pte = pt_table.?[pidx.pt_idx_or_high_offset];
-    if (!pte.present) return error.PageFault;
-
-    return .{ .phys = (@as(PagingStructureEntry(.ps4k, .pt), pte).retrieveFrameVirt().? << @bitSizeOf(u12)) + pidx.yieldOffset(.ps4k), .lvl = .pt, .ps = .ps4k };
-}
-
 // Recursive get physical address from virtual address
 pub fn recPhysFromVirtInfo(virt: usize) !struct { phys: usize, lvl: Level, ps: PageSize } {
     const pidx = buildIndex(virt);
@@ -524,42 +490,9 @@ pub fn recPhysFromVirtInfo(virt: usize) !struct { phys: usize, lvl: Level, ps: P
     return .{ .phys = (@as(PagingStructureEntry(.ps4k, .pt), pte).retrieveFrameVirt().? << @bitSizeOf(u12)) + pidx.yieldOffset(.ps4k), .lvl = .pt, .ps = .ps4k };
 }
 
-pub inline fn physFromVirt(virt: usize) !usize {
-    const info = try physFromVirtInfo(virt);
-    return info.phys;
-}
-
 pub inline fn recPhysFromVirt(virt: usize) !usize {
     const info = try recPhysFromVirtInfo(virt);
     return info.phys;
-}
-
-// Deprecated
-inline fn lvl4Table() []Pml4e {
-    return pml4t;
-}
-
-/// Deprecated
-inline fn tableFromIndex(comptime lvl: Level, pidx: Index) switch (lvl) {
-    .pml4 => ?[]Pml4e,
-    .pdpt => ?[]Pdpte,
-    .pd => ?[]Pde,
-    .pt => ?[]Pte,
-} {
-    switch (lvl) {
-        .pml4 => {
-            return lvl4Table();
-        },
-        .pdpt => {
-            return tableFromIndex(.pml4, pidx).?[pidx.pml4_idx].retrieveTable();
-        },
-        .pd => {
-            return tableFromIndex(.pdpt, pidx).?[pidx.pdpt_idx].retrieveTable();
-        },
-        .pt => {
-            return tableFromIndex(.pd, pidx).?[pidx.pd_idx_or_high_offset].retrieveTable();
-        },
-    }
 }
 
 inline fn recTableFromIndex(comptime lvl: Level, pidx: Index) switch (lvl) {
@@ -584,17 +517,6 @@ inline fn recTableFromIndex(comptime lvl: Level, pidx: Index) switch (lvl) {
     }
 }
 
-/// Deprecated
-fn tableFromVirt(comptime lvl: Level, virt: usize) switch (lvl) {
-    .pml4 => ?[]Pml4e,
-    .pdpt => ?[]Pdpte,
-    .pd => ?[]Pde,
-    .pt => ?[]Pte,
-} {
-    const pidx = buildIndex(virt);
-    return tableFromIndex(lvl, pidx);
-}
-
 fn recTableFromVirt(comptime lvl: Level, virt: usize) switch (lvl) {
     .pml4 => ?[]Pml4e,
     .pdpt => ?[]Pdpte,
@@ -605,124 +527,71 @@ fn recTableFromVirt(comptime lvl: Level, virt: usize) switch (lvl) {
     return recTableFromIndex(lvl, pidx);
 }
 
-// Search for the lowest level entry in the paging table which is present
-/// Deprecated
-pub fn lowestEntryFromVirtInfo(virt: usize) !GenericEntryInfo {
-    const pidx = buildIndex(virt);
-
-    var res: GenericEntryInfo = .{ .entry_ptr = null, .lvl = .pt, .ps = .ps4k };
-    inline for ([_]Level{ Level.pml4, Level.pdpt, Level.pd, Level.pt }) |lvl_idx| {
-        const table = tableFromIndex(lvl_idx, pidx) orelse return error.PageFault;
-
-        switch (lvl_idx) {
-            .pml4 => {
-                const entry_ptr = &table[pidx.pml4_idx];
-                if (!entry_ptr.present) {
-                    return error.PageFault;
-                }
-                res = .{ .entry_ptr = @ptrCast(entry_ptr), .lvl = lvl_idx, .ps = .ps4k };
-            },
-            .pdpt => {
-                const entry_ptr = &table[pidx.pdpt_idx];
-                if (!entry_ptr.present) {
-                    return res;
-                }
-
-                if (entry_ptr.hudge) {
-                    return .{ .entry_ptr = @ptrCast(entry_ptr), .lvl = lvl_idx, .ps = .ps1g };
-                }
-
-                res = .{ .entry_ptr = @ptrCast(entry_ptr), .lvl = lvl_idx, .ps = .ps2m };
-            },
-            .pd => {
-                const entry_ptr = &table[pidx.pd_idx_or_high_offset];
-                if (!entry_ptr.present) {
-                    return res;
-                }
-
-                if (entry_ptr.hudge) {
-                    return .{ .entry_ptr = @ptrCast(entry_ptr), .lvl = lvl_idx, .ps = .ps2m };
-                }
-
-                res = .{ .entry_ptr = @ptrCast(entry_ptr), .lvl = lvl_idx, .ps = .ps4k };
-            },
-            .pt => {
-                const entry_ptr = &table[pidx.pt_idx_or_high_offset];
-                if (!entry_ptr.present) {
-                    return res;
-                }
-
-                return .{ .entry_ptr = @ptrCast(entry_ptr), .lvl = lvl_idx, .ps = .ps4k };
-            },
-        }
-    }
-}
-
 /// Limine bootloader allocates mixed size pages in reclaimable memory; We need to remap them into
 /// requestaded size pages. tps is the requested page size and lvl is the level of the page table to handle.
 /// We could upgrade the page size e.g. from 4K, 2M to 1G, or downgrade from 1G to 2M or 4K.
-fn recRemapPageTables(comptime lvl: Level, comptime tps: PageSize, allocator: std.mem.Allocator, virt: usize) !usize {
-    //_ = lvl;
-    _ = tps;
-    //_ = allocator;
-    //@compileError("Not implemented");
+// fn recRemapPageTables(comptime lvl: Level, comptime tps: PageSize, allocator: std.mem.Allocator, virt: usize) !usize {
+//     //_ = lvl;
+//     _ = tps;
+//     //_ = allocator;
+//     //@compileError("Not implemented");
 
-    const pidx = buildIndex(virt);
+//     const pidx = buildIndex(virt);
 
-    switch (lvl) {
-        .pml4 => {
-            std.debug.assert(pidx.pml4_idx == default_recursive_index and pidx.pdpt_idx == default_recursive_index and pidx.pd_idx_or_high_offset == default_recursive_index and pidx.pt_idx_or_high_offset == default_recursive_index);
+//     switch (lvl) {
+//         .pml4 => {
+//             std.debug.assert(pidx.pml4_idx == default_recursive_index and pidx.pdpt_idx == default_recursive_index and pidx.pd_idx_or_high_offset == default_recursive_index and pidx.pt_idx_or_high_offset == default_recursive_index);
 
-            var new_pml4t: []Pml4e = undefined;
-            if (pidx.offset == 0) new_pml4t = try dupePageStructTable(Pml4e, allocator, @as([*]Pml4e, @ptrFromInt(virt))[0..entries_count]);
+//             var new_pml4t: []Pml4e = undefined;
+//             if (pidx.offset == 0) new_pml4t = try dupePageStructTable(Pml4e, allocator, @as([*]Pml4e, @ptrFromInt(virt))[0..entries_count]);
 
-            for (0..entries_count) |i| {
-                const new_pml4e = &@as(*Pml4, @ptrFromInt(RecInfo.pml4TableAddr()))[i];
-                if (!new_pml4e.present) continue;
+//             for (0..entries_count) |i| {
+//                 const new_pml4e = &@as(*Pml4, @ptrFromInt(RecInfo.pml4TableAddr()))[i];
+//                 if (!new_pml4e.present) continue;
 
-                log.debug("remap virt[{d}]: 0x{x} == 0x{x} pml4.pidx: {any}, pml4e: {any}, pml4e: {*}, aligned_adress_4kb=0x{x}", .{ i, virt, virtFromIndex(pidx), pidx, new_pml4e, new_pml4t.ptr, new_pml4e.aligned_address_4kbytes << 12 });
+//                 log.debug("remap virt[{d}]: 0x{x} == 0x{x} pml4.pidx: {any}, pml4e: {any}, pml4e: {*}, aligned_adress_4kb=0x{x}", .{ i, virt, virtFromIndex(pidx), pidx, new_pml4e, new_pml4t.ptr, new_pml4e.aligned_address_4kbytes << 12 });
 
-                const pdpt_virt = recRemapPageTables(.pdpt, tps, allocator, virt + i) catch return error.PageFault;
-                const pdpt_phys = recPhysFromVirt(pdpt_virt);
-                new_pml4e.aligned_address_4kbytes = @as(u39, pdpt_phys >> 12);
-            }
-            return @intFromPtr(new_pml4t);
-        },
-        .pdpt => {
-            //const pdpte = @as(*Pdpt, @ptrFromInt(RecInfo.pdptTablAddr(0)))[0..entries_count];
-            //dupePageStructTable(allocator, pdpte) catch return error.PageFault;
+//                 const pdpt_virt = recRemapPageTables(.pdpt, tps, allocator, virt + i) catch return error.PageFault;
+//                 const pdpt_phys = recPhysFromVirt(pdpt_virt);
+//                 new_pml4e.aligned_address_4kbytes = @as(u39, pdpt_phys >> 12);
+//             }
+//             return @intFromPtr(new_pml4t);
+//         },
+//         .pdpt => {
+//             //const pdpte = @as(*Pdpt, @ptrFromInt(RecInfo.pdptTablAddr(0)))[0..entries_count];
+//             //dupePageStructTable(allocator, pdpte) catch return error.PageFault;
 
-            log.debug("remap virt: 0x{x} pdpt.pidx: {any}", .{ virtFromIndex(pidx), pidx });
-        },
-        .pd => {
-            //const pde = @as(*Pd, @ptrFromInt(RecInfo.pdTableAddr(0, 0)))[0..entries_count];
-            //dupePageStructTable(allocator, pde) catch return error.PageFault;
-            log.debug("remap pd.pidx: {any}", .{pidx});
-        },
-        .pt => {
-            //const pte = @as(*Pt, @ptrFromInt(RecInfo.ptTableAddr(0, 0, 0)))[0..entries_count];
-            //dupePageStructTable(allocator, pte) catch return error.PageFault;
-            log.debug("remap pt.pidx: {any}", .{pidx});
-        },
-    }
-}
+//             log.debug("remap virt: 0x{x} pdpt.pidx: {any}", .{ virtFromIndex(pidx), pidx });
+//         },
+//         .pd => {
+//             //const pde = @as(*Pd, @ptrFromInt(RecInfo.pdTableAddr(0, 0)))[0..entries_count];
+//             //dupePageStructTable(allocator, pde) catch return error.PageFault;
+//             log.debug("remap pd.pidx: {any}", .{pidx});
+//         },
+//         .pt => {
+//             //const pte = @as(*Pt, @ptrFromInt(RecInfo.ptTableAddr(0, 0, 0)))[0..entries_count];
+//             //dupePageStructTable(allocator, pte) catch return error.PageFault;
+//             log.debug("remap pt.pidx: {any}", .{pidx});
+//         },
+//     }
+// }
 
-pub fn remapPageTables(comptime tps: PageSize, allocator: std.mem.Allocator) !void {
-    // build index from the virtual address of the pml4 table
-    const pidx = buildIndex(RecInfo.pml4TableAddr());
-    return recRemapPageTables(.pml4, tps, allocator, virtFromIndex(pidx)) catch return error.PageFault;
-}
+// pub fn remapPageTables(comptime tps: PageSize, allocator: std.mem.Allocator) !void {
+//     // build index from the virtual address of the pml4 table
+//     const pidx = buildIndex(RecInfo.pml4TableAddr());
+//     return recRemapPageTables(.pml4, tps, allocator, virtFromIndex(pidx)) catch return error.PageFault;
+// }
 
-fn dupePageStructTable(comptime T: type, allocator: std.mem.Allocator, src: []T) ![]T {
-    // no matter what page size we need to allocate 4kbytes aligned page, but if you use for instance Arena Allocator, then
-    // we do not controll the alignment, so it is better to aligned imperatively
-    const dst = allocator.allocWithOptions(T, entries_count, @intFromEnum(PageSize.ps4k), null) catch |err| {
-        log.err("Failed to allocate page table: {any}", .{err});
-        return error.PageFault;
-    };
-    @memcpy(dst.ptr, src);
-    return dst;
-}
+// fn dupePageStructTable(comptime T: type, allocator: std.mem.Allocator, src: []T) ![]T {
+//     // no matter what page size we need to allocate 4kbytes aligned page, but if you use for instance Arena Allocator, then
+//     // we do not controll the alignment, so it is better to aligned imperatively
+//     const dst = allocator.allocWithOptions(T, entries_count, @intFromEnum(PageSize.ps4k), null) catch |err| {
+//         log.err("Failed to allocate page table: {any}", .{err});
+//         return error.PageFault;
+//     };
+//     @memcpy(dst.ptr, src);
+//     return dst;
+// }
 
 pub fn recLowestEntryFromVirtInfo(virt: usize) !GenericEntryInfo {
     const pidx = buildIndex(virt);
@@ -819,46 +688,46 @@ pub fn logLowestEntryFromVirt(virt: usize) void {
 //
 
 // Partially implemented for 4kbytes pages and 2mbytes pages; Does not iterate over page/frame entries
-// TODO:implement it for 1gbytes and for all offsets inside a page
-pub fn findPhys(phys: usize) void {
-    for (pml4t, 0..) |e, lvl4_idx| {
-        if (e.present) {
+// // TODO:implement it for 1gbytes and for all offsets inside a page
+// pub fn findPhys(phys: usize) void {
+//     for (pml4t, 0..) |e, lvl4_idx| {
+//         if (e.present) {
 
-            //log.err("findPhys: tlb_pml4[{d:0>3}]@{*}: 0x{x} -> {any} of {}", .{ i, &e, e.aligned_address_4kbytes, e.retrieveTable(), e });
-            for (e.retrieveTable().?, 0..) |pdpte, lvl3_idx| {
-                if (pdpte.present) {
-                    //log.err("findPhys: pdpte: {}", .{pdpte});
-                    for (pdpte.retrieveTable().?, 0..) |pde, lvl2_idx| {
-                        if (pde.present) {
-                            //log.err("findPhys: pde: {}", .{pde});
-                            if (pde.hudge) {
-                                const pde_phys = (@as(PagingStructureEntry(.ps2m, .pd), @bitCast(pde)).retrieveFrameVirt().?) << @bitSizeOf(u21);
-                                //log.err("findPhys: found pde huge: {}, phys: 0x{x}", .{ pde, phys });
-                                if (pde_phys == phys) {
-                                    log.err("findPhys: found pde huge: pml4t[{d}]={} pdpt[{d}]={}, pd[{d}]={}, phys=0x{x}", .{ lvl4_idx, e, lvl3_idx, pdpte, lvl2_idx, pde, phys });
-                                    const virt = virtFromIndex(.{ .pml4_idx = @intCast(lvl4_idx), .pdpt_idx = @intCast(lvl3_idx), .pd_idx_or_high_offset = @intCast(lvl2_idx), .pt_idx_or_high_offset = 0, .offset = 0 });
-                                    log.err("findPhys: virt: 0x{x}", .{virt});
+//             //log.err("findPhys: tlb_pml4[{d:0>3}]@{*}: 0x{x} -> {any} of {}", .{ i, &e, e.aligned_address_4kbytes, e.retrieveTable(), e });
+//             for (e.retrieveTable().?, 0..) |pdpte, lvl3_idx| {
+//                 if (pdpte.present) {
+//                     //log.err("findPhys: pdpte: {}", .{pdpte});
+//                     for (pdpte.retrieveTable().?, 0..) |pde, lvl2_idx| {
+//                         if (pde.present) {
+//                             //log.err("findPhys: pde: {}", .{pde});
+//                             if (pde.hudge) {
+//                                 const pde_phys = (@as(PagingStructureEntry(.ps2m, .pd), @bitCast(pde)).retrieveFrameVirt().?) << @bitSizeOf(u21);
+//                                 //log.err("findPhys: found pde huge: {}, phys: 0x{x}", .{ pde, phys });
+//                                 if (pde_phys == phys) {
+//                                     log.err("findPhys: found pde huge: pml4t[{d}]={} pdpt[{d}]={}, pd[{d}]={}, phys=0x{x}", .{ lvl4_idx, e, lvl3_idx, pdpte, lvl2_idx, pde, phys });
+//                                     const virt = virtFromIndex(.{ .pml4_idx = @intCast(lvl4_idx), .pdpt_idx = @intCast(lvl3_idx), .pd_idx_or_high_offset = @intCast(lvl2_idx), .pt_idx_or_high_offset = 0, .offset = 0 });
+//                                     log.err("findPhys: virt: 0x{x}", .{virt});
 
-                                    return;
-                                }
-                            } else {
-                                for (pde.retrieveTable().?) |pte| {
-                                    if (pte.present) {
-                                        const pte_phys = (@as(PagingStructureEntry(.ps4k, .pt), pte).retrieveFrameVirt().?) << @bitSizeOf(u12);
-                                        if (pte_phys == phys) {
-                                            log.err("findPhys: found pte: {}, phys: 0x{x}", .{ pde, phys });
-                                            return;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
+//                                     return;
+//                                 }
+//                             } else {
+//                                 for (pde.retrieveTable().?) |pte| {
+//                                     if (pte.present) {
+//                                         const pte_phys = (@as(PagingStructureEntry(.ps4k, .pt), pte).retrieveFrameVirt().?) << @bitSizeOf(u12);
+//                                         if (pte_phys == phys) {
+//                                             log.err("findPhys: found pte: {}, phys: 0x{x}", .{ pde, phys });
+//                                             return;
+//                                         }
+//                                     }
+//                                 }
+//                             }
+//                         }
+//                     }
+//                 }
+//             }
+//         }
+//     }
+// }
 
 pub fn logVirtInfo(virt: usize) void {
     log.err("logVirtInfo: Virtual Adddress to check: 0x{x}", .{virt});
