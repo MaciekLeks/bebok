@@ -54,7 +54,12 @@ var hhdm_offset: usize = undefined;
 //types
 const RawEntry = u64;
 ///Info on physical address placement in the page table
-const PhysInfo = struct { phys: usize, lvl: PageTableLevel, ps: PageSize };
+const PhysInfo = struct {
+    phys_base: usize, //4K aligned
+    phys: usize, //phys_base + offset
+    lvl: PageTableLevel,
+    ps: PageSize,
+};
 
 fn RecursiveInfo(comptime recursive_index: u9) type {
     return struct {
@@ -113,6 +118,11 @@ pub fn GenPageEntry(comptime ps: PageSize, comptime lvl: PageTableLevel) type {
             ignrd_b: u11 = 0, //52-62
             execute_disable: bool = false, //63
 
+            pub inline fn getPhysBase(self: Self) usize {
+                return @as(usize, self.aligned_address_4kbytes) << 12;
+            }
+
+            //Depreciated
             pub fn retrieveTable(self: Self) ?[]L3Entry {
                 return if (self.present) @as(*L3Table, @ptrFromInt(hhdmVirtFromPhys(self.aligned_address_4kbytes << @bitSizeOf(u12)))) else null;
             }
@@ -140,15 +150,22 @@ pub fn GenPageEntry(comptime ps: PageSize, comptime lvl: PageTableLevel) type {
                 protection_key: u4, //59-62
                 execute_disable: bool, //63
 
+                pub inline fn getPhysBase(self: Self) usize {
+                    return @as(usize, self.aligned_address_1gbytes) << 30;
+                }
+
+                //Depreciated
                 pub inline fn retrieveFrameVirt(self: Self) ?usize {
                     return if (self.present) self.aligned_address_1gbytes else null;
                 }
 
+                //Depreciated
                 pub inline fn retrieveFrame(self: Self) ?[]usize {
                     return if (self.present) @as(*[.ps1g]RawEntry, @ptrFromInt(self.retrieveFrameVirt().?)) else null;
                 }
             },
-            .ps4k, .ps2m => packed struct(RawEntry) {
+            //.ps4k, .ps2m => packed struct(RawEntry) {
+            else => packed struct(RawEntry) {
                 const Self = @This();
                 present: bool = false, //0
                 writable: bool = false, //1
@@ -157,7 +174,7 @@ pub fn GenPageEntry(comptime ps: PageSize, comptime lvl: PageTableLevel) type {
                 cache_disabled: bool = false, //4
                 accessed: bool = false, //5
                 ignrd_a: u1 = 0, //6
-                hudge: bool = false, //7
+                huge: bool = false, //7
                 ignrd_b: u3 = 0, //8-10
                 restart: u1 = 0, //11
                 aligned_address_4kbytes: u39, //12-50
@@ -165,6 +182,11 @@ pub fn GenPageEntry(comptime ps: PageSize, comptime lvl: PageTableLevel) type {
                 ignr_b: u11 = 0, //52-62
                 execute_disable: bool = false, //63
 
+                pub inline fn getPhysBase(self: Self) usize {
+                    return @as(usize, self.aligned_address_4kbytes) << 12;
+                }
+
+                //Depreciated
                 pub inline fn retrieveTable(self: Self) ?[]L2Entry {
                     return if (self.present) @as(*L2Table, @ptrFromInt(hhdmVirtFromPhys(self.aligned_address_4kbytes << @bitSizeOf(u12)))) else null;
                 }
@@ -181,7 +203,7 @@ pub fn GenPageEntry(comptime ps: PageSize, comptime lvl: PageTableLevel) type {
                 cache_disabled: bool = false, //4
                 accessed: bool = false, //5
                 dirty: bool = false, //6
-                hudge: bool = false, //7
+                huge: bool = false, //7
                 global: bool = false, //8
                 ignrd_a: u2 = 0, //9-10
                 restart: u1 = 0, //11
@@ -193,15 +215,22 @@ pub fn GenPageEntry(comptime ps: PageSize, comptime lvl: PageTableLevel) type {
                 protection_key: u4 = 0, //59-62
                 execute_disable: bool = false, //63
 
+                pub inline fn getPhysBase(self: Self) usize {
+                    return @as(usize, self.aligned_address_1gbytes) << 30;
+                }
+
+                //Depreciated
                 pub inline fn retrieveFrameVirt(self: Self) ?usize {
                     return if (self.present) self.aligned_address_2mbytes else null;
                 }
 
+                //Depreciated
                 pub inline fn retrievFrame(self: Self) ?[]usize {
                     return if (self.present) @as(*[.ps2m]usize, @ptrFromInt(self.retrieveFrameVirt().?)) else null;
                 }
             },
-            .ps4k => packed struct(RawEntry) {
+            //.ps4k => packed struct(RawEntry) {
+            else => packed struct(RawEntry) {
                 const Self = @This();
                 present: bool = false, //0
                 writable: bool = false, //1
@@ -210,18 +239,24 @@ pub fn GenPageEntry(comptime ps: PageSize, comptime lvl: PageTableLevel) type {
                 cache_disabled: bool = false, //4
                 accessed: bool = false, //5
                 ignrd_a: bool = false, //6
-                hudge: bool = false, //7 //must be 0
+                huge: bool = false, //7 //must be 0
                 ignrd_b: u3 = 0, //8-10
                 restart: u1 = 0, //11
                 aligned_address_4kbytes: u39, //12-50
                 rsrvd_a: u1 = 0, //51-51 //must be 0
                 ignrd_c: u11 = 0, //52-62
                 execute_disable: bool = true, //63
+
+                pub inline fn getPhysBase(self: Self) usize {
+                    return @as(usize, self.aligned_address_4kbytes) << 12;
+                }
+
+                //Depreciated
                 pub inline fn retrieveTable(self: Self) ?[]L1Entry {
                     return if (self.present) @as(*L1Table, @ptrFromInt(hhdmVirtFromPhys(self.aligned_address_4kbytes << @bitSizeOf(u12)))) else null;
                 }
             },
-            else => @compileError("Unsupported page size:" ++ ps),
+            //else => @compileError("Unsupported page size:" ++ ps),
         },
         .l1 => packed struct(RawEntry) {
             const Self = @This();
@@ -242,10 +277,16 @@ pub fn GenPageEntry(comptime ps: PageSize, comptime lvl: PageTableLevel) type {
             protection_key: u4 = 0, //5 w9-62
             execute_disable: bool = false, //63
 
+            pub inline fn getPhysBase(self: Self) usize {
+                return @as(usize, self.aligned_address_4kbytes) << 12;
+            }
+
+            //Depreciated
             pub inline fn retrieveFrameVirt(self: Self) ?usize {
                 return if (self.present) self.aligned_address_4kbytes else null;
             }
 
+            //Depreciated
             pub inline fn retrieveFrame(self: Self) ?[]usize {
                 return if (self.present) @as(*[@intFromEnum(PageSize.ps4k)]RawEntry, @ptrFromInt(self.retrieveFrameVirt().?)) else null;
             }
@@ -253,7 +294,54 @@ pub fn GenPageEntry(comptime ps: PageSize, comptime lvl: PageTableLevel) type {
     };
 }
 
-pub const L4Entry = GenPageEntry(default_page_size, .l1);
+// Generic function for GenPageEntry
+fn isLeaf(entry: anytype, comptime lvl: PageTableLevel) !bool {
+    if (!entry.present) return error.PageFault;
+
+    return switch (lvl) {
+        .l4 => false, // PML4 is never a leaf
+        .l3 => entry.huge, // PDPT is leaf if huge=true (1GB page)
+        .l2 => entry.huge, //
+        .l1 => true, // PT is always a leaf
+    };
+}
+
+// fn getPhysBase(entry: anytype, comptime is_leaf: bool, comptime lvl: PageTableLevel) usize {
+//     return switch (lvl) {
+//         .l4 => @as(usize, entry.aligned_address_4kbytes) << 12,
+//         .l3 => if (is_leaf)
+//             @as(usize, entry.aligned_address_1gbytes) << 30
+//         else
+//             @as(usize, entry.aligned_address_4kbytes) << 12,
+//         .l2 => if (is_leaf)
+//             @as(usize, entry.aligned_address_2mbytes) << 21
+//         else
+//             @as(usize, entry.aligned_address_4kbytes) << 12,
+//         .l1 => @as(usize, entry.aligned_address_4kbytes) << 12,
+//     };
+// }
+
+/// Return physical address from the page entry with the given Index
+fn physFromIndex(
+    entry: anytype,
+    pidx: Index,
+    comptime lvl: PageTableLevel,
+) usize {
+    return switch (lvl) {
+        .l4 => entry.getPhysBase() + pidx.yieldOffset(.ps4k),
+        .l3 => if (entry.huge)
+            entry.getPhysBase() + pidx.yieldOffset(.ps1g)
+        else
+            entry.getPhysBase() + pidx.yieldOffset(.ps4k),
+        .l2 => if (entry.huge)
+            entry.getPhysBase() + pidx.yieldOffset(.ps2m)
+        else
+            entry.getPhysBase() + pidx.yieldOffset(.ps4k),
+        .l1 => entry.getPhysBase() + pidx.yieldOffset(.ps4k),
+    };
+}
+
+pub const L4Entry = GenPageEntry(default_page_size, .l4);
 pub const L3Entry = GenPageEntry(default_page_size, .l3);
 pub const L3Entry1G = GenPageEntry(.ps1g, .l3);
 pub const L2Entry = GenPageEntry(default_page_size, .l2);
@@ -363,63 +451,71 @@ fn pageSliceFromVirt(comptime lvl: PageTableLevel, virt: usize) switch (lvl) {
 }
 
 pub fn physInfoFromVirt(virt: usize) !PhysInfo {
-    log.debug("physInfoFromVirt starting...", .{});
-    defer log.debug("physInfoFromVirt finished.", .{});
-
     const pidx = buildIndex(virt);
 
     inline for (page_table_levels) |lvl| {
-        const curr_table = pageSliceFromIndex(lvl, pidx); //TODO: different table type for each level, make it inline
-        if (curr_table == null) return error.PageFault;
+        const maybe_curr_table = pageSliceFromIndex(lvl, pidx); //TODO: different table type for each level, make it inline
+        if (maybe_curr_table) |curr_table| {
+            const idx = pidx.idxFromLvl(lvl);
+            const entry = curr_table[idx];
+            if (!entry.present) return error.PageFault;
 
-        const idx = pidx.idxFromLvl(lvl);
-        const entry = curr_table.?[idx];
-        if (!entry.present) return error.PageFault;
-
-        return .{ .phys = 0, .lvl = lvl, .ps = .ps4k }; //TODO: get the riht data
+            if (try isLeaf(entry, lvl)) return .{ .phys_base = entry.getPhysBase(), .phys = physFromIndex(entry, pidx, lvl), .lvl = lvl, .ps = .ps4k }; //TODO: get the right data
+        } else break;
     }
 
-    unreachable;
+    return error.PageFault;
+}
+
+pub inline fn physFromVirt(virt: usize) !usize {
+    const info = try physInfoFromVirt(virt);
+    return info.phys;
+}
+
+pub inline fn physBaseFromVirt(virt: usize) !usize {
+    const info = try physInfoFromVirt(virt);
+    return info.phys_base;
 }
 
 // Recursive get physical address from virtual address
 // TODO: refactor
-pub fn recPhysFromVirtInfo(virt: usize) !struct { phys: usize, lvl: PageTableLevel, ps: PageSize } {
-    const pidx = buildIndex(virt);
+// pub fn recPhysFromVirtInfo(virt: usize) !struct { phys: usize, lvl: PageTableLevel, ps: PageSize } {
+//     const pidx = buildIndex(virt);
 
-    // check if pml4 entry is present
-    const pml4e = @as(*L4Table, @ptrFromInt(RecInfo.pml4TableAddr()))[pidx.l4_idx];
-    if (!pml4e.present) return error.PageFault;
+//     // check if pml4 entry is present
+//     const pml4e = @as(*L4Table, @ptrFromInt(RecInfo.pml4TableAddr()))[pidx.l4_idx];
+//     if (!pml4e.present) return error.PageFault;
 
-    // check if pdpt entry is present
-    const pdpte = @as(*L3Table, @ptrFromInt(RecInfo.pdptTablAddr(pidx.l4_idx)))[pidx.l3_idx];
-    if (!pdpte.present) return error.PageFault;
+//     // check if pdpt entry is present
+//     const pdpte = @as(*L3Table, @ptrFromInt(RecInfo.pdptTablAddr(pidx.l4_idx)))[pidx.l3_idx];
+//     if (!pdpte.present) return error.PageFault;
 
-    if (pdpte.hudge) {
-        return .{ .phys = (@as(GenPageEntry(.ps1g, .l3), @bitCast(pdpte)).retrieveFrameVirt().? << @bitSizeOf(u30)) + pidx.yieldOffset(.ps1g), .lvl = .l3, .ps = .ps1g };
-    }
+//     if (pdpte.huge) {
+//         return .{ .phys = (@as(GenPageEntry(.ps1g, .l3), @bitCast(pdpte)).retrieveFrameVirt().? << @bitSizeOf(u30)) + pidx.yieldOffset(.ps1g), .lvl = .l3, .ps = .ps1g };
+//     }
 
-    // check if pd entry is present
-    const pde = @as(*L2Table, @ptrFromInt(RecInfo.pdTableAddr(pidx.l4_idx, pidx.l3_idx)))[pidx.l2_idx];
-    if (!pde.present) return error.PageFault;
+//     // check if pd entry is present
+//     const pde = @as(*L2Table, @ptrFromInt(RecInfo.pdTableAddr(pidx.l4_idx, pidx.l3_idx)))[pidx.l2_idx];
+//     if (!pde.present) return error.PageFault;
 
-    if (pde.hudge) {
-        return .{ .phys = (@as(GenPageEntry(.ps2m, .l2), @bitCast(pde)).retrieveFrameVirt().? << @bitSizeOf(u21)) + pidx.yieldOffset(.ps2m), .lvl = .l2, .ps = .ps2m };
-    }
+//     if (pde.huge) {
+//         return .{ .phys = (@as(GenPageEntry(.ps2m, .l2), @bitCast(pde)).retrieveFrameVirt().? << @bitSizeOf(u21)) + pidx.yieldOffset(.ps2m), .lvl = .l2, .ps = .ps2m };
+//     }
 
-    // check if pt entry is present
-    const pte = @as(*L1Table, @ptrFromInt(RecInfo.ptTableAddr(pidx.l4_idx, pidx.l3_idx, pidx.l2_idx)))[pidx.l1_idx];
-    if (!pte.present) return error.PageFault;
+//     // check if pt entry is present
+//     const pte = @as(*L1Table, @ptrFromInt(RecInfo.ptTableAddr(pidx.l4_idx, pidx.l3_idx, pidx.l2_idx)))[pidx.l1_idx];
+//     if (!pte.present) return error.PageFault;
 
-    return .{ .phys = (@as(GenPageEntry(.ps4k, .l1), pte).retrieveFrameVirt().? << @bitSizeOf(u12)) + pidx.yieldOffset(.ps4k), .lvl = .l1, .ps = .ps4k };
-}
+//     return .{ .phys = (@as(GenPageEntry(.ps4k, .l1), pte).retrieveFrameVirt().? << @bitSizeOf(u12)) + pidx.yieldOffset(.ps4k), .lvl = .l1, .ps = .ps4k };
+// }
 
 ///////
 
-pub inline fn recPhysFromVirt(virt: usize) !usize {
-    const info = try recPhysFromVirtInfo(virt);
-    return info.phys;
-}
+// TODO: refa
+// pub inline fn recPhysFromVirt(virt: usize) !usize {
+//     const info = try recPhysFromVirtInfo(virt);
+//     return info.phys;
+// }
 
 /// Limine bootloader allocates mixed size pages in reclaimable memory; We need to remap them into
 /// requestaded size pages. tps is the requested page size and lvl is the level of the page table to handle.
@@ -503,7 +599,7 @@ pub fn recLowestEntryFromVirtInfo(virt: usize) !GenericEntryInfo {
 
     if (!pdpte.present) return res;
 
-    if (pdpte.hudge) {
+    if (pdpte.huge) {
         return .{ .entry_ptr = @ptrCast(pdpte), .lvl = .l3, .ps = .ps1g };
     }
 
@@ -513,7 +609,7 @@ pub fn recLowestEntryFromVirtInfo(virt: usize) !GenericEntryInfo {
 
     if (!pde.present) return res;
 
-    if (pde.hudge) {
+    if (pde.huge) {
         return .{ .entry_ptr = @ptrCast(pde), .lvl = .l2, .ps = .ps2m };
     }
 
@@ -594,7 +690,7 @@ pub fn logLowestEntryFromVirt(virt: usize) void {
 //                     for (pdpte.retrieveTable().?, 0..) |pde, lvl2_idx| {
 //                         if (pde.present) {
 //                             //log.err("findPhys: pde: {}", .{pde});
-//                             if (pde.hudge) {
+//                             if (pde.huge) {
 //                                 const pde_phys = (@as(PagingStructureEntry(.ps2m, .pd), @bitCast(pde)).retrieveFrameVirt().?) << @bitSizeOf(u21);
 //                                 //log.err("findPhys: found pde huge: {}, phys: 0x{x}", .{ pde, phys });
 //                                 if (pde_phys == phys) {
@@ -632,7 +728,7 @@ pub fn logVirtInfo(virt: usize) void {
     };
 
     log.debug("Paging Table:  0x{x} -> {any}", .{ virt, vaddr_info });
-    const phys_by_rec = recPhysFromVirt(virt) catch |err| {
+    const phys_by_rec = physFromVirt(virt) catch |err| {
         log.err("logVirtInfo: Call function recPhysFromVirt: 0x{x} -> error: {}", .{ virt, err });
         return;
     };
@@ -708,14 +804,19 @@ pub fn init() !void {
     // we use the fact that limine uses identity mapping and at the same time for the same phys addres HHDM
     const vt = [_]usize{
         hhdmVirtFromPhys(0x4d00), //HHDM
-        hhdmVirtFromPhys(0x10_0000),
-        hhdmVirtFromPhys(0x7fa61000),
-        hhdmVirtFromPhys(0x7fa63000),
+        //hhdmVirtFromPhys(0x10_0000),
+        //hhdmVirtFromPhys(0x7fa61000),
+        //hhdmVirtFromPhys(0x7fa63000),
         hhdmVirtFromPhys(0xfee0_0000),
     };
     for (vt) |vaddr| {
         logVirtInfo(vaddr);
 
+        // const res = recPhysFromVirtInfo(vaddr) catch |err| {
+        //     log.err("Call function recPhysFromVirtInfo: 0x{x} -> error: {}", .{ vaddr, err });
+        //     continue;
+        // };
+        // log.debug("Call function recPhysFromVirtInfo: 0x{x} -> {any}", .{ vaddr, res });
         const psych_info = physInfoFromVirt(vaddr) catch |err| {
             log.err("Call function physInfoFromVirt: 0x{x} -> error: {}", .{ vaddr, err });
             continue;
