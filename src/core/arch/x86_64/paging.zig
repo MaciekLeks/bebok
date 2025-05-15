@@ -367,17 +367,16 @@ pub fn physInfoFromVirt(virt: usize) !PhysInfo {
     defer log.debug("physInfoFromVirt finished.", .{});
 
     const pidx = buildIndex(virt);
-    var curr_table = pageSliceFromIndex(.l4, pidx);
-
-    _ = &curr_table; //TODO remove this line
 
     inline for (page_table_levels) |lvl| {
-        const idx = pidx.idxFromLvl(lvl);
-        const entry = curr_table[idx]; //TODO: different table type for each level, make it inline
+        const curr_table = pageSliceFromIndex(lvl, pidx); //TODO: different table type for each level, make it inline
+        if (curr_table == null) return error.PageFault;
 
+        const idx = pidx.idxFromLvl(lvl);
+        const entry = curr_table.?[idx];
         if (!entry.present) return error.PageFault;
 
-        return .{ .phys = 0, .lvl = lvl, .ps = entry.ps };
+        return .{ .phys = 0, .lvl = lvl, .ps = .ps4k }; //TODO: get the riht data
     }
 
     unreachable;
@@ -717,10 +716,11 @@ pub fn init() !void {
     for (vt) |vaddr| {
         logVirtInfo(vaddr);
 
-        physInfoFromVirt(vaddr) catch |err| {
+        const psych_info = physInfoFromVirt(vaddr) catch |err| {
             log.err("Call function physInfoFromVirt: 0x{x} -> error: {}", .{ vaddr, err });
             continue;
         };
+        log.debug("Call function physInfoFromVirt: 0x{x} -> {any}", .{ vaddr, psych_info });
 
         // log.err("Virtual Adddress to check: 0x{x}", .{vaddr});
 
