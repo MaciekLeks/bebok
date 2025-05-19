@@ -306,6 +306,15 @@ fn isLeaf(entry: anytype, comptime lvl: PageTableLevel) !bool {
     };
 }
 
+fn pageSizeFromFromLevel(lvl: PageTableLevel) PageSize {
+    return switch (lvl) {
+        .l4 => unreachable,
+        .l3 => .ps1g,
+        .l2 => .ps2m,
+        .l1 => .ps4k,
+    };
+}
+
 // fn getPhysBase(entry: anytype, comptime is_leaf: bool, comptime lvl: PageTableLevel) usize {
 //     return switch (lvl) {
 //         .l4 => @as(usize, entry.aligned_address_4kbytes) << 12,
@@ -402,7 +411,7 @@ pub inline fn buildIndex(virt: usize) Index {
     };
 }
 
-///Use if there is no need to get the whole Index
+/// Use this if there is no need to get the whole Index
 pub inline fn idxFromVirt(virt: usize, lvl: PageTableLevel) usize {
     const shift_amount = 12 + (@intFromEnum(lvl) - 1) * 9;
     return (virt >> shift_amount) & 0x1FF;
@@ -460,7 +469,7 @@ pub fn physInfoFromVirt(virt: usize) !PhysInfo {
             const entry = curr_table[idx];
             if (!entry.present) return error.PageFault;
 
-            if (try isLeaf(entry, lvl)) return .{ .phys_base = entry.getPhysBase(), .phys = physFromIndex(entry, pidx, lvl), .lvl = lvl, .ps = .ps4k }; //TODO: get the right data
+            if (try isLeaf(entry, lvl)) return .{ .phys_base = entry.getPhysBase(), .phys = physFromIndex(entry, pidx, lvl), .lvl = lvl, .ps = pageSizeFromFromLevel(lvl) };
         } else break;
     }
 
