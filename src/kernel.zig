@@ -123,12 +123,12 @@ fn _start() callconv(.C) noreturn {
     defer pmm.deinit(); //TODO not here
 
     // Remap the page tables from Limine memory to the new kernel address space
-    // var paging_arena_allocator = std.heap.ArenaAllocator.init(heap.page_allocator);
-    // defer paging_arena_allocator.deinit();
-    // paging.remapPageTables(paging.default_page_size, paging_arena_allocator.allocator()) catch |err| {
-    //     log.err("Paging remap error: {}", .{err});
-    //     @panic("Paging remap error");
-    // };
+    var paging_arena_allocator = std.heap.ArenaAllocator.init(heap.page_allocator);
+    defer paging_arena_allocator.deinit();
+    paging.downmapPageTables(paging.default_page_size, paging_arena_allocator.allocator()) catch |err| {
+        log.err("Downmapping pages error: {}", .{err});
+        @panic("Downmapping pages error");
+    };
 
     const tm = taskmgmt.new(heap.page_allocator) catch |err| {
         log.err("TSS initialization error: {}", .{err});

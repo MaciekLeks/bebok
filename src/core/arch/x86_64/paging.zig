@@ -25,7 +25,21 @@ const cpu = @import("./cpu.zig");
 
 const log = std.log.scoped(.paging);
 
-const PageSize = enum(u32) { ps4k = 0x1000, ps2m = 0x200000, ps1g = 0x40000000 };
+const PageSize = enum(u32) {
+    const Self = @This();
+
+    ps4k = 0x1000,
+    ps2m = 0x200000,
+    ps1g = 0x40000000,
+
+    pub fn gt(self: Self, other: Self) bool {
+        return @intFromEnum(self) > @intFromEnum(other);
+    }
+
+    pub fn lt(self: Self, other: Self) bool {
+        return @intFromEnum(self) < @intFromEnum(other);
+    }
+};
 
 const PagingMode = enum(u1) {
     four_level = 0,
@@ -83,11 +97,20 @@ fn RecursiveInfo(comptime recursive_index: u9) type {
 }
 
 // the lowest level entry stoing the frame address
-fn PageLeafEntry(comptime ps: PageSize) type {
+fn LeafEntryTypeFromPageSize(comptime ps: PageSize) type {
     return switch (ps) {
         .ps4k => L1Entry,
         .ps2m => L2Entry2M,
         .ps1g => L3Entry1G,
+    };
+}
+
+fn LeafEntryTypeFromLevel(comptime lvl: PageTableLevel) type {
+    return switch (lvl) {
+        .l4 => unreachable,
+        .l3 => L3Entry1G,
+        .l2 => L2Entry2M,
+        .l1 => L1Entry,
     };
 }
 
@@ -295,7 +318,7 @@ pub fn GenPageEntry(comptime ps: PageSize, comptime lvl: PageTableLevel) type {
 }
 
 // Generic function for GenPageEntry
-fn isLeaf(entry: anytype, comptime lvl: PageTableLevel) !bool {
+inline fn isLeaf(entry: anytype, comptime lvl: PageTableLevel) !bool {
     if (!entry.present) return error.PageFault;
 
     return switch (lvl) {
@@ -306,7 +329,7 @@ fn isLeaf(entry: anytype, comptime lvl: PageTableLevel) !bool {
     };
 }
 
-fn pageSizeFromFromLevel(lvl: PageTableLevel) PageSize {
+inline fn pageSizeFromLevel(lvl: PageTableLevel) PageSize {
     return switch (lvl) {
         .l4 => unreachable,
         .l3 => .ps1g,
@@ -419,19 +442,42 @@ pub inline fn idxFromVirt(virt: usize, lvl: PageTableLevel) usize {
 
 /// Get virtual address from paging indexes
 pub inline fn virtFromIndex(pidx: Index) usize {
-    const addr = (@as(usize, pidx.l4_idx) << 39) | (@as(usize, pidx.l3_idx) << 30) | (@as(usize, pidx.l2_idx) << 21) | @as(usize, pidx.l1_idx) << 12 | pidx.offset;
+    const addr = (@as(usize, pidx.l4_idx) << levelShift(.l4)) | (@as(usize, pidx.l3_idx) << levelShift(.l3)) | (@as(usize, pidx.l2_idx) << levelShift(.l2)) | @as(usize, pidx.l1_idx) << levelShift(.l1) | pidx.offset;
     switch (pidx.sign) {
         0 => return addr & 0x7FFF_FFFF_FFFF,
         1 => return addr | 0xFFFF_8000_0000_0000,
-        else => @panic("Invalid address"),
     }
 }
 
+/// Next level of the page table
+fn nextLevel(level: PageTableLevel) PageTableLevel {
+    return switch (level) {
+        .l4 => .l3,
+        .l3 => .l2,
+        .l2 => .l1,
+        .l1 => unreachable,
+    };
+}
+
+/// Get the shift amount for the given level
+inline fn levelShift(comptime level: PageTableLevel) usize {
+    return switch (level) {
+        .l4 => 39,
+        .l3 => 30,
+        .l2 => 21,
+        .l1 => 12,
+    };
+}
+
 fn pageSliceFromIndex(comptime lvl: PageTableLevel, pidx: Index) switch (lvl) {
-    .l4 => ?[]L4Entry,
-    .l3 => ?[]L3Entry,
-    .l2 => ?[]L2Entry,
-    .l1 => ?[]L1Entry,
+    // .l4 => ?[]L4Entry,
+    // .l3 => ?[]L3Entry,
+    // .l2 => ?[]L2Entry,
+    // .l1 => ?[]L1Entry,
+    .l4 => []L4Entry,
+    .l3 => []L3Entry,
+    .l2 => []L2Entry,
+    .l1 => []L1Entry,
 } {
     switch (lvl) {
         .l4 => {
@@ -450,27 +496,50 @@ fn pageSliceFromIndex(comptime lvl: PageTableLevel, pidx: Index) switch (lvl) {
 }
 
 fn pageSliceFromVirt(comptime lvl: PageTableLevel, virt: usize) switch (lvl) {
-    .l4 => ?[]L4Entry,
-    .l3 => ?[]L3Entry,
-    .l2 => ?[]L2Entry,
-    .l1 => ?[]L1Entry,
+    .l4 => []L4Entry,
+    .l3 => []L3Entry,
+    .l2 => []L2Entry,
+    .l1 => []L1Entry,
 } {
     const pidx = buildIndex(virt);
     return pageSliceFromIndex(lvl, pidx);
 }
 
+// /// Returns the next level table address, e.g.
+// /// L4: rec_idx rec_idx rec_idx rec_idx l4_offset -> L3: rec_idx rec_idx rec_idx l4_offset l3_offset
+// /// L3: rec_idx rec_idx l4_offset l3_offset -> L2: rec_idx l4_offset l3_offset l2_offset
+// /// L2: rec_idx l4_offset l3_offset l2_offset -> L1: rec_idx l4_offset l3_offset l1_offset
+// fn recGetNextLevelTable(comptime lvl: PageTableLevel, rec_pidx: Index, idx: u9) usize {
+//     // page table offset index is 0..511 but the offset is multiplied by size of page table entry (the size of u64)
+//     log.debug("Downmap: recGetNextLevelTable lvl: {any} rec_pidx: {any} , idx: {any}", .{ lvl, rec_pidx, idx });
+//     var new_rec_pidx = rec_pidx;
+
+//     switch (lvl) {
+//         .l4 => new_rec_pidx.l4_idx = idx,
+//         .l3 => new_rec_pidx.l3_idx = idx,
+//         .l2 => new_rec_pidx.l2_idx = idx,
+//         .l1 => unreachable,
+//     }
+
+//     return virtFromIndex(new_rec_pidx);
+// }
+
+/// Do not use it on recursive page tables!
 pub fn physInfoFromVirt(virt: usize) !PhysInfo {
     const pidx = buildIndex(virt);
 
     inline for (page_table_levels) |lvl| {
-        const maybe_curr_table = pageSliceFromIndex(lvl, pidx); //TODO: different table type for each level, make it inline
-        if (maybe_curr_table) |curr_table| {
-            const idx = pidx.idxFromLvl(lvl);
-            const entry = curr_table[idx];
-            if (!entry.present) return error.PageFault;
+        const curr_table = pageSliceFromIndex(lvl, pidx); //TODO: different table type for each level, make it inline
+        const idx = pidx.idxFromLvl(lvl);
+        const entry = curr_table[idx];
+        if (!entry.present) return error.PageFault;
 
-            if (try isLeaf(entry, lvl)) return .{ .phys_base = entry.getPhysBase(), .phys = physFromIndex(entry, pidx, lvl), .lvl = lvl, .ps = pageSizeFromFromLevel(lvl) };
-        } else break;
+        if (try isLeaf(entry, lvl)) {
+            //const leaf_entry = @as(LeafEntryFromLevel(lvl), entry);
+
+            // return .{ .phys_base = leaf_entry.getPhysBase(), .phys = physFromIndex(leaf_entry, pidx, lvl), .lvl = lvl, .ps = pageSizeFromFromLevel(lvl) };
+            return .{ .phys_base = entry.getPhysBase(), .phys = physFromIndex(entry, pidx, lvl), .lvl = lvl, .ps = pageSizeFromLevel(lvl) };
+        }
     }
 
     return error.PageFault;
@@ -580,6 +649,83 @@ pub inline fn physBaseFromVirt(virt: usize) !usize {
 //     const pidx = buildIndex(RecInfo.pml4TableAddr());
 //     return recRemapPageTables(.pml4, tps, allocator, virtFromIndex(pidx)) catch return error.PageFault;
 // }
+
+const RemapperInfo = struct {
+    ps1g_count: usize = 0,
+    ps2m_count: usize = 0,
+    ps4k_count: usize = 0,
+
+    pub fn inc(self: *RemapperInfo, tps: PageSize) void {
+        switch (tps) {
+            .ps4k => self.ps4k_count += 1,
+            .ps2m => self.ps2m_count += 1,
+            .ps1g => self.ps1g_count += 1,
+        }
+    }
+};
+
+pub fn downmapPageTables(comptime tps: PageSize, allocator: std.mem.Allocator) !void {
+    comptime {
+        if (tps == .ps1g) @compileError("Downmapping to 1GB page is not supported");
+    }
+
+    log.debug("Downmapping page tables to {any}", .{tps});
+    defer log.debug("Downmapping page tables to {any} done", .{tps});
+
+    var remapper_info: RemapperInfo = .{};
+    // run with the recursive L4 page table address
+    try recDownmapPageTables(
+        .l4,
+        tps,
+        allocator,
+        RecInfo.pml4TableAddr(),
+        &remapper_info,
+    );
+
+    log.debug("Downmapping info: {any}", .{remapper_info});
+}
+
+fn recDownmapPageTables(comptime lvl: PageTableLevel, comptime tps: PageSize, allocator: std.mem.Allocator, rec_virt: usize, remapper_info: *RemapperInfo) !void {
+    const rec_pidx = buildIndex(rec_virt);
+    log.debug("\n\nDownmap:: lvl:{s} rec_virt: 0x{x}, pidx: {any}", .{ @tagName(lvl), rec_virt, rec_pidx });
+
+    //get page table slice
+    const table = pageSliceFromIndex(lvl, rec_pidx);
+
+    for (0..entries_count) |i| {
+        const entry_ptr = &table[i];
+        if (!entry_ptr.present) continue;
+
+        const curr_virt = @intFromPtr(entry_ptr);
+
+        //log.debug("Downmap lvl:{s} -> entry[{d}]: {any} ", .{ @tagName(lvl), i, entry_ptr.* });
+
+        if (try isLeaf(entry_ptr.*, lvl)) {
+            //get physical address info
+            //const phys_info = try physInfoFromVirt(curr_virt);
+            const ps = pageSizeFromLevel(lvl);
+
+            log.debug("Downmap lvl:{s} -> ps: {s} -> entry@0x{x}: {any}", .{ @tagName(lvl), @tagName(ps), curr_virt, entry_ptr.* });
+
+            remapper_info.inc(ps);
+            // //downmap the page entry if it too big
+            if (ps.gt(tps)) {
+                //log.debug("Downmap phys.info.ps > tps", .{});
+            }
+        } else if (lvl != .l1) {
+            var next_rec_pidx = rec_pidx;
+
+            switch (lvl) {
+                .l4 => next_rec_pidx.l4_idx = @intCast(i),
+                .l3 => next_rec_pidx.l3_idx = @intCast(i),
+                .l2 => next_rec_pidx.l2_idx = @intCast(i),
+                .l1 => unreachable,
+            }
+
+            try recDownmapPageTables(nextLevel(lvl), tps, allocator, virtFromIndex(next_rec_pidx), remapper_info);
+        }
+    }
+}
 
 // fn dupePageStructTable(comptime T: type, allocator: std.mem.Allocator, src: []T) ![]T {
 //     // no matter what page size we need to allocate 4kbytes aligned page, but if you use for instance Arena Allocator, then
@@ -814,7 +960,8 @@ pub fn init() !void {
     const vt = [_]usize{
         hhdmVirtFromPhys(0x4d00), //HHDM
         //hhdmVirtFromPhys(0x10_0000),
-        //hhdmVirtFromPhys(0x7fa61000),
+        hhdmVirtFromPhys(0x7fa61000),
+        hhdmVirtFromPhys(0x7fa61001),
         //hhdmVirtFromPhys(0x7fa63000),
         hhdmVirtFromPhys(0xfee0_0000),
     };
@@ -1016,7 +1163,7 @@ const PAT = struct {
 fn retrievePagePAT(page_entry_info: GenericEntryInfo) PATType {
     switch (page_entry_info.ps) {
         inline else => |ps| {
-            const entry: *PageLeafEntry(ps) = @ptrCast(page_entry_info.entry_ptr);
+            const entry: *LeafEntryTypeFromPageSize(ps) = @ptrCast(page_entry_info.entry_ptr);
             return pat.patFromPageFlags(entry.pat, entry.cache_disabled, entry.write_through);
         },
     }
@@ -1026,7 +1173,7 @@ fn setPagePAT(page_entry_info: GenericEntryInfo, req_pat: PATType) void {
     const page_req_pat_flags = pat.pageFlagsFromPat(req_pat);
     switch (page_entry_info.ps) {
         inline else => |ps| {
-            const entry: *PageLeafEntry(ps) = @ptrCast(page_entry_info.entry_ptr);
+            const entry: *LeafEntryTypeFromPageSize(ps) = @ptrCast(page_entry_info.entry_ptr);
             entry.pat = page_req_pat_flags.page_pat;
             entry.cache_disabled = page_req_pat_flags.page_pcd;
             entry.write_through = page_req_pat_flags.page_pwt;
