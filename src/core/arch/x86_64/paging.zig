@@ -81,17 +81,17 @@ fn RecursiveInfo(comptime recursive_index: u9) type {
         const sign = 0o177777 << 48; //sign extension (always 1 for second half of the memory space)
 
         // retrieve the page table indices of the address that we want to translate
-        pub inline fn pml4TableAddr() usize {
+        pub inline fn l4TableVirt() usize {
             return sign | (rec_idx << 39) | (rec_idx << 30) | (rec_idx << 21) | (rec_idx << 12);
         }
-        pub inline fn pdptTablAddr(pml4_idx: usize) usize {
-            return sign | (rec_idx << 39) | (rec_idx << 30) | (rec_idx << 21) | (pml4_idx << 12);
+        pub inline fn l3TablVirt(l4idx: usize) usize {
+            return sign | (rec_idx << 39) | (rec_idx << 30) | (rec_idx << 21) | (l4idx << 12);
         }
-        pub inline fn pdTableAddr(pml4_idx: usize, pdpt_idx: usize) usize {
-            return sign | (rec_idx << 39) | (rec_idx << 30) | (pml4_idx << 21) | (pdpt_idx << 12);
+        pub inline fn l2TableVirt(l4idx: usize, l3idx: usize) usize {
+            return sign | (rec_idx << 39) | (rec_idx << 30) | (l4idx << 21) | (l3idx << 12);
         }
-        pub inline fn ptTableAddr(pml4_idx: usize, pdpt_idx: usize, pd_idx: usize) usize {
-            return sign | (rec_idx << 39) | (pml4_idx << 30) | (pdpt_idx << 21) | (pd_idx << 12);
+        pub inline fn l1TableVirt(l4idx: usize, l3idx: usize, l2idx: usize) usize {
+            return sign | (rec_idx << 39) | (l4idx << 30) | (l3idx << 21) | (l2idx << 12);
         }
     };
 }
@@ -354,22 +354,37 @@ inline fn pageSizeFromLevel(lvl: PageTableLevel) PageSize {
 // }
 
 /// Return physical address from the page entry with the given Index
-fn physFromIndex(
-    entry: anytype,
-    pidx: Index,
-    comptime lvl: PageTableLevel,
-) usize {
+// fn physFromIndex(
+//     entry: anytype,
+//     pidx: Index,
+//     comptime lvl: PageTableLevel,
+// ) usize {
+//     return switch (lvl) {
+//         .l4 => entry.getPhysBase() + pidx.yieldOffset(.ps4k),
+//         .l3 => if (entry.huge)
+//             entry.getPhysBase() + pidx.yieldOffset(.ps1g)
+//         else
+//             entry.getPhysBase() + pidx.yieldOffset(.ps4k),
+//         .l2 => if (entry.huge)
+//             entry.getPhysBase() + pidx.yieldOffset(.ps2m)
+//         else
+//             entry.getPhysBase() + pidx.yieldOffset(.ps4k),
+//         .l1 => entry.getPhysBase() + pidx.yieldOffset(.ps4k),
+//     };
+// }
+
+fn physFromVA(entry: anytype, va: VirtualAddress, comptime lvl: PageTableLevel) usize {
     return switch (lvl) {
-        .l4 => entry.getPhysBase() + pidx.yieldOffset(.ps4k),
+        .l4 => entry.getPhysBase() + va.getPageOffset(.ps4k),
         .l3 => if (entry.huge)
-            entry.getPhysBase() + pidx.yieldOffset(.ps1g)
+            entry.getPhysBase() + va.getPageOffset(.ps1g)
         else
-            entry.getPhysBase() + pidx.yieldOffset(.ps4k),
+            entry.getPhysBase() + va.getPageOffset(.ps4k),
         .l2 => if (entry.huge)
-            entry.getPhysBase() + pidx.yieldOffset(.ps2m)
+            entry.getPhysBase() + va.getPageOffset(.ps2m)
         else
-            entry.getPhysBase() + pidx.yieldOffset(.ps4k),
-        .l1 => entry.getPhysBase() + pidx.yieldOffset(.ps4k),
+            entry.getPhysBase() + va.getPageOffset(.ps4k),
+        .l1 => entry.getPhysBase() + va.getPageOffset(.ps4k),
     };
 }
 
@@ -444,10 +459,32 @@ const VirtualAddress = packed struct(u64) {
         return @ptrFromInt(@as(usize, @bitCast(self.*)));
     }
 
+    // Set 12 bits offset, it's not a page offset
     pub fn withOffset(self: *const Self, offset: u12) VirtualAddress {
         var new = self.*;
         new.offset = offset;
         return new;
+    }
+
+    pub inline fn getPageOffset(self: *const Self, comptime page_size: PageSize) switch (page_size) {
+        .ps4k => u12,
+        .ps2m => u21,
+        .ps1g => u30,
+    } {
+        return switch (page_size) {
+            .ps4k => self.offset,
+            .ps2m => @truncate(@as(usize, @bitCast(self.*))),
+            .ps1g => @truncate(@as(usize, @bitCast(self.*))),
+        };
+    }
+
+    pub inline fn idxFromLvl(self: Self, comptime lvl: PageTableLevel) usize {
+        return switch (lvl) {
+            .l4 => self.l4idx,
+            .l3 => self.l3idx,
+            .l2 => self.l2idx,
+            .l1 => self.l1idx,
+        };
     }
 
     // Use it only to shift indexes in recursive indexing to go down the lower level
@@ -514,11 +551,44 @@ inline fn levelShift(comptime level: PageTableLevel) usize {
     };
 }
 
-fn pageSliceFromIndex(comptime lvl: PageTableLevel, pidx: Index) switch (lvl) {
-    // .l4 => ?[]L4Entry,
-    // .l3 => ?[]L3Entry,
-    // .l2 => ?[]L2Entry,
-    // .l1 => ?[]L1Entry,
+// fn pageSliceFromIndex(comptime lvl: PageTableLevel, pidx: Index) switch (lvl) {
+//     // .l4 => ?[]L4Entry,
+//     // .l3 => ?[]L3Entry,
+//     // .l2 => ?[]L2Entry,
+//     // .l1 => ?[]L1Entry,
+//     .l4 => []L4Entry,
+//     .l3 => []L3Entry,
+//     .l2 => []L2Entry,
+//     .l1 => []L1Entry,
+// } {
+//     switch (lvl) {
+//         .l4 => {
+//             return @as(*L4Table, @ptrFromInt(RecInfo.pml4TableAddr()))[0..entries_count];
+//         },
+//         .l3 => {
+//             return @as(*L3Table, @ptrFromInt(RecInfo.pdptTablAddr(pidx.l4_idx)))[0..entries_count];
+//         },
+//         .l2 => {
+//             return @as(*L2Table, @ptrFromInt(RecInfo.pdTableAddr(pidx.l4_idx, pidx.l3_idx)))[0..entries_count];
+//         },
+//         .l1 => {
+//             return @as(*L1Table, @ptrFromInt(RecInfo.ptTableAddr(pidx.l4_idx, pidx.l3_idx, pidx.l2_idx)))[0..entries_count];
+//         },
+//     }
+// }
+
+// //Depreciated
+// fn pageSliceFromVirt(comptime lvl: PageTableLevel, virt: usize) switch (lvl) {
+//     .l4 => []L4Entry,
+//     .l3 => []L3Entry,
+//     .l2 => []L2Entry,
+//     .l1 => []L1Entry,
+// } {
+//     const pidx = buildIndex(virt);
+//     return pageSliceFromIndex(lvl, pidx);
+// }
+
+fn pageSliceFromVA(comptime lvl: PageTableLevel, va: VirtualAddress) switch (lvl) {
     .l4 => []L4Entry,
     .l3 => []L3Entry,
     .l2 => []L2Entry,
@@ -526,42 +596,32 @@ fn pageSliceFromIndex(comptime lvl: PageTableLevel, pidx: Index) switch (lvl) {
 } {
     switch (lvl) {
         .l4 => {
-            return @as(*L4Table, @ptrFromInt(RecInfo.pml4TableAddr()))[0..entries_count];
+            return @as(*L4Table, @ptrFromInt(RecInfo.l4TableVirt()))[0..entries_count];
         },
         .l3 => {
-            return @as(*L3Table, @ptrFromInt(RecInfo.pdptTablAddr(pidx.l4_idx)))[0..entries_count];
+            return @as(*L3Table, @ptrFromInt(RecInfo.l3TablVirt(va.l4idx)))[0..entries_count];
         },
         .l2 => {
-            return @as(*L2Table, @ptrFromInt(RecInfo.pdTableAddr(pidx.l4_idx, pidx.l3_idx)))[0..entries_count];
+            return @as(*L2Table, @ptrFromInt(RecInfo.l2TableVirt(va.l4idx, va.l3idx)))[0..entries_count];
         },
         .l1 => {
-            return @as(*L1Table, @ptrFromInt(RecInfo.ptTableAddr(pidx.l4_idx, pidx.l3_idx, pidx.l2_idx)))[0..entries_count];
+            return @as(*L1Table, @ptrFromInt(RecInfo.l1TableVirt(va.l4idx, va.l3idx, va.l2idx)))[0..entries_count];
         },
     }
 }
 
-//Depreciated
-fn pageSliceFromVirt(comptime lvl: PageTableLevel, virt: usize) switch (lvl) {
-    .l4 => []L4Entry,
-    .l3 => []L3Entry,
-    .l2 => []L2Entry,
-    .l1 => []L1Entry,
-} {
-    const pidx = buildIndex(virt);
-    return pageSliceFromIndex(lvl, pidx);
-}
-
-fn pageSliceFromVA(comptime lvl: PageTableLevel, virt_addr: VirtualAddress) switch (lvl) {
+// Only for recursive virtual address
+fn pageSliceFromRecursiveVA(comptime lvl: PageTableLevel, rec_virt_addr: VirtualAddress) switch (lvl) {
     .l4 => []L4Entry,
     .l3 => []L3Entry,
     .l2 => []L2Entry,
     .l1 => []L1Entry,
 } {
     return switch (lvl) {
-        .l4 => virt_addr.asPtr(*L4Table)[0..entries_count],
-        .l3 => virt_addr.asPtr(*L3Table)[0..entries_count],
-        .l2 => virt_addr.asPtr(*L2Table)[0..entries_count],
-        .l1 => virt_addr.asPtr(*L1Table)[0..entries_count],
+        .l4 => rec_virt_addr.asPtr(*L4Table)[0..entries_count],
+        .l3 => rec_virt_addr.asPtr(*L3Table)[0..entries_count],
+        .l2 => rec_virt_addr.asPtr(*L2Table)[0..entries_count],
+        .l1 => rec_virt_addr.asPtr(*L1Table)[0..entries_count],
     };
 }
 
@@ -586,20 +646,20 @@ fn pageSliceFromVA(comptime lvl: PageTableLevel, virt_addr: VirtualAddress) swit
 
 /// Do not use it on recursive page tables!
 pub fn physInfoFromVirt(virt: usize) !PhysInfo {
-    const pidx = buildIndex(virt);
-    log.debug("physInfoFromVirt: virt:0x{x} pidx:{any}", .{ virt, pidx });
+    //const pidx = buildIndex(virt);
+    const va = VirtualAddress.fromUsize(virt);
+    log.debug("physInfoFromVirt: virt:0x{x} va:{any}", .{ virt, va });
 
     inline for (page_table_levels) |lvl| {
-        const curr_table = pageSliceFromIndex(lvl, pidx); //TODO: different table type for each level, make it inline
-        const idx = pidx.idxFromLvl(lvl);
+        const curr_table = pageSliceFromVA(lvl, va); //TODO: different table type for each level, make it inline
+        const idx = va.idxFromLvl(lvl);
         const entry = curr_table[idx];
         if (!entry.present) return error.PageFault;
 
         if (try isLeaf(entry, lvl)) {
             //const leaf_entry = @as(LeafEntryFromLevel(lvl), entry);
-
             // return .{ .phys_base = leaf_entry.getPhysBase(), .phys = physFromIndex(leaf_entry, pidx, lvl), .lvl = lvl, .ps = pageSizeFromFromLevel(lvl) };
-            return .{ .phys_base = entry.getPhysBase(), .phys = physFromIndex(entry, pidx, lvl), .lvl = lvl, .ps = pageSizeFromLevel(lvl) };
+            return .{ .phys_base = entry.getPhysBase(), .phys = physFromVA(entry, va, lvl), .lvl = lvl, .ps = pageSizeFromLevel(lvl) };
         }
     }
 
@@ -611,10 +671,10 @@ pub inline fn physFromVirt(virt: usize) !usize {
     return info.phys;
 }
 
-pub inline fn physBaseFromVirt(virt: usize) !usize {
-    const info = try physInfoFromVirt(virt);
-    return info.phys_base;
-}
+// pub inline fn physBaseFromVirt(virt: usize) !usize {
+//     const info = try physInfoFromVirt(virt);
+//     return info.phys_base;
+// }
 
 // Recursive get physical address from virtual address
 // TODO: refactor
@@ -739,7 +799,7 @@ pub fn downmapPageTables(comptime tps: PageSize, allocator: std.mem.Allocator) !
         .l4,
         tps,
         allocator,
-        VirtualAddress.fromUsize(RecInfo.pml4TableAddr()),
+        VirtualAddress.fromUsize(RecInfo.l4TableVirt()),
         &remapper_info,
     );
 
@@ -750,7 +810,7 @@ fn recDownmapPageTables(comptime lvl: PageTableLevel, comptime tps: PageSize, al
     log.debug("\n\nDownmap::start lvl:{s} rec_va(0x{x}):{any}", .{ @tagName(lvl), rec_va.toUsize(), rec_va });
 
     //get page table slice
-    const table = pageSliceFromVA(lvl, rec_va);
+    const table = pageSliceFromRecursiveVA(lvl, rec_va);
 
     var i: u10 = 0; //must be u(9+1) to stop at 512
     while (i < entries_count) : (i += 1) {
@@ -775,8 +835,8 @@ fn recDownmapPageTables(comptime lvl: PageTableLevel, comptime tps: PageSize, al
                 //log.debug("Downmap phys.info.ps > tps", .{});
             }
         } else if (lvl != .l1) {
-            const next_va = curr_va.shiftLeftIndexes(0);
-            try recDownmapPageTables(nextLevel(lvl), tps, allocator, next_va, remapper_info);
+            const next_rec_va = curr_va.shiftLeftIndexes(0);
+            try recDownmapPageTables(nextLevel(lvl), tps, allocator, next_rec_va, remapper_info);
         }
     }
 }
@@ -798,13 +858,13 @@ pub fn recLowestEntryFromVirtInfo(virt: usize) !GenericEntryInfo {
     var res: GenericEntryInfo = .{ .entry_ptr = null, .lvl = .l4, .ps = .ps4k };
 
     // check if pml4 entry is present
-    const pml4e = &@as(*L4Table, @ptrFromInt(RecInfo.pml4TableAddr()))[pidx.l4_idx];
+    const pml4e = &@as(*L4Table, @ptrFromInt(RecInfo.l4TableVirt()))[pidx.l4_idx];
     if (!pml4e.present) return error.PageFault;
 
     res = .{ .entry_ptr = @ptrCast(pml4e), .lvl = .l4, .ps = .ps4k };
 
     // check if pdpt entry is present
-    const pdpte = &@as(*L3Table, @ptrFromInt(RecInfo.pdptTablAddr(pidx.l4_idx)))[pidx.l3_idx];
+    const pdpte = &@as(*L3Table, @ptrFromInt(RecInfo.l3TablVirt(pidx.l4_idx)))[pidx.l3_idx];
 
     if (!pdpte.present) return res;
 
@@ -814,7 +874,7 @@ pub fn recLowestEntryFromVirtInfo(virt: usize) !GenericEntryInfo {
 
     res = .{ .entry_ptr = @ptrCast(pdpte), .lvl = .l3, .ps = .ps2m };
 
-    const pde = &@as(*L2Table, @ptrFromInt(RecInfo.pdTableAddr(pidx.l4_idx, pidx.l3_idx)))[pidx.l2_idx];
+    const pde = &@as(*L2Table, @ptrFromInt(RecInfo.l2TableVirt(pidx.l4_idx, pidx.l3_idx)))[pidx.l2_idx];
 
     if (!pde.present) return res;
 
@@ -822,7 +882,7 @@ pub fn recLowestEntryFromVirtInfo(virt: usize) !GenericEntryInfo {
         return .{ .entry_ptr = @ptrCast(pde), .lvl = .l2, .ps = .ps2m };
     }
 
-    const pte = &@as(*L1Table, @ptrFromInt(RecInfo.ptTableAddr(pidx.l4_idx, pidx.l3_idx, pidx.l2_idx)))[pidx.l1_idx];
+    const pte = &@as(*L1Table, @ptrFromInt(RecInfo.l1TableVirt(pidx.l4_idx, pidx.l3_idx, pidx.l2_idx)))[pidx.l1_idx];
     if (!pte.present) return res;
 
     return .{ .entry_ptr = @ptrCast(pte), .lvl = .l1, .ps = .ps4k };
@@ -1015,17 +1075,17 @@ pub fn init() !void {
         hhdmVirtFromPhys(0x4d00), //HHDM
         //hhdmVirtFromPhys(0x10_0000),
         hhdmVirtFromPhys(0x7fa61000),
-        hhdmVirtFromPhys(0x7fa61001),
+        //?hhdmVirtFromPhys(0x7fa61001),
         //hhdmVirtFromPhys(0x7fa63000),
-        hhdmVirtFromPhys(0xfee0_0000),
-        0xffffff7fa0003ff8,
+        //?hhdmVirtFromPhys(0xfee0_0000),
+        //?0xffffff7fa0003ff8,
         //0xffffff4020100000,
         //0xffffff7fa0100000,
-        0xffffff7fbfdfe000,
-        0xffffff7fbfd00000,
+        //0xffffff7fbfdfe000,
+        //0xffffff7fbfd00000,
     };
     for (vt) |vaddr| {
-        logVirtInfo(vaddr);
+        //?logVirtInfo(vaddr);
 
         // const res = recPhysFromVirtInfo(vaddr) catch |err| {
         //     log.err("Call function recPhysFromVirtInfo: 0x{x} -> error: {}", .{ vaddr, err });
