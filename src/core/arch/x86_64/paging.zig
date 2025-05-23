@@ -418,6 +418,51 @@ const Index = struct {
     }
 };
 
+const VirtualAddress = packed struct(u64) {
+    const Self = @This();
+
+    offset: u12 = 0, //12 bites for 4k pages, 21 for 2m pages, 30 for 1g pages
+    l1idx: u9 = 0, //pt // for 1GB pages is a high part of the index
+    l2idx: u9 = 0, //pd //for 1GB and 2MB pages is higher part of the index
+    l3idx: u9 = 0, //pdpt
+    l4idx: u9 = 0, //pml4
+    rsvrd: u16 = 0, //replicated bit 47
+
+    pub fn fromUsize(virt_addr: usize) VirtualAddress {
+        log.debug("Downmap::fromUsize: virt_addr:0x{x}", .{virt_addr});
+        return @as(VirtualAddress, @bitCast(virt_addr));
+    }
+
+    pub fn toUsize(self: *const Self) usize {
+        return @as(usize, @bitCast(self.*));
+    }
+
+    pub fn asPtr(self: *const Self, comptime T: type) T {
+        const ptr_ti = @typeInfo(T);
+        if (ptr_ti != .pointer) @compileError("Only pointer type is supported in the ImplPtr argument");
+
+        return @ptrFromInt(@as(usize, @bitCast(self.*)));
+    }
+
+    pub fn withOffset(self: *const Self, offset: u12) VirtualAddress {
+        var new = self.*;
+        new.offset = offset;
+        return new;
+    }
+
+    // Use it only to shift indexes in recursive indexing to go down the lower level
+    pub fn shiftLeftIndexes(self: *const Self, offset: u12) VirtualAddress {
+        var res = self.*;
+        res.l4idx = self.l3idx;
+        res.l3idx = self.l2idx;
+        res.l2idx = self.l1idx;
+        res.l1idx = @intCast(self.offset);
+        res.offset = offset;
+
+        return res;
+    }
+};
+
 /// Get paging indexes from virtual address
 /// It maps 48-bit virtual address to 9-bit indexes of all 52 physical address bits
 /// src osdev: "Virtual addresses in 64-bit mode must be canonical, that is,
@@ -430,7 +475,7 @@ pub inline fn buildIndex(virt: usize) Index {
         .l3_idx = @truncate(virt >> 30), //39->30
         .l2_idx = @truncate(virt >> 21), //30->21
         .l1_idx = @truncate(virt >> 12), //21->12
-        .offset = @truncate(virt), //12 bites
+        .offset = @truncate(virt), //12 bytes
     };
 }
 
@@ -495,6 +540,7 @@ fn pageSliceFromIndex(comptime lvl: PageTableLevel, pidx: Index) switch (lvl) {
     }
 }
 
+//Depreciated
 fn pageSliceFromVirt(comptime lvl: PageTableLevel, virt: usize) switch (lvl) {
     .l4 => []L4Entry,
     .l3 => []L3Entry,
@@ -503,6 +549,20 @@ fn pageSliceFromVirt(comptime lvl: PageTableLevel, virt: usize) switch (lvl) {
 } {
     const pidx = buildIndex(virt);
     return pageSliceFromIndex(lvl, pidx);
+}
+
+fn pageSliceFromVA(comptime lvl: PageTableLevel, virt_addr: VirtualAddress) switch (lvl) {
+    .l4 => []L4Entry,
+    .l3 => []L3Entry,
+    .l2 => []L2Entry,
+    .l1 => []L1Entry,
+} {
+    return switch (lvl) {
+        .l4 => virt_addr.asPtr(*L4Table)[0..entries_count],
+        .l3 => virt_addr.asPtr(*L3Table)[0..entries_count],
+        .l2 => virt_addr.asPtr(*L2Table)[0..entries_count],
+        .l1 => virt_addr.asPtr(*L1Table)[0..entries_count],
+    };
 }
 
 // /// Returns the next level table address, e.g.
@@ -527,6 +587,7 @@ fn pageSliceFromVirt(comptime lvl: PageTableLevel, virt: usize) switch (lvl) {
 /// Do not use it on recursive page tables!
 pub fn physInfoFromVirt(virt: usize) !PhysInfo {
     const pidx = buildIndex(virt);
+    log.debug("physInfoFromVirt: virt:0x{x} pidx:{any}", .{ virt, pidx });
 
     inline for (page_table_levels) |lvl| {
         const curr_table = pageSliceFromIndex(lvl, pidx); //TODO: different table type for each level, make it inline
@@ -678,34 +739,35 @@ pub fn downmapPageTables(comptime tps: PageSize, allocator: std.mem.Allocator) !
         .l4,
         tps,
         allocator,
-        RecInfo.pml4TableAddr(),
+        VirtualAddress.fromUsize(RecInfo.pml4TableAddr()),
         &remapper_info,
     );
 
     log.debug("Downmapping info: {any}", .{remapper_info});
 }
 
-fn recDownmapPageTables(comptime lvl: PageTableLevel, comptime tps: PageSize, allocator: std.mem.Allocator, rec_virt: usize, remapper_info: *RemapperInfo) !void {
-    const rec_pidx = buildIndex(rec_virt);
-    log.debug("\n\nDownmap:: lvl:{s} rec_virt: 0x{x}, pidx: {any}", .{ @tagName(lvl), rec_virt, rec_pidx });
+fn recDownmapPageTables(comptime lvl: PageTableLevel, comptime tps: PageSize, allocator: std.mem.Allocator, rec_va: VirtualAddress, remapper_info: *RemapperInfo) !void {
+    log.debug("\n\nDownmap::start lvl:{s} rec_va(0x{x}):{any}", .{ @tagName(lvl), rec_va.toUsize(), rec_va });
 
     //get page table slice
-    const table = pageSliceFromIndex(lvl, rec_pidx);
+    const table = pageSliceFromVA(lvl, rec_va);
 
-    for (0..entries_count) |i| {
+    var i: u10 = 0; //must be u(9+1) to stop at 512
+    while (i < entries_count) : (i += 1) {
         const entry_ptr = &table[i];
+        const curr_va = rec_va.withOffset(i);
+
         if (!entry_ptr.present) continue;
 
-        const curr_virt = @intFromPtr(entry_ptr);
-
-        //log.debug("Downmap lvl:{s} -> entry[{d}]: {any} ", .{ @tagName(lvl), i, entry_ptr.* });
+        //log.debug("Downmap::entry[{d}] lvl:{s} -> entry[{d}]: {any} ", .{ i, @tagName(lvl), i, entry_ptr.* });
 
         if (try isLeaf(entry_ptr.*, lvl)) {
             //get physical address info
             //const phys_info = try physInfoFromVirt(curr_virt);
+
             const ps = pageSizeFromLevel(lvl);
 
-            log.debug("Downmap lvl:{s} -> ps: {s} -> entry@0x{x}: {any}", .{ @tagName(lvl), @tagName(ps), curr_virt, entry_ptr.* });
+            log.debug("Downmap::isLeaf lvl:{s} -> ps: {s} -> entry@{any}: {any}", .{ @tagName(lvl), @tagName(ps), curr_va, entry_ptr.* });
 
             remapper_info.inc(ps);
             // //downmap the page entry if it too big
@@ -713,16 +775,8 @@ fn recDownmapPageTables(comptime lvl: PageTableLevel, comptime tps: PageSize, al
                 //log.debug("Downmap phys.info.ps > tps", .{});
             }
         } else if (lvl != .l1) {
-            var next_rec_pidx = rec_pidx;
-
-            switch (lvl) {
-                .l4 => next_rec_pidx.l4_idx = @intCast(i),
-                .l3 => next_rec_pidx.l3_idx = @intCast(i),
-                .l2 => next_rec_pidx.l2_idx = @intCast(i),
-                .l1 => unreachable,
-            }
-
-            try recDownmapPageTables(nextLevel(lvl), tps, allocator, virtFromIndex(next_rec_pidx), remapper_info);
+            const next_va = curr_va.shiftLeftIndexes(0);
+            try recDownmapPageTables(nextLevel(lvl), tps, allocator, next_va, remapper_info);
         }
     }
 }
@@ -964,6 +1018,11 @@ pub fn init() !void {
         hhdmVirtFromPhys(0x7fa61001),
         //hhdmVirtFromPhys(0x7fa63000),
         hhdmVirtFromPhys(0xfee0_0000),
+        0xffffff7fa0003ff8,
+        //0xffffff4020100000,
+        //0xffffff7fa0100000,
+        0xffffff7fbfdfe000,
+        0xffffff7fbfd00000,
     };
     for (vt) |vaddr| {
         logVirtInfo(vaddr);
