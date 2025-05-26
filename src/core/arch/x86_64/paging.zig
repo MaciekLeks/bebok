@@ -663,6 +663,8 @@ fn recDownmapPageTables(comptime lvl: PageTableLevel, comptime tps: PageSize, al
 fn getLowestEntryFromVirt(virt: usize) !GenEntryInfo {
     const va = VirtualAddress.fromUsize(virt);
     var res: GenEntryInfo = .{};
+    log.debug("getLowestEntryFromVirt start: virt:0x{x} va:{any}", .{ virt, va });
+    defer log.debug("getLowestEntryFromVirt done: virt:0x{x} va:{any} -> res: {any}", .{ virt, va, res });
 
     inline for (page_table_levels) |lvl| {
         const curr_table = pageSliceFromVA(lvl, va);
