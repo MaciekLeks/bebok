@@ -474,8 +474,8 @@ pub inline fn idxFromVirt(virt: usize, lvl: PageTableLevel) usize {
 }
 
 /// Next level of the page table
-fn nextLevel(level: PageTableLevel) PageTableLevel {
-    return switch (level) {
+fn nextLevel(comptime lvl: PageTableLevel) PageTableLevel {
+    return switch (lvl) {
         .l4 => .l3,
         .l3 => .l2,
         .l2 => .l1,
@@ -501,16 +501,16 @@ fn pageSliceFromVA(comptime lvl: PageTableLevel, va: VirtualAddress) switch (lvl
 } {
     switch (lvl) {
         .l4 => {
-            return @as(*L4Table, @ptrFromInt(VirtualAddress.recursiveL4().toUsize()))[0..entries_count];
+            return VirtualAddress.recursiveL4().asPtr(*L4Table)[0..entries_count];
         },
         .l3 => {
-            return @as(*L3Table, @ptrFromInt(VirtualAddress.recursiveL3(va.l4idx).toUsize()))[0..entries_count];
+            return VirtualAddress.recursiveL3(va.l4idx).asPtr(*L3Table)[0..entries_count];
         },
         .l2 => {
-            return @as(*L2Table, @ptrFromInt(VirtualAddress.recursiveL2(va.l4idx, va.l3idx).toUsize()))[0..entries_count];
+            return VirtualAddress.recursiveL2(va.l4idx, va.l3idx).asPtr(*L2Table)[0..entries_count];
         },
         .l1 => {
-            return @as(*L1Table, @ptrFromInt(VirtualAddress.recursiveL1(va.l4idx, va.l3idx, va.l2idx).toUsize()))[0..entries_count];
+            return VirtualAddress.recursiveL1(va.l4idx, va.l3idx, va.l2idx).asPtr(*L1Table)[0..entries_count];
         },
     }
 }
