@@ -483,40 +483,23 @@ fn nextLevel(comptime lvl: PageTableLevel) PageTableLevel {
     };
 }
 
-/// Get the shift amount for the given level
-// inline fn levelShift(comptime level: PageTableLevel) usize {
-//     return switch (level) {
-//         .l4 => 39,
-//         .l3 => 30,
-//         .l2 => 21,
-//         .l1 => 12,
-//     };
-// }
-
+// Do not use it with recursive virtual addresses!
 fn pageSliceFromVA(comptime lvl: PageTableLevel, va: VirtualAddress) switch (lvl) {
     .l4 => []L4Entry,
     .l3 => []L3Entry,
     .l2 => []L2Entry,
     .l1 => []L1Entry,
 } {
-    switch (lvl) {
-        .l4 => {
-            return VirtualAddress.recursiveL4().asPtr(*L4Table)[0..entries_count];
-        },
-        .l3 => {
-            return VirtualAddress.recursiveL3(va.l4idx).asPtr(*L3Table)[0..entries_count];
-        },
-        .l2 => {
-            return VirtualAddress.recursiveL2(va.l4idx, va.l3idx).asPtr(*L2Table)[0..entries_count];
-        },
-        .l1 => {
-            return VirtualAddress.recursiveL1(va.l4idx, va.l3idx, va.l2idx).asPtr(*L1Table)[0..entries_count];
-        },
-    }
+    return switch (lvl) {
+        .l4 => VirtualAddress.recursiveL4().asPtr(*L4Table)[0..entries_count],
+        .l3 => VirtualAddress.recursiveL3(va.l4idx).asPtr(*L3Table)[0..entries_count],
+        .l2 => VirtualAddress.recursiveL2(va.l4idx, va.l3idx).asPtr(*L2Table)[0..entries_count],
+        .l1 => VirtualAddress.recursiveL1(va.l4idx, va.l3idx, va.l2idx).asPtr(*L1Table)[0..entries_count],
+    };
 }
 
 // Only for recursive virtual address
-fn pageSliceFromRecursiveVA(comptime lvl: PageTableLevel, rec_virt_addr: VirtualAddress) switch (lvl) {
+fn pageSliceFromVARecursive(comptime lvl: PageTableLevel, rec_virt_addr: VirtualAddress) switch (lvl) {
     .l4 => []L4Entry,
     .l3 => []L3Entry,
     .l2 => []L2Entry,
@@ -578,11 +561,10 @@ pub fn downmapPageTables(comptime tps: PageSize, allocator: std.mem.Allocator) !
 
     var remapper_info: RemapperInfo = .{};
     // run with the recursive L4 page table address
-    try recDownmapPageTables(
+    try downmapPageTablesRecursive(
         .l4,
         tps,
         allocator,
-        //VirtualAddress.fromUsize(RecInfo.l4TableVirt()),
         VirtualAddress.recursiveL4(),
         &remapper_info,
     );
@@ -590,11 +572,11 @@ pub fn downmapPageTables(comptime tps: PageSize, allocator: std.mem.Allocator) !
     log.debug("Downmapping info: {any}", .{remapper_info});
 }
 
-fn recDownmapPageTables(comptime lvl: PageTableLevel, comptime tps: PageSize, allocator: std.mem.Allocator, rec_va: VirtualAddress, remapper_info: *RemapperInfo) !void {
+fn downmapPageTablesRecursive(comptime lvl: PageTableLevel, comptime tps: PageSize, allocator: std.mem.Allocator, rec_va: VirtualAddress, remapper_info: *RemapperInfo) !void {
     log.debug("\n\nDownmap::start lvl:{s} rec_va(0x{x}):{any}", .{ @tagName(lvl), rec_va.toUsize(), rec_va });
 
     //get page table slice
-    const table = pageSliceFromRecursiveVA(lvl, rec_va);
+    const table = pageSliceFromVARecursive(lvl, rec_va);
 
     var i: u10 = 0; //must be u(9+1) to stop at 512
     while (i < entries_count) : (i += 1) {
@@ -620,7 +602,7 @@ fn recDownmapPageTables(comptime lvl: PageTableLevel, comptime tps: PageSize, al
             }
         } else if (lvl != .l1) {
             const next_rec_va = curr_va.recursiveShiftLeftIndexes(0);
-            try recDownmapPageTables(nextLevel(lvl), tps, allocator, next_rec_va, remapper_info);
+            try downmapPageTablesRecursive(nextLevel(lvl), tps, allocator, next_rec_va, remapper_info);
         }
     }
 }
