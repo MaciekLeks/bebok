@@ -307,7 +307,7 @@ inline fn isLeaf(entry: anytype, comptime lvl: PageTableLevel) !bool {
     };
 }
 
-inline fn pageSizeFromLevel(lvl: PageTableLevel) PageSize {
+inline fn pageSizeFromLevel(comptime lvl: PageTableLevel) PageSize {
     return switch (lvl) {
         .l4 => unreachable,
         .l3 => .ps1g,
