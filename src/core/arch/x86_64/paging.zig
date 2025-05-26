@@ -641,7 +641,7 @@ fn recDownmapPageTables(comptime lvl: PageTableLevel, comptime tps: PageSize, al
                 //log.debug("Downmap phys.info.ps > tps", .{});
             }
         } else if (lvl != .l1) {
-            const next_rec_va = curr_va.shiftLeftIndexes(0);
+            const next_rec_va = curr_va.recursiveShiftLeftIndexes(0);
             try recDownmapPageTables(nextLevel(lvl), tps, allocator, next_rec_va, remapper_info);
         }
     }
