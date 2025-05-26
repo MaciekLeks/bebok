@@ -605,7 +605,8 @@ pub fn downmapPageTables(comptime tps: PageSize, allocator: std.mem.Allocator) !
         .l4,
         tps,
         allocator,
-        VirtualAddress.fromUsize(RecInfo.l4TableVirt()),
+        //VirtualAddress.fromUsize(RecInfo.l4TableVirt()),
+        VirtualAddress.recursiveL4(),
         &remapper_info,
     );
 
