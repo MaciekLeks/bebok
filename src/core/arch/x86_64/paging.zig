@@ -57,7 +57,6 @@ const PageTableLevel = enum(u3) {
 pub const default_page_size: PageSize = @enumFromInt(config.mem_page_size);
 const entries_count: usize = 512;
 const default_recursive_index: u9 = 510; //0x1FE
-const RecInfo = RecursiveInfo(default_recursive_index); //0x776
 const page_table_levels = [_]PageTableLevel{ .l4, .l3, .l2, .l1 };
 
 //variables
@@ -74,27 +73,6 @@ const PhysInfo = struct {
     lvl: PageTableLevel,
     ps: PageSize,
 };
-
-fn RecursiveInfo(comptime recursive_index: u9) type {
-    return struct {
-        const rec_idx: usize = recursive_index; //510
-        const sign = 0o177777 << 48; //sign extension (always 1 for second half of the memory space)
-
-        // retrieve the page table indices of the address that we want to translate
-        pub inline fn l4TableVirt() usize {
-            return sign | (rec_idx << 39) | (rec_idx << 30) | (rec_idx << 21) | (rec_idx << 12);
-        }
-        pub inline fn l3TablVirt(l4idx: usize) usize {
-            return sign | (rec_idx << 39) | (rec_idx << 30) | (rec_idx << 21) | (l4idx << 12);
-        }
-        pub inline fn l2TableVirt(l4idx: usize, l3idx: usize) usize {
-            return sign | (rec_idx << 39) | (rec_idx << 30) | (l4idx << 21) | (l3idx << 12);
-        }
-        pub inline fn l1TableVirt(l4idx: usize, l3idx: usize, l2idx: usize) usize {
-            return sign | (rec_idx << 39) | (l4idx << 30) | (l3idx << 21) | (l2idx << 12);
-        }
-    };
-}
 
 // the lowest level entry stoing the frame address
 fn LeafEntryTypeFromPageSize(comptime ps: PageSize) type {
@@ -419,7 +397,7 @@ const VirtualAddress = packed struct(u64) {
     }
 
     // Use it only to shift indexes in recursive indexing to go down the lower level
-    pub fn shiftLeftIndexes(self: *const Self, offset: u12) VirtualAddress {
+    pub fn recursiveShiftLeftIndexes(self: *const Self, offset: u12) VirtualAddress {
         var res = self.*;
         res.l4idx = self.l3idx;
         res.l3idx = self.l2idx;
@@ -430,64 +408,63 @@ const VirtualAddress = packed struct(u64) {
         return res;
     }
 
-    //TODO: uncomment if rec logic put back here
-    // pub fn recursiveL4() VirtualAddress {
-    //     return VirtualAddress{
-    //         .offset = 0,
-    //         .l1idx = default_recursive_index,
-    //         .l2idx = default_recursive_index,
-    //         .l3idx = default_recursive_index,
-    //         .l4idx = default_recursive_index,
-    //         .rsvrd = 0xFFFF,
-    //     };
-    // }
+    pub fn recursiveL4() VirtualAddress {
+        return VirtualAddress{
+            .offset = 0,
+            .l1idx = default_recursive_index,
+            .l2idx = default_recursive_index,
+            .l3idx = default_recursive_index,
+            .l4idx = default_recursive_index,
+            .rsvrd = 0xFFFF,
+        };
+    }
 
-    // pub fn recursiveL3(l4_idx: u9) VirtualAddress {
-    //     return VirtualAddress{
-    //         .offset = 0,
-    //         .l1idx = l4_idx,
-    //         .l2idx = default_recursive_index,
-    //         .l3idx = default_recursive_index,
-    //         .l4idx = default_recursive_index,
-    //         .rsvrd = 0xFFFF,
-    //     };
-    // }
+    pub fn recursiveL3(l4_idx: u9) VirtualAddress {
+        return VirtualAddress{
+            .offset = 0,
+            .l1idx = l4_idx,
+            .l2idx = default_recursive_index,
+            .l3idx = default_recursive_index,
+            .l4idx = default_recursive_index,
+            .rsvrd = 0xFFFF,
+        };
+    }
 
-    // pub fn recursiveL2(l4_idx: u9, l3_idx: u9) VirtualAddress {
-    //     return VirtualAddress{
-    //         .offset = 0,
-    //         .l1idx = l3_idx,
-    //         .l2idx = l4_idx,
-    //         .l3idx = default_recursive_index,
-    //         .l4idx = default_recursive_index,
-    //         .rsvrd = 0xFFFF,
-    //     };
-    // }
+    pub fn recursiveL2(l4_idx: u9, l3_idx: u9) VirtualAddress {
+        return VirtualAddress{
+            .offset = 0,
+            .l1idx = l3_idx,
+            .l2idx = l4_idx,
+            .l3idx = default_recursive_index,
+            .l4idx = default_recursive_index,
+            .rsvrd = 0xFFFF,
+        };
+    }
 
-    // pub fn recursiveL1(l4_idx: u9, l3_idx: u9, l2_idx: u9) VirtualAddress {
-    //     return VirtualAddress{
-    //         .offset = 0,
-    //         .l1idx = l2_idx,
-    //         .l2idx = l3_idx,
-    //         .l3idx = l4_idx,
-    //         .l4idx = default_recursive_index,
-    //         .rsvrd = 0xFFFF,
-    //     };
-    // }
+    pub fn recursiveL1(l4_idx: u9, l3_idx: u9, l2_idx: u9) VirtualAddress {
+        return VirtualAddress{
+            .offset = 0,
+            .l1idx = l2_idx,
+            .l2idx = l3_idx,
+            .l3idx = l4_idx,
+            .l4idx = default_recursive_index,
+            .rsvrd = 0xFFFF,
+        };
+    }
 
-    // pub fn recursive(level: PageTableLevel, indices: anytype) VirtualAddress {
-    //     return switch (level) {
-    //         .l4 => Self.recursiveL4(),
-    //         .l3 => Self.recursiveL3(indices[0]),
-    //         .l2 => Self.recursiveL2(indices[0], indices[1]),
-    //         .l1 => Self.recursiveL1(indices[0], indices[1], indices[2]),
-    //     };
-    // }
+    pub fn recursive(level: PageTableLevel, indices: anytype) VirtualAddress {
+        return switch (level) {
+            .l4 => Self.recursiveL4(),
+            .l3 => Self.recursiveL3(indices[0]),
+            .l2 => Self.recursiveL2(indices[0], indices[1]),
+            .l1 => Self.recursiveL1(indices[0], indices[1], indices[2]),
+        };
+    }
 
-    // pub fn isRecursive(self: *const Self) bool {
-    //     // Che,geck if the address is recursive
-    //     return self.l4idx == default_page_size and self.rsvrd == 0xFFFF;
-    // }
+    pub fn isRecursive(self: *const Self) bool {
+        // Che,geck if the address is recursive
+        return self.l4idx == default_page_size and self.rsvrd == 0xFFFF;
+    }
 };
 
 /// Use this if there is no need to get the whole Index
@@ -507,14 +484,14 @@ fn nextLevel(level: PageTableLevel) PageTableLevel {
 }
 
 /// Get the shift amount for the given level
-inline fn levelShift(comptime level: PageTableLevel) usize {
-    return switch (level) {
-        .l4 => 39,
-        .l3 => 30,
-        .l2 => 21,
-        .l1 => 12,
-    };
-}
+// inline fn levelShift(comptime level: PageTableLevel) usize {
+//     return switch (level) {
+//         .l4 => 39,
+//         .l3 => 30,
+//         .l2 => 21,
+//         .l1 => 12,
+//     };
+// }
 
 fn pageSliceFromVA(comptime lvl: PageTableLevel, va: VirtualAddress) switch (lvl) {
     .l4 => []L4Entry,
@@ -524,16 +501,16 @@ fn pageSliceFromVA(comptime lvl: PageTableLevel, va: VirtualAddress) switch (lvl
 } {
     switch (lvl) {
         .l4 => {
-            return @as(*L4Table, @ptrFromInt(RecInfo.l4TableVirt()))[0..entries_count];
+            return @as(*L4Table, @ptrFromInt(VirtualAddress.recursiveL4().toUsize()))[0..entries_count];
         },
         .l3 => {
-            return @as(*L3Table, @ptrFromInt(RecInfo.l3TablVirt(va.l4idx)))[0..entries_count];
+            return @as(*L3Table, @ptrFromInt(VirtualAddress.recursiveL3(va.l4idx).toUsize()))[0..entries_count];
         },
         .l2 => {
-            return @as(*L2Table, @ptrFromInt(RecInfo.l2TableVirt(va.l4idx, va.l3idx)))[0..entries_count];
+            return @as(*L2Table, @ptrFromInt(VirtualAddress.recursiveL2(va.l4idx, va.l3idx).toUsize()))[0..entries_count];
         },
         .l1 => {
-            return @as(*L1Table, @ptrFromInt(RecInfo.l1TableVirt(va.l4idx, va.l3idx, va.l2idx)))[0..entries_count];
+            return @as(*L1Table, @ptrFromInt(VirtualAddress.recursiveL1(va.l4idx, va.l3idx, va.l2idx).toUsize()))[0..entries_count];
         },
     }
 }
