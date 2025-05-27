@@ -345,7 +345,7 @@ pub const L1Table = [entries_count]L1Entry;
 const VirtualAddress = packed struct(u64) {
     const Self = @This();
 
-    offset: u12 = 0, //12 bites for 4k pages, 21 for 2m pages, 30 for 1g pages
+    disp: u12 = 0, //displacement 12 bites for 4k pages, for 2m and 1g pages is only a part of the whole 21bits or 30bits offsets
     l1idx: u9 = 0, //pt // for 1GB pages is a high part of the index
     l2idx: u9 = 0, //pd //for 1GB and 2MB pages is higher part of the index
     l3idx: u9 = 0, //pdpt
@@ -368,20 +368,21 @@ const VirtualAddress = packed struct(u64) {
         return @ptrFromInt(@as(usize, @bitCast(self.*)));
     }
 
-    // Set 12 bits offset, it's not a page offset
-    pub fn withOffset(self: *const Self, offset: u12) VirtualAddress {
+    /// Create a VirtualAddress from a raw usize value with a given 12bits offset.
+    pub fn withDisp(self: *const Self, disp: u12) VirtualAddress {
         var new = self.*;
-        new.offset = offset;
+        new.disp = disp;
         return new;
     }
 
+    /// Returns the page offset based on the page size.
     pub inline fn getPageOffset(self: *const Self, comptime page_size: PageSize) switch (page_size) {
         .ps4k => u12,
         .ps2m => u21,
         .ps1g => u30,
     } {
         return switch (page_size) {
-            .ps4k => self.offset,
+            .ps4k => self.disp,
             .ps2m => @truncate(@as(usize, @bitCast(self.*))),
             .ps1g => @truncate(@as(usize, @bitCast(self.*))),
         };
@@ -402,15 +403,15 @@ const VirtualAddress = packed struct(u64) {
         res.l4idx = self.l3idx;
         res.l3idx = self.l2idx;
         res.l2idx = self.l1idx;
-        res.l1idx = @intCast(self.offset);
-        res.offset = offset;
+        res.l1idx = @intCast(self.disp);
+        res.disp = offset;
 
         return res;
     }
 
     pub fn recursiveL4() VirtualAddress {
         return VirtualAddress{
-            .offset = 0,
+            .disp = 0,
             .l1idx = default_recursive_index,
             .l2idx = default_recursive_index,
             .l3idx = default_recursive_index,
@@ -421,7 +422,7 @@ const VirtualAddress = packed struct(u64) {
 
     pub fn recursiveL3(l4_idx: u9) VirtualAddress {
         return VirtualAddress{
-            .offset = 0,
+            .disp = 0,
             .l1idx = l4_idx,
             .l2idx = default_recursive_index,
             .l3idx = default_recursive_index,
@@ -432,7 +433,7 @@ const VirtualAddress = packed struct(u64) {
 
     pub fn recursiveL2(l4_idx: u9, l3_idx: u9) VirtualAddress {
         return VirtualAddress{
-            .offset = 0,
+            .disp = 0,
             .l1idx = l3_idx,
             .l2idx = l4_idx,
             .l3idx = default_recursive_index,
@@ -443,7 +444,7 @@ const VirtualAddress = packed struct(u64) {
 
     pub fn recursiveL1(l4_idx: u9, l3_idx: u9, l2_idx: u9) VirtualAddress {
         return VirtualAddress{
-            .offset = 0,
+            .disp = 0,
             .l1idx = l2_idx,
             .l2idx = l3_idx,
             .l3idx = l4_idx,
@@ -581,7 +582,7 @@ fn downmapPageTablesRecursive(comptime lvl: PageTableLevel, comptime tps: PageSi
     var i: u10 = 0; //must be u(9+1) to stop at 512
     while (i < entries_count) : (i += 1) {
         const entry_ptr = &table[i];
-        const curr_va = rec_va.withOffset(i);
+        const curr_va = rec_va.withDisp(i);
 
         if (!entry_ptr.present) continue;
 
