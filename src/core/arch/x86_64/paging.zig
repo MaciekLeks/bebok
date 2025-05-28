@@ -217,7 +217,7 @@ pub fn GenPageEntry(comptime ps: PageSize, comptime lvl: PageTableLevel) type {
                 execute_disable: bool = false, //63
 
                 pub inline fn getPhysBase(self: Self) usize {
-                    return @as(usize, self.aligned_address_1gbytes) << 30;
+                    return @as(usize, self.aligned_address_2mbytes) << 30;
                 }
 
                 //Depreciated
@@ -627,11 +627,12 @@ pub fn downmapPageTables(comptime tps: PageSize, allocator: std.mem.Allocator) !
     const old_l4 = pageSliceFromVARecursive(.l4, VirtualAddress.recursiveL4());
     const new_l4 = try dupePageTable(L4Entry, allocator, old_l4, tps, &remapper_info);
 
-    // set l4_table address in CR3
-    //TODO:
-    _ = new_l4; // to avoid unused variable warning
-
     // set recursive L4 address
+    log.debug("Downmapping::dupePageTable: old_l4_ptr: {*}, new_l4_ptr: {*}", .{ old_l4, new_l4 });
+    const new_l4_phys = try physFromVirt(@intFromPtr(new_l4.ptr));
+    new_l4[default_recursive_index].aligned_address_4kbytes = @truncate(new_l4_phys >> 12);
+
+    // set l4_table address in CR3
     // TODO:
 
     // Flush the TLB
@@ -677,8 +678,10 @@ fn dupePageTable(comptime T: type, allocator: std.mem.Allocator, src: []T, compt
                     log.debug("Downmapping::dupePageTable @@@L3/2", .{});
                 } else {
                     if (tps.lt(.ps1g)) {
-                        // log.debug("Downmap: L3Entry is leaf, but tps < 1GB, so we need to downmap it", .{});
-                    }
+                        log.debug("Downmap: L3Entry is leaf, but tps < 1GB, so we need to downmap it", .{});
+                        //TODO: implement downmapping for 1GB page to smaller size
+                        return error.NotImplemented; // cannot downmap 1GB page to smaller size
+                    } else
 
                     //update statistics
                     remapper_info.inc(.ps1g);
@@ -695,7 +698,9 @@ fn dupePageTable(comptime T: type, allocator: std.mem.Allocator, src: []T, compt
                     log.debug("Downmapping::dupePageTable @@@L2/2 dst_entry:{any}", .{dst_entry.*});
                 } else {
                     if (tps.lt(.ps2m)) {
-                        // log.debug("Downmap: L2Entry is leaf, but tps < 2MB, so we need to downmap it", .{});
+                        dst_entry.* = try downmap2MBPage(allocator, @bitCast(src_entry));
+                    } else {
+                        dst_entry.* = src_entry; // Stay as is, no downmapping needed
                     }
 
                     //update statistics
@@ -714,6 +719,42 @@ fn dupePageTable(comptime T: type, allocator: std.mem.Allocator, src: []T, compt
     }
 
     return dst;
+}
+
+fn downmap2MBPage(allocator: std.mem.Allocator, l2m_entry: L2Entry2M) !L2Entry {
+    log.debug("Downmapping::downmap2MBPage: l2m_entry: {any}", .{l2m_entry});
+
+    var new_l2_entry: L2Entry = @bitCast(l2m_entry);
+    const l2m_entry_phys = l2m_entry.getPhysBase();
+
+    defer log.debug("Downmapping::downmap2MBPage done: new_l2_entry: {any}", .{new_l2_entry});
+
+    // Create a new page tables (512 tables of the 4KB size) for 4KB pages
+    const new_l1 = try allocator.alignedAlloc(L1Entry, std.mem.Alignment.fromByteUnits(@intFromEnum(PageSize.ps4k)), entries_count);
+    @memset(@as([*]u8, @ptrCast(new_l1.ptr))[0 .. @sizeOf(L1Entry) * entries_count], 0);
+
+    // 2MB → 4KB (512 entries)
+    for (0..entries_count) |i| {
+        new_l1[i] = L1Entry{
+            .present = l2m_entry.present,
+            .writable = l2m_entry.writable,
+            .user = l2m_entry.user,
+            .write_through = l2m_entry.write_through,
+            .cache_disabled = l2m_entry.cache_disabled,
+            .accessed = l2m_entry.accessed,
+            .dirty = l2m_entry.dirty,
+            .pat = l2m_entry.pat,
+            .global = l2m_entry.global,
+            .restart = l2m_entry.restart,
+            .aligned_address_4kbytes = @truncate((l2m_entry_phys + i * @intFromEnum(PageSize.ps4k)) >> 12),
+            .protection_key = l2m_entry.protection_key,
+            .execute_disable = l2m_entry.execute_disable,
+        };
+    }
+
+    new_l2_entry.aligned_address_4kbytes = @truncate((try physFromVirt(@intFromPtr(new_l1.ptr))) >> 12);
+
+    return new_l2_entry;
 }
 
 // fn downmapPageTablesRecursive(comptime lvl: PageTableLevel, comptime tps: PageSize, allocator: std.mem.Allocator, rec_va: VirtualAddress, remapper_info: *RemapperInfo) !void {
