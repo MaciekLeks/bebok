@@ -93,57 +93,136 @@ pub fn putb(byte: u8) void {
     outb(0xE9, byte);
 }
 
-pub fn GenCr3(comptime pcide: bool) type {
-    if (pcide) {
-        return packed struct(u64) {
-            const Self = @This();
-            pcid: u12, //0-11
-            aligned_address_4kbytes: u39, //12-51- PMPL4|PML5 address
-            ingrd: u1, //52
-            rsrvd: u12 = 0, //53-63
-
-            pub fn fromRaw(raw: u64) Self {
-                return @bitCast(raw);
-            }
-
-            pub fn toRaw(self: Self) u64 {
-                return @bitCast(self);
-            }
-        };
-    } else {
-        return packed struct(u64) {
-            const Self = @This();
-            ignrd_a: u3, //0-2
-            write_though: bool, //3
-            cache_disabled: bool, //4
-            ignrd_b: u7, //5-11
-            aligned_address_4kbytes: u40, //12-51- PMPL4|PML5 address
-            ingrd: u1, //52
-            rsrvd: u12 = 0, //53-63
-
-            pub fn fromRaw(raw: u64) Self {
-                return @bitCast(raw);
-            }
-
-            pub fn toRaw(self: Self) u64 {
-                return @bitCast(self);
-            }
-        };
-    }
-}
-
 pub const Cr3 = struct {
+    pub fn FormattedWithPcid(comptime pcide: bool) type {
+        if (pcide) {
+            return packed struct(u64) {
+                const Self = @This();
+                pcid: u12, //0-11
+                aligned_address_4kbytes: u39, //12-51- PMPL4|PML5 address
+                ingrd: u1 = 0, //52
+                rsrvd: u12 = 0, //53-63
+
+                pub fn fromRaw(raw: u64) Self {
+                    return @bitCast(raw);
+                }
+
+                pub fn toRaw(self: Self) u64 {
+                    return @bitCast(self);
+                }
+            };
+        } else {
+            return packed struct(u64) {
+                const Self = @This();
+                ignrd_a: u3, //0-2
+                write_though: bool, //3
+                cache_disabled: bool, //4
+                ignrd_b: u7, //5-11
+                aligned_address_4kbytes: u40, //12-51- PMPL4|PML5 address
+                ingrd: u1, //52
+                rsrvd: u12 = 0, //53-63
+
+                pub fn fromRaw(raw: u64) Self {
+                    return @bitCast(raw);
+                }
+
+                pub fn toRaw(self: Self) u64 {
+                    return @bitCast(self);
+                }
+            };
+        }
+    }
+
+    pub const InvpcidDescriptor = packed struct(u128) {
+        pcid: u12,
+        rsvd: u52 = 0,
+        addr: u64,
+    };
+
+    const InvpcidType = enum(u32) {
+        IndividualAddress = 0,
+        SingleContext = 1,
+        AllContext = 2,
+        AllContextGlobal = 3,
+    };
+
+    /// Read the CR3 register and return its raw value
     pub fn read() u64 {
         return asm volatile ("mov %%cr3, %[result]"
             : [result] "={rax}" (-> u64),
         );
     }
 
+    /// Write the CR3 register with a raw value
     pub fn write(value: u64) void {
         asm volatile ("mov %[value], %%cr3"
             :
             : [value] "r" (value),
             : "memory" // All cached data is invalidated
+        );
+    }
+
+    /// Set the CR3 register with a physical address and options.
+    pub fn set(aligned_phys: u39, flags: struct { pcid_enabled: bool, invpcid_supported: bool }, options: struct { pcid: u12 = 0, flush_type: enum { none, all } = .all }) void {
+        const cr3_val = if (flags.pcid_enabled) blk: {
+            const cr3_pcid = FormattedWithPcid(true){
+                .pcid = options.pcid,
+                .aligned_address_4kbytes = aligned_phys,
+                .ingrd = 0,
+                .rsrvd = 0,
+            };
+            break :blk cr3_pcid.toRaw();
+        } else blk: {
+            const cr3_no_pcid = FormattedWithPcid(false){
+                .ignrd_a = 0,
+                .write_though = false,
+                .cache_disabled = false,
+                .ignrd_b = 0,
+                .aligned_address_4kbytes = aligned_phys,
+                .ingrd = 0,
+                .rsrvd = 0,
+            };
+            break :blk cr3_no_pcid.toRaw();
+        };
+
+        // First write with the new value;
+        // if pcid is enabled no flush is carried out here, if pcid is not enabled, the TLB is flushed by this write
+        write(cr3_val);
+
+        // Flush the TLB if necessary
+        if (options.flush_type != .none) {
+            if (flags.pcid_enabled and flags.invpcid_supported) {
+                switch (options.flush_type) {
+                    .all => invpcid(.All, 0),
+                    .none => unreachable,
+                }
+            } else {
+                // Fallback: full TLB flush by writing to CR3
+                write(cr3_val);
+            }
+        }
+    }
+
+    /// Since we do not use segmentation, so linear address is the same as virtual address
+    fn invpcid(comptime invpcid_type: InvpcidType, pcid: u12, linear_addr: u64) void {
+        const descriptor = InvpcidDescriptor{
+            .pcid = pcid,
+            .linear_address = linear_addr,
+        };
+
+        asm volatile ("invpcid %[desc], %[type]"
+            :
+            : [desc] "m" (descriptor),
+              [type] "r" (@intFromEnum(invpcid_type)),
+            : "memory"
+        );
+    }
+
+    pub inline fn invlpg(addr: usize) void {
+        asm volatile ("invlpg (%[addr])"
+            :
+            : [addr] "r" (addr),
+            : "memory"
         );
     }
 };
@@ -214,14 +293,6 @@ pub const Cr4 = packed struct(u64) {
 //         : [result] "={eax}" (-> usize),
 //     );
 // }
-
-pub inline fn invlpg(addr: usize) void {
-    asm volatile ("invlpg (%[addr])"
-        :
-        : [addr] "r" (addr),
-        : "memory"
-    );
-}
 
 pub inline fn rdmsr(msr: u32) usize {
     var low: u32 = undefined;
@@ -319,24 +390,12 @@ pub const Id = struct {
         const cpuid_res = Id.read(0x1);
         return (cpuid_res.ecx & (1 << 17)) != 0; // Check if PCID is supported
     }
+
+    pub fn isInvpcidSupported() bool {
+        const cpuid_res = Id.read(0x07);
+        return (cpuid_res.ebx & (1 << 10)) != 0; // Check if INVPCID is supported
+    }
 };
-
-// pub fn cpuid(eax_in: u32) struct { eax: u32, ebx: u32, ecx: u32, edx: u32 } {
-//     var eax: u32 = 0;
-//     var ebx: u32 = 0;
-//     var ecx: u32 = 0;
-//     var edx: u32 = 0;
-
-//     asm volatile ("cpuid"
-//         : [eax] "={eax}" (eax),
-//           [ebx] "={ebx}" (ebx),
-//           [ecx] "={ecx}" (ecx),
-//           [edx] "={edx}" (edx),
-//         : [eax_in] "{eax}" (eax_in),
-//         : "eax", "ebx", "ecx", "edx"
-//     );
-//     return .{ .eax = eax, .ebx = ebx, .ecx = ecx, .edx = edx };
-// }
 
 pub const Fpu = struct {
     // Exception masks as constants

@@ -54,6 +54,41 @@ const PageTableLevel = enum(u3) {
 };
 
 const PagingState = struct {
+    pcid_supported: bool = false,
+    pcid_enabled: bool = false,
+    invpcid_supported: bool = false,
+
+    pub fn init() !PagingState {
+        log.debug("PagingState::init", .{});
+        defer log.debug("PagingState::init done", .{});
+        var state: PagingState = .{
+            .pcid_supported = isPcidSupported(),
+            .pcid_enabled = isPcidEnabled(),
+            .invpcid_supported = cpu.Id.isInvpcidSupported(),
+        };
+
+        // If PCID is supported but not enabled, attempt to enable it
+        if (state.pcid_supported and !state.pcid_enabled) {
+            log.debug("PagingState:: PCID supported but not enabled, attempting to enable...", .{});
+
+            cpu.Cr4.enablePcid() catch |err| switch (err) {
+                error.PcidNotSupported => {
+                    log.warn("PagingState:: Failed to enable PCID: not supported", .{});
+                    return err;
+                },
+            };
+
+            if (cpu.Cr4.isPcidEnabled()) state.pcid_enabled = true else {
+                log.err("PagingState: Failed to enable PCID", .{});
+                return error.PcidNotEnabled;
+            }
+        }
+
+        log.debug("PagingState:: PCID is enabled, current PCID: {d}", .{getCurrentPcid()});
+
+        return state;
+    }
+
     fn isPcidSupported() bool {
         return cpu.Id.isPcidSupported();
     }
@@ -65,7 +100,7 @@ const PagingState = struct {
     fn getCurrentPcid() u12 {
         if (!isPcidEnabled()) return 0;
         const cr3_val = cpu.Cr3.read();
-        const cr3_pcid = cpu.GenCr3(true).fromRaw(cr3_val);
+        const cr3_pcid = cpu.Cr3.FormattedWithPcid(true).fromRaw(cr3_val);
         return cr3_pcid.pcid;
     }
 
@@ -725,7 +760,7 @@ fn dupePageTable(comptime T: type, allocator: std.mem.Allocator, src: []T, compt
                     }
 
                     //update statistics
-                    remapper_info.inc(.ps2m);
+                    remapper_info.inc(.ps1g);
                 }
             },
             L1Entry => {
@@ -916,6 +951,7 @@ pub fn logVirtInfo(virt: usize) void {
 // Variables
 //var/ pml4t: []L4Entry = undefined;
 var pat: PAT = undefined;
+var paging_state: PagingState = undefined;
 
 pub fn init() !void {
     log.debug("Initializing...", .{});
@@ -948,33 +984,10 @@ pub fn init() !void {
     //TODO:tbd:
     //pml4t, const cr3_formatted = Pml4TableFromCr3();
     //log.debug("PML4 table: {*}, cr3_formated: {}", .{ pml4t.ptr, cr3_formatted });
-    const pcid_supported = cpu.Id.isPcidSupported();
-    const pcid_enabled = cpu.Cr4.isPcidEnabled();
+    paging_state = try PagingState.init();
 
-    log.debug("PCID supported: {}, PCID enabled: {}", .{ pcid_supported, pcid_enabled });
-
-    // Jeśli PCID jest obsługiwany ale nie włączony, spróbuj włączyć
-    if (pcid_supported and !pcid_enabled) {
-        log.debug("PCID supported but not enabled, attempting to enable...", .{});
-
-        cpu.Cr4.enablePcid() catch |err| switch (err) {
-            error.PcidNotSupported => {
-                log.warn("Failed to enable PCID: not supported", .{});
-                return err;
-            },
-        };
-
-        if (cpu.Cr4.isPcidEnabled()) {
-            log.debug("PCID successfully enabled", .{});
-        } else {
-            log.err("Failed to enable PCID", .{});
-            return error.PcidNotEnabled;
-        }
-    }
-
-    //TODO: simplification
     //We assume having PCID enabled, so we can use it
-    const cr3 = cpu.GenCr3(true).fromRaw(cpu.Cr3.read());
+    const cr3 = cpu.Cr3.FormattedWithPcid(true).fromRaw(cpu.Cr3.read());
 
     // Get ready for recursive paging
     //pml4t[510] = .{ .present = true, .writable = true, .aligned_address_4kbytes = @truncate(cr3_formatted.aligned_address_4kbytes) };
@@ -1284,5 +1297,5 @@ pub fn adjustPageAreaPAT(virt: usize, sz: usize, req_pat: PATType) !void {
 }
 
 fn flushTLB(virt: usize) void {
-    cpu.invlpg(virt);
+    cpu.Cr3.invlpg(virt);
 }
