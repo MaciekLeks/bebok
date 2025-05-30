@@ -132,7 +132,7 @@ fn addQemuRun(b: *Build, target: Build.ResolvedTarget, debug: bool, bios_path: [
                 "-m", "800M", //Memory size
                 "-smp", "1", //one processor only
                 "-enable-kvm", //enable KVM for better performance
-                "-cpu", "host,-pdpe1gb,+pcid", //turn off 1GB pages due to not having downmapper for them yet
+                "-cpu", "host,-pdpe1gb,+pcid,+invpcid", //turn off 1GB pages due to not having downmapper for them yet
                 //"-cpu","qemu64,+pcid",
                 // "-cpu", "qemu64,+apic", // TODO: enable 1GB and 2MB pages, for now we turn them off
                 //backup/"-enable-kvm", //to be able to use host cpu

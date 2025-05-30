@@ -57,6 +57,7 @@ const PagingState = struct {
     pcid_supported: bool = false,
     pcid_enabled: bool = false,
     invpcid_supported: bool = false,
+    curr_pcid: u12 = 0,
 
     pub fn init() !PagingState {
         log.debug("PagingState::init", .{});
@@ -65,6 +66,7 @@ const PagingState = struct {
             .pcid_supported = isPcidSupported(),
             .pcid_enabled = isPcidEnabled(),
             .invpcid_supported = cpu.Id.isInvpcidSupported(),
+            .curr_pcid = getCurrentPcid(),
         };
 
         // If PCID is supported but not enabled, attempt to enable it
@@ -84,7 +86,7 @@ const PagingState = struct {
             }
         }
 
-        log.debug("PagingState:: PCID is enabled, current PCID: {d}", .{getCurrentPcid()});
+        log.debug("PagingState:: PCID is enabled, current PCID: {d}", .{state.curr_pcid});
 
         return state;
     }
@@ -627,11 +629,20 @@ pub fn downmapPageTables(comptime tps: PageSize, allocator: std.mem.Allocator) !
 
     // set recursive L4 address
     log.debug("Downmapping::dupePageTable: old_l4_ptr: {*}, new_l4_ptr: {*}", .{ old_l4, new_l4 });
-    const new_l4_phys = try physFromVirt(@intFromPtr(new_l4.ptr));
-    new_l4[default_recursive_index].aligned_address_4kbytes = @truncate(new_l4_phys >> 12);
+    const new_aligned_l4_phys: u39 = @truncate(try physFromVirt(@intFromPtr(new_l4.ptr)) >> 12);
 
+    new_l4[default_recursive_index].aligned_address_4kbytes = new_aligned_l4_phys;
+
+    log.debug("Downmapping::downmapPageTables: setting new CR3 for paging_state:{any}", .{paging_state});
     // set l4_table address in CR3
-    // TODO:
+    cpu.Cr3.set(new_aligned_l4_phys, .{
+        .pcid_enabled = paging_state.pcid_enabled,
+        .invpcid_supported = paging_state.invpcid_supported,
+    }, .{
+        .pcid = paging_state.curr_pcid,
+        .flush_type = .none, //TODO: set to .all
+    });
+    log.debug("Downmapping::downmapPageTables: new CR3 set", .{});
 
     log.debug("Downmapping info: {any}", .{remapper_info});
 }
@@ -688,9 +699,7 @@ fn dupePageTable(comptime T: type, allocator: std.mem.Allocator, src: []T, compt
                     const new_l1 = try dupePageTable(L1Entry, allocator, src_l1, tps, remapper_info);
 
                     dst_entry.* = src_entry;
-                    log.debug("Downmapping::dupePageTable @@@L2/1", .{});
                     dst_entry.aligned_address_4kbytes = @truncate(try physFromVirt(@intFromPtr(new_l1.ptr)) >> 12);
-                    log.debug("Downmapping::dupePageTable @@@L2/2 dst_entry:{any}", .{dst_entry.*});
                 } else {
                     if (tps.lt(.ps2m)) {
                         dst_entry.* = try downmap2MBPage(allocator, @bitCast(src_entry));
@@ -699,11 +708,10 @@ fn dupePageTable(comptime T: type, allocator: std.mem.Allocator, src: []T, compt
                     }
 
                     //update statistics
-                    remapper_info.inc(.ps1g);
+                    remapper_info.inc(.ps2m);
                 }
             },
             L1Entry => {
-                log.debug("Downmapping::dupePageTable @@@L1/1", .{});
                 dst_entry.* = src_entry;
 
                 //update statistics
@@ -751,52 +759,6 @@ fn downmap2MBPage(allocator: std.mem.Allocator, l2m_entry: L2Entry2M) !L2Entry {
 
     return new_l2_entry;
 }
-
-// fn downmapPageTablesRecursive(comptime lvl: PageTableLevel, comptime tps: PageSize, allocator: std.mem.Allocator, rec_va: VirtualAddress, remapper_info: *RemapperInfo) !void {
-//     log.debug("\n\nDownmap::start lvl:{s} rec_va(0x{x}):{any}", .{ @tagName(lvl), rec_va.toUsize(), rec_va });
-
-//     //get page table slice
-//     const table = pageSliceFromVARecursive(lvl, rec_va);
-
-//     var i: u10 = 0; //must be u(9+1) to stop at 512
-//     while (i < entries_count) : (i += 1) {
-//         const entry_ptr = &table[i];
-//         const curr_va = rec_va.withDisp(i);
-
-//         if (!entry_ptr.present) continue;
-
-//         //log.debug("Downmap::entry[{d}] lvl:{s} -> entry[{d}]: {any} ", .{ i, @tagName(lvl), i, entry_ptr.* });
-
-//         if (try isLeaf(entry_ptr.*, lvl)) {
-//             //get physical address info
-//             //const phys_info = try physInfoFromVirt(curr_virt);
-
-//             const ps = pageSizeFromLevel(lvl);
-
-//             log.debug("Downmap::isLeaf lvl:{s} -> ps: {s} -> entry@{any}: {any}", .{ @tagName(lvl), @tagName(ps), curr_va, entry_ptr.* });
-
-//             remapper_info.inc(ps);
-//             // //downmap the page entry if it too big
-//             if (ps.gt(tps)) {
-//                 //log.debug("Downmap phys.info.ps > tps", .{});
-//             }
-//         } else if (lvl != .l1) {
-//             const next_rec_va = curr_va.recursiveShiftLeftIndexes(0);
-//             try downmapPageTablesRecursive(nextLevel(lvl), tps, allocator, next_rec_va, remapper_info);
-//         }
-//     }
-// }
-
-// fn dupePageStructTable(comptime T: type, allocator: std.mem.Allocator, src: []T) ![]T {
-//     // no matter what page size we need to allocate 4kbytes aligned page, but if you use for instance Arena Allocator, then
-//     // we do not controll the alignment, so it is better to aligned imperatively
-//     const dst = allocator.allocWithOptions(T, entries_count, @intFromEnum(PageSize.ps4k), null) catch |err| {
-//         log.err("Failed to allocate page table: {any}", .{err});
-//         return error.PageFault;
-//     };
-//     @memcpy(dst.ptr, src);
-//     return dst;
-// }
 
 inline fn getSliceFromEntry(comptime TableType: type, entry: anytype) []TableType {
     return @as(*[entries_count]TableType, @ptrFromInt(hhdmVirtFromPhys(entry.getPhysBase())))[0..entries_count];
