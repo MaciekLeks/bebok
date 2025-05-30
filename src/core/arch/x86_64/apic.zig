@@ -12,8 +12,8 @@ var apic_default_base_phys: usize = undefined;
 var apic_default_base_virt: usize = undefined;
 const lvt_mask = 0x10000;
 
-fn isLapicSupported(cpuid: u16) bool {
-    const cpuid_res = cpu.cpuid(cpuid);
+fn isLapicSupported(eax_in: u16) bool {
+    const cpuid_res = cpu.Id.read(eax_in);
     return cpuid_res.edx & (1 << 9) != 0;
 }
 

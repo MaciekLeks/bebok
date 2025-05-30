@@ -53,6 +53,27 @@ const PageTableLevel = enum(u3) {
     l1 = 1, //pt
 };
 
+const PagingState = struct {
+    fn isPcidSupported() bool {
+        return cpu.Id.isPcidSupported();
+    }
+
+    fn isPcidEnabled() bool {
+        return cpu.Cr4.isPcidEnabled();
+    }
+
+    fn getCurrentPcid() u12 {
+        if (!isPcidEnabled()) return 0;
+        const cr3_val = cpu.Cr3.read();
+        const cr3_pcid = cpu.GenCr3(true).fromRaw(cr3_val);
+        return cr3_pcid.pcid;
+    }
+
+    fn getCurrentCr3() u64 {
+        return cpu.Cr3.read();
+    }
+};
+
 //constants
 pub const default_page_size: PageSize = @enumFromInt(config.mem_page_size);
 const entries_count: usize = 512;
@@ -678,7 +699,7 @@ fn dupePageTable(comptime T: type, allocator: std.mem.Allocator, src: []T, compt
                     log.debug("Downmapping::dupePageTable @@@L3/2", .{});
                 } else {
                     if (tps.lt(.ps1g)) {
-                        log.debug("Downmap: L3Entry is leaf, but tps < 1GB, so we need to downmap it", .{});
+                        log.debug("Downmap: L3Entry is leaf, but tps < 1GB, so we need to downmap it. src_entry:{any}", .{src_entry});
                         //TODO: implement downmapping for 1GB page to smaller size
                         return error.NotImplemented; // cannot downmap 1GB page to smaller size
                     } else
@@ -704,7 +725,7 @@ fn dupePageTable(comptime T: type, allocator: std.mem.Allocator, src: []T, compt
                     }
 
                     //update statistics
-                    remapper_info.inc(.ps1g);
+                    remapper_info.inc(.ps2m);
                 }
             },
             L1Entry => {
@@ -807,6 +828,10 @@ inline fn getSliceFromEntry(comptime TableType: type, entry: anytype) []TableTyp
     return @as(*[entries_count]TableType, @ptrFromInt(hhdmVirtFromPhys(entry.getPhysBase())))[0..entries_count];
 }
 
+inline fn getSliceFromAlignedPhys(comptime TableType: type, alignment: comptime_int, phys_addr: usize) []TableType {
+    return @as(*[entries_count]TableType, @ptrFromInt(hhdmVirtFromPhys(phys_addr << alignment)))[0..entries_count];
+}
+
 /// Get the lowest page entry info from the virtual address;
 /// If some part of the information is not available, it will be null.
 fn getLowestEntryFromVirt(virt: usize) !GenEntryInfo {
@@ -839,10 +864,10 @@ pub inline fn hhdmVirtFromPhys(paddr: usize) usize {
 }
 
 /// Get physical address from the cr3 registry. This function is not needed in the recursive paging.
-fn Pml4TableFromCr3() struct { []L4Entry, Cr3Structure(false) } {
-    const cr3_formatted: Cr3Structure(false) = @bitCast(cpu.cr3());
-    return .{ cr3_formatted.retrieve_table(L4Table), cr3_formatted };
-}
+// fn Pml4TableFromCr3() struct { []L4Entry, Cr3Structure(false) } {
+//     const cr3_formatted: Cr3Structure(false) = @bitCast(cpu.cr3());
+//     return .{ cr3_formatted.retrieve_table(L4Table), cr3_formatted };
+// }
 
 pub fn logLowestEntryFromVirt(virt: usize) void {
     const page_entry_info = getLowestEntryFromVirt(virt) catch @panic("Failed to get page entry info for NVMe BAR");
@@ -889,7 +914,7 @@ pub fn logVirtInfo(virt: usize) void {
 }
 
 // Variables
-var pml4t: []L4Entry = undefined;
+//var/ pml4t: []L4Entry = undefined;
 var pat: PAT = undefined;
 
 pub fn init() !void {
@@ -920,14 +945,44 @@ pub fn init() !void {
     pat.read(); //read values to be sure we set it right
     log.debug("The 0x277 MSR register value after the change: 0x{}", .{pat});
 
-    pml4t, const cr3_formatted = Pml4TableFromCr3();
-    log.debug("PML4 table: {*}, cr3_formated: {}", .{ pml4t.ptr, cr3_formatted });
+    //TODO:tbd:
+    //pml4t, const cr3_formatted = Pml4TableFromCr3();
+    //log.debug("PML4 table: {*}, cr3_formated: {}", .{ pml4t.ptr, cr3_formatted });
+    const pcid_supported = cpu.Id.isPcidSupported();
+    const pcid_enabled = cpu.Cr4.isPcidEnabled();
+
+    log.debug("PCID supported: {}, PCID enabled: {}", .{ pcid_supported, pcid_enabled });
+
+    // Jeśli PCID jest obsługiwany ale nie włączony, spróbuj włączyć
+    if (pcid_supported and !pcid_enabled) {
+        log.debug("PCID supported but not enabled, attempting to enable...", .{});
+
+        cpu.Cr4.enablePcid() catch |err| switch (err) {
+            error.PcidNotSupported => {
+                log.warn("Failed to enable PCID: not supported", .{});
+                return err;
+            },
+        };
+
+        if (cpu.Cr4.isPcidEnabled()) {
+            log.debug("PCID successfully enabled", .{});
+        } else {
+            log.err("Failed to enable PCID", .{});
+            return error.PcidNotEnabled;
+        }
+    }
+
+    //TODO: simplification
+    //We assume having PCID enabled, so we can use it
+    const cr3 = cpu.GenCr3(true).fromRaw(cpu.Cr3.read());
 
     // Get ready for recursive paging
-    pml4t[510] = .{ .present = true, .writable = true, .aligned_address_4kbytes = @truncate(cr3_formatted.aligned_address_4kbytes) };
+    //pml4t[510] = .{ .present = true, .writable = true, .aligned_address_4kbytes = @truncate(cr3_formatted.aligned_address_4kbytes) };
+    const l4: []L4Entry = getSliceFromAlignedPhys(L4Entry, @bitSizeOf(u12), cr3.aligned_address_4kbytes);
+    l4[default_recursive_index] = .{ .present = true, .writable = true, .aligned_address_4kbytes = cr3.aligned_address_4kbytes };
 
     //const lvl4e = retrieveEntryFromVaddr(Pml4e, .four_level, default_page_size, .lvl4, 0xffff_8000_fe80_0000);
-    log.warn("cr3 -> 0x{x}", .{cpu.cr3()});
+    log.warn("cr3 -> {any}", .{cr3});
     //log.warn("pml4 ptr -> {*}\n\n", .{pml4t.ptr});
     //
     //const vaddr_test = 0xffff_8000_fe80_0000;
@@ -1078,34 +1133,34 @@ pub fn init() !void {
 }
 
 // CR3 structure
-pub fn Cr3Structure(comptime pcid: bool) type {
-    if (pcid) {
-        return packed struct(RawEntry) {
-            const Self = @This();
-            pcid: u12, //0-11
-            aligned_address_4kbytes: u40, //12-51- PMPL4|PML5 address
-            rsrvd: u12 = 0, //52-63
+// pub fn Cr3Structure(comptime pcid_enabled: bool) type {
+//     if (pcid_enabled) {
+//         return packed struct(RawEntry) {
+//             const Self = @This();
+//             pcid: u12, //0-11
+//             aligned_address_4kbytes: u40, //12-51- PMPL4|PML5 address
+//             rsrvd: u12 = 0, //52-63
 
-            pub fn retrieve_table(self: Self, T: type) *T {
-                return @ptrFromInt(hhdmVirtFromPhys(self.aligned_address_4kbytes << @bitSizeOf(u12)));
-            }
-        };
-    } else {
-        return packed struct(RawEntry) {
-            const Self = @This();
-            ignrd_a: u3, //0-2
-            write_though: bool, //3
-            cache_disabled: bool, //4
-            ignrd_b: u7, //5-11
-            aligned_address_4kbytes: u40, //12-51- PMPL4|PML5 address
-            rsrvd: u12 = 0, //52-63
+//             pub fn retrieve_table(self: Self, T: type) *T {
+//                 return @ptrFromInt(hhdmVirtFromPhys(self.aligned_address_4kbytes << @bitSizeOf(u12)));
+//             }
+//         };
+//     } else {
+//         return packed struct(RawEntry) {
+//             const Self = @This();
+//             ignrd_a: u3, //0-2
+//             write_though: bool, //3
+//             cache_disabled: bool, //4
+//             ignrd_b: u7, //5-11
+//             aligned_address_4kbytes: u40, //12-51- PMPL4|PML5 address
+//             rsrvd: u12 = 0, //52-63
 
-            pub fn retrieve_table(self: Self, T: type) *T {
-                return @ptrFromInt(hhdmVirtFromPhys(self.aligned_address_4kbytes << @bitSizeOf(u12)));
-            }
-        };
-    }
-}
+//             pub fn retrieve_table(self: Self, T: type) *T {
+//                 return @ptrFromInt(hhdmVirtFromPhys(self.aligned_address_4kbytes << @bitSizeOf(u12)));
+//             }
+//         };
+//     }
+// }
 
 // PAT (Page Attribute Table) specific code
 pub const PATType = enum(u8) {
