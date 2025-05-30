@@ -612,64 +612,6 @@ const RemapperInfo = struct {
     }
 };
 
-//TODO::tbd
-// pub fn downmapPageTables(comptime tps: PageSize, allocator: std.mem.Allocator) !void {
-//     comptime {
-//         if (tps == .ps1g) @compileError("Downmapping to 1GB page is not supported");
-//     }
-
-//     log.debug("Downmapping page tables to {any}", .{tps});
-//     defer log.debug("Downmapping page tables to {any} done", .{tps});
-
-//     var remapper_info: RemapperInfo = .{};
-//     // run with the recursive L4 page table address
-//     try downmapPageTablesRecursive(
-//         .l4,
-//         tps,
-//         allocator,
-//         VirtualAddress.recursiveL4(),
-//         &remapper_info,
-//     );
-
-//     log.debug("Downmapping info: {any}", .{remapper_info});
-// }
-
-//TODO::tbd
-// fn downmapPageTablesRecursive(comptime lvl: PageTableLevel, comptime tps: PageSize, allocator: std.mem.Allocator, rec_va: VirtualAddress, remapper_info: *RemapperInfo) !void {
-//     log.debug("\n\nDownmap::start lvl:{s} rec_va(0x{x}):{any}", .{ @tagName(lvl), rec_va.toUsize(), rec_va });
-
-//     //get page table slice
-//     const table = pageSliceFromVARecursive(lvl, rec_va);
-
-//     var i: u10 = 0; //must be u(9+1) to stop at 512
-//     while (i < entries_count) : (i += 1) {
-//         const entry_ptr = &table[i];
-//         const curr_va = rec_va.withDisp(i);
-
-//         if (!entry_ptr.present) continue;
-
-//         //log.debug("Downmap::entry[{d}] lvl:{s} -> entry[{d}]: {any} ", .{ i, @tagName(lvl), i, entry_ptr.* });
-
-//         if (try isLeaf(entry_ptr.*, lvl)) {
-//             //get physical address info
-//             //const phys_info = try physInfoFromVirt(curr_virt);
-
-//             const ps = pageSizeFromLevel(lvl);
-
-//             log.debug("Downmap::isLeaf lvl:{s} -> ps: {s} -> entry@{any}: {any}", .{ @tagName(lvl), @tagName(ps), curr_va, entry_ptr.* });
-
-//             remapper_info.inc(ps);
-//             // //downmap the page entry if it too big
-//             if (ps.gt(tps)) {
-//                 //log.debug("Downmap phys.info.ps > tps", .{});
-//             }
-//         } else if (lvl != .l1) {
-//             const next_rec_va = curr_va.recursiveShiftLeftIndexes(0);
-//             try downmapPageTablesRecursive(nextLevel(lvl), tps, allocator, next_rec_va, remapper_info);
-//         }
-//     }
-// }
-
 pub fn downmapPageTables(comptime tps: PageSize, allocator: std.mem.Allocator) !void {
     comptime {
         if (tps == .ps1g) @compileError("Downmapping to 1GB page is not supported");
@@ -689,9 +631,6 @@ pub fn downmapPageTables(comptime tps: PageSize, allocator: std.mem.Allocator) !
     new_l4[default_recursive_index].aligned_address_4kbytes = @truncate(new_l4_phys >> 12);
 
     // set l4_table address in CR3
-    // TODO:
-
-    // Flush the TLB
     // TODO:
 
     log.debug("Downmapping info: {any}", .{remapper_info});
