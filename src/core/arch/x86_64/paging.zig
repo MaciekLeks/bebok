@@ -981,48 +981,19 @@ pub fn init() !void {
     pat.read(); //read values to be sure we set it right
     log.debug("The 0x277 MSR register value after the change: 0x{}", .{pat});
 
-    //TODO:tbd:
-    //pml4t, const cr3_formatted = Pml4TableFromCr3();
-    //log.debug("PML4 table: {*}, cr3_formated: {}", .{ pml4t.ptr, cr3_formatted });
     paging_state = try PagingState.init();
 
     //We assume having PCID enabled, so we can use it
     const cr3 = cpu.Cr3.FormattedWithPcid(true).fromRaw(cpu.Cr3.read());
 
     // Get ready for recursive paging
-    //pml4t[510] = .{ .present = true, .writable = true, .aligned_address_4kbytes = @truncate(cr3_formatted.aligned_address_4kbytes) };
     const l4: []L4Entry = getSliceFromAlignedPhys(L4Entry, @bitSizeOf(u12), cr3.aligned_address_4kbytes);
     l4[default_recursive_index] = .{ .present = true, .writable = true, .aligned_address_4kbytes = cr3.aligned_address_4kbytes };
 
     //const lvl4e = retrieveEntryFromVaddr(Pml4e, .four_level, default_page_size, .lvl4, 0xffff_8000_fe80_0000);
     log.warn("cr3 -> {any}", .{cr3});
-    //log.warn("pml4 ptr -> {*}\n\n", .{pml4t.ptr});
-    //
-    //const vaddr_test = 0xffff_8000_fe80_0000;
-    // const vaddr_test = 0xffff800040132000;
-    // const pidx = indexFromVaddr(vaddr_test);
-    // log.warn("pidx: 0x{x} -> {}", .{ vaddr_test, pidx });
-    // const vaddr_test_info = try recLowestEntryFromVirtInfo(vaddr_test);
-    // log.warn("pde:  0x{x} -> {any}", .{ vaddr_test, vaddr_test_info });
-    // if (vaddr_test_info.entry_ptr == null) {
-    //     log.err("Entry not found for vaddr: 0x{x}", .{vaddr_test});
-    // }
-    // const spec_entry: *Pde2MByte = @ptrCast(vaddr_test_info.entry_ptr);
-    // log.warn("entry of {any}, val={!}\n\n", .{ @TypeOf(spec_entry), spec_entry });
-    // const pte = entryFromVaddr(.pt, vaddr_test);
-    // log.warn("pte: -> {any}, pfn= {*}\n\n", .{ pte.*, pte.retrieveFrame().?.ptr });
-    //
-    //
-    // const phys_pci = try physFromVirtInfo(0xffff_8000_fe80_0000);
-    // log.warn("phys_pci: 0x{any}", .{phys_pci});
-    // log.warn("phys_pci_virt: 0x{x}", .{phys_pci.phys});
-    //
-    // const phys_buddy = try physFromVirtInfo(0xffff80001010a000);
-    // log.warn("phys_buddy: 0x{any}", .{phys_buddy});
-    // log.warn("phys_buddy_virt: 0x{x}", .{phys_buddy.phys});
 
-    // wite loop to iterate over each element of address in the table
-    // we use the fact that limine uses identity mapping and at the same time for the same phys addres HHDM
+    //TODO: remove this code, it is only for testing purposes
     const vt = [_]usize{
         hhdmVirtFromPhys(0x4d00), //HHDM
         //hhdmVirtFromPhys(0x10_0000),
@@ -1037,143 +1008,13 @@ pub fn init() !void {
         //0xffffff7fbfd00000,
     };
     for (vt) |vaddr| {
-        //?logVirtInfo(vaddr);
-
-        // const res = recPhysFromVirtInfo(vaddr) catch |err| {
-        //     log.err("Call function recPhysFromVirtInfo: 0x{x} -> error: {}", .{ vaddr, err });
-        //     continue;
-        // };
-        // log.debug("Call function recPhysFromVirtInfo: 0x{x} -> {any}", .{ vaddr, res });
         const psych_info = physInfoFromVirt(vaddr) catch |err| {
             log.err("Call function physInfoFromVirt: 0x{x} -> error: {}", .{ vaddr, err });
             continue;
         };
         log.debug("Call function physInfoFromVirt: 0x{x} -> {any}", .{ vaddr, psych_info });
-
-        // log.err("Virtual Adddress to check: 0x{x}", .{vaddr});
-
-        // const vaddr_info = try recLowestEntryFromVirtInfo(vaddr);
-        // log.err("Paging Table:  0x{x} -> {any}", .{ vaddr, vaddr_info });
-        // const phys_by_rec = recPhysFromVirt(vaddr) catch |err| {
-        //     log.err("Call function recPhysFromVirtvirt: 0x{x} -> error: {}", .{ vaddr, err });
-        //     continue;
-        // };
-        // log.err("Call function recPhyFromVirt: vaddr: 0x{x} -> 0x{x}\n", .{ vaddr, phys_by_rec });
-
-        // const vaddr_info = try lowestEntryFromVirtInfo(vaddr);
-        // log.err("Paging Table:  0x{x} -> {any}", .{ vaddr, vaddr_info });
-        // const phys_rec = physFromVirt(vaddr) catch |err| {
-        //     log.err("Call function physFromVirtvirt: 0x{x} -> error: {}", .{ vaddr, err });
-        //     continue;
-        // };
-        //log.err("Call function phyFromVirt: vaddr: 0x{x} -> 0x{x}", .{ vaddr, phys_rec });
     }
-
-    //   log.info("Find phys 0xfee0_0000", .{});
-    //   findPhys(0xfee0_0000);
-
-    //
-    //
-    //
-    // // const pidx511: Index = .{ .pml4_idx = 511, .pdpt_idx = 511, .pd_idx = 0, .pt_idx = 0, .offset = 0 };
-    // // //const vaddr511 = 0xffff_ffff_ffff_f000;
-    // // const vaddr511 = vaddrFromIndex(pidx511);
-    // // //const pidx511 = pagingIndexFromVaddr(vaddr511);
-    // // log.warn("pidx511 -> {}", .{pidx511});
-    // // const pml4e511 = entryFromVaddr(.pml4, vaddr511);
-    // // log.warn("pml4e511: -> {}, vaddr=0x{x}, ptr={*}, ptr.table={*}, aligned_addres=0x{x}", .{ pml4e511.*, vaddr511, pml4e511, pml4e511.retrieveTable().?, pml4e511.aligned_address_4kbytes });
-    // //
-    // // const pidx510: Index = .{ .pml4_idx = 510, .pdpt_idx = 510, .pd_idx = 510, .pt_idx = 510, .offset = 0 };
-    // // const vaddr510 = vaddrFromIndex(pidx510);
-    // // log.warn("pidx510 -> {}", .{pidx510});
-    // // const pml4e510 = entryFromVaddr(.pml4, vaddr510);
-    // // log.warn("pml4e510: -> {}, ptr={*}", .{ pml4e510.*, pml4e510 });
-    // //
-    // // log.warn("cr4: 0b{b:0>64}", .{@as(u64, cpu.cr4())});
-    // // log.warn("cr3: 0b{b:0>64}", .{@as(u64, cpu.cr3())});
-    // //
-    // // log.warn("pt:     0xFFFFFF00_00000000->0xFFFFFF7F_FFFFFFFF: {}->{}, diff: 0x{x}", .{ indexFromVaddr(0xFFFFFF00_00000000), indexFromVaddr(0xFFFFFF7F_FFFFFFFF), (0xFFFFFF7F_FFFFFFFF - 0xFFFFFF00_00000000) });
-    // // const x = indexFromVaddr(0xFFFFFF7F_8000000);
-    // // _ = &x;
-    // // log.warn("\n\npt:    0xFFFF_FF7F8_000_0000->0xFFFFFF7F_BFFFFFFF : {}->{}, diff: 0x{x}", .{ indexFromVaddr(0xffff_ff7f_8000_0000), indexFromVaddr(0xFFFFFF7F_BFFFFFFF), (0xFFFFFF7F_BFFFFFFF - 0xFFFFFF7F_8000000) });
-    // // log.warn("pdpt: 0xFFFFFF7F_BFC00000->0xFFFFFF7F_BFDFFFFF  : {}->{}, diff: 0x{x}", .{ indexFromVaddr(0xFFFFFF7F_BFC00000), indexFromVaddr(0xFFFFFF7F_BFDFFFFF), (0xFFFFFF7F_BFDFFFFF - 0xFFFFFF7F_BFC00000) });
-    // // log.warn("pml4: 0xFFFFFF7F_BFDFE000 ->0xFFFFFF7F_BFDFEFFF   : {}->{}, diff:0x{x}", .{ indexFromVaddr(0xFFFFFF7F_BFDFE000), indexFromVaddr(0xFFFFFF7F_BFDFEFFF), (0xFFFFFF7F_BFDFEFFF - 0xFFFFFF7F_BFDFE000) });
-    // // log.warn("pml4: 0xFFFFFF7F_BFDFE000 ->0xFFFFFF7F_BFDFEFFF   : {}->{}, diff:0x{x}", .{ indexFromVaddr(0xFFFFFF7F_BFDFE000), indexFromVaddr(0xFFFFFF7F_BFDFEFFF), (0xFFFFFF7F_BFDFEFFF - 0xFFFFFF7F_BFDFE000) });
-    // //
-    // // log.warn("\n\nkernel: {}->{}", .{ indexFromVaddr(0xffffff7f80000000), indexFromVaddr(0xffffff7f8009cb88) });
-    // //
-    // // const vmm_pml4_2 = tableFromVaddr(.pml4, 0xFFFFFF7F_BFDFFFFF) orelse @panic("Table not found");
-    // // log.warn("vmm_pml4_2: 0xFFFFFF7F_BFDFE008 : {*}, len={d}, [0]={}@{*}, [511]={}@{*}", .{ vmm_pml4_2.ptr, vmm_pml4_2.len, vmm_pml4_2[0], &vmm_pml4_2[0], vmm_pml4_2[511], &vmm_pml4_2[511] });
-    // //
-    // // const vmm_pml4 = tableFromVaddr(.pml4, 0xFFFFFF7F_BFC00000) orelse @panic("Table not found [2a]");
-    // // log.warn("vmm_pml4: 0xFFFFFF7F_BFC00000 : {*}, len={d}, [0]={}@{*}, [511]={}@{*}", .{ vmm_pml4.ptr, vmm_pml4.len, vmm_pml4[0], &vmm_pml4[0], vmm_pml4[511], &vmm_pml4[511] });
-    // //
-    // // const vmm_pdpt = tableFromVaddr(.pdpt, 0xFFFFFF7F_BFC00000) orelse @panic("Table not found [2b]");
-    // // log.warn("vmm_pdpt: 0xFFFFFF7F_BFC00000 : {*}, len={d}, [0]={}@{*}, [511]={}@{*}", .{ vmm_pdpt.ptr, vmm_pdpt.len, vmm_pdpt[0], &vmm_pdpt[0], vmm_pdpt[511], &vmm_pdpt[511] });
-    // //
-    // // // recursive in 510, not 511 cause limine occupies it
-    // // log.warn("cr3_formatted: {0}, {0b:0>40}, 0x{0x}", .{cr3_formatted.aligned_address_4kbytes});
-    // // pml4t[510] = .{ .present = true, .writable = true, .aligned_address_4kbytes = @truncate(cr3_formatted.aligned_address_4kbytes) }; //we ignore the last bit
-    // // cpu.invlpg(@intFromPtr(&pml4t[510]));
-    // // log.err("&pml4[510]={*}", .{&pml4t[510]});
-    // //
-    // // //Dla PDPT
-    // // // const pdpt_pidx = .{ .pml4_idx = 510, .pdpt_idx = 510, .pd_idx = 0, .pt_idx = 0, .offset = 0 };
-    // // //  const pdpt510 = entryFromVaddr(.pdpt, vaddrFromIndex(pdpt_pidx));
-    // // //  pdpt510.* = .{ .present = true, .writable = true, .aligned_address_4kbytes = @truncate(cr3_formatted.aligned_address_4kbytes) };
-    // //
-    // // //Dla PD
-    // // // const pd_pidx = .{ .pml4_idx = 510, .pdpt_idx = 510, .pd_idx = 510, .pt_idx = 0, .offset = 0 };
-    // // // const pd510 = entryFromVaddr(.pd, vaddrFromIndex(pd_pidx));
-    // // // pd510.* = .{ .present = true, .writable = true, .aligned_address_4kbytes = @truncate(pdpt510.aligned_address_4kbytes) };
-    // //
-    // // // Dla PT
-    // // // const pt_pidx = .{ .pml4_idx = 510, .pdpt_idx = 0, .pd_idx = 0, .pt_idx = 0, .offset = 0 };
-    // // // const pt510 = entryFromVaddr(.pt, vaddrFromIndex(pt_pidx));
-    // // // pt510.* = .{ .present = true, .writable = true, .aligned_address_4kbytes = @truncate(pd510.aligned_address_4kbytes) };
-    // //
-    // // // const pidx510: Index = .{ .pml4_idx = 510, .pdpt_idx = 0, .pd_idx = 0, .pt_idx = 0 , .offset = 0 };
-    // // // const vaddr510 = vaddrFromIndex(pidx510);
-    // // // log.warn("pidx510 -> {}", .{pidx510});
-    // // // const pml4e510 = entryFromVaddr(.pml4, vaddr510);
-    // // // log.warn("pml4e510: -> {}, ptr={*}", .{ pml4e510.*, pml4e510 });
-    // //
-    //print_tlb();
-    // //
-    // // // const tphys = physFromVirt(0xFFFFFF7F_8000000);
-    // // // log.warn("tphys: 0x{x}", .{tphys});
-
 }
-
-// CR3 structure
-// pub fn Cr3Structure(comptime pcid_enabled: bool) type {
-//     if (pcid_enabled) {
-//         return packed struct(RawEntry) {
-//             const Self = @This();
-//             pcid: u12, //0-11
-//             aligned_address_4kbytes: u40, //12-51- PMPL4|PML5 address
-//             rsrvd: u12 = 0, //52-63
-
-//             pub fn retrieve_table(self: Self, T: type) *T {
-//                 return @ptrFromInt(hhdmVirtFromPhys(self.aligned_address_4kbytes << @bitSizeOf(u12)));
-//             }
-//         };
-//     } else {
-//         return packed struct(RawEntry) {
-//             const Self = @This();
-//             ignrd_a: u3, //0-2
-//             write_though: bool, //3
-//             cache_disabled: bool, //4
-//             ignrd_b: u7, //5-11
-//             aligned_address_4kbytes: u40, //12-51- PMPL4|PML5 address
-//             rsrvd: u12 = 0, //52-63
-
-//             pub fn retrieve_table(self: Self, T: type) *T {
-//                 return @ptrFromInt(hhdmVirtFromPhys(self.aligned_address_4kbytes << @bitSizeOf(u12)));
-//             }
-//         };
-//     }
-// }
 
 // PAT (Page Attribute Table) specific code
 pub const PATType = enum(u8) {
