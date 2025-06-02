@@ -129,13 +129,10 @@ fn addQemuRun(b: *Build, target: Build.ResolvedTarget, debug: bool, bios_path: [
             qemu.addArgs(&.{
                 //"-M", "q35", //for PCIe and NVMe support
                 "-M", "q35", //see qemu-system-x86_64 -M help
-                "-m", "800M", //Memory size
+                "-m", "30M", //Memory size
                 "-smp", "1", //one processor only
                 "-enable-kvm", //enable KVM for better performance
                 "-cpu", "host,-pdpe1gb,+pcid,+invpcid", //turn off 1GB pages due to not having downmapper for them yet
-                //"-cpu","qemu64,+pcid",
-                // "-cpu", "qemu64,+apic", // TODO: enable 1GB and 2MB pages, for now we turn them off
-                //backup/"-enable-kvm", //to be able to use host cpu
                 //"-bios", bios_path, //we need ACPI >=2.0
                 // "-drive", "if=pflash,format=raw,readonly=on,file=/usr/share/ovmf/OVMF.fd",
             });
@@ -163,9 +160,10 @@ fn addQemuRun(b: *Build, target: Build.ResolvedTarget, debug: bool, bios_path: [
             }); //boot from cdrom
             qemu.addArgs(&.{ "-debugcon", "stdio" });
             //TODO:uncomment this: qemu.addArgs(&.{ "--trace", "events=.qemu-events" });
-            //qemu_iso_action.addArgs(&.{ "-d", "int,guest_errors,cpu_reset" });
+            //qemu.addArgs(&.{ "-d", "int,guest_errors,cpu_reset" });
+            qemu.addArgs(&.{ "-d", "int,guest_errors,cpu_reset" });
             //TODO:uncomment this: qemu.addArgs(&.{ "-d", "guest_errors,cpu_reset" });
-            //qemu_iso_action.addArgs(&.{ "-D", "qemu-logs.txt" });
+            qemu.addArgs(&.{ "-D", "qemu-logs.txt" });
             //qemu_iso_action.addArgs(&.{ "-display", "gtk", "-vga", "virtio" });
             qemu.addArgs(&.{ "-display", "gtk", "-vga", "std" });
             if (debug) {
@@ -173,7 +171,7 @@ fn addQemuRun(b: *Build, target: Build.ResolvedTarget, debug: bool, bios_path: [
                     "-s",
                     "-S",
                 });
-                qemu.addArgs(&.{ "-d", "int" });
+                //qemu.addArgs(&.{ "-d", "int" });
             }
         },
         else => return error.UnsupportedArch,
