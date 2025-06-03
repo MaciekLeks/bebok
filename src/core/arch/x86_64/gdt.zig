@@ -218,7 +218,7 @@ pub fn setTss(tss: *const Tss.TaskStateSegment) void {
     log.info("Setting TSS...", .{});
     defer log.info("Setting TSS finished.", .{});
 
-    const tssge = TssGdtEntry.init(
+    const tss_gdtentry = TssGdtEntry.init(
         @intFromPtr(tss),
         @sizeOf(Tss.TaskStateSegment) - 1,
         .{
@@ -237,7 +237,7 @@ pub fn setTss(tss: *const Tss.TaskStateSegment) void {
     const idx = @intFromEnum(segment_selector.tss) / @sizeOf(GdtEntry);
     const target: *TssGdtEntry = @ptrCast(@alignCast(&gdt[idx]));
 
-    target.* = tssge;
+    target.* = tss_gdtentry;
 
     log.debug("Setting Task Register...", .{});
     cpu.ltr(@intFromEnum(segment_selector.tss));

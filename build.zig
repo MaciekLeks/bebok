@@ -188,6 +188,7 @@ pub fn build(b: *Build) !void {
         .mem_bit_tree_max_levels = b.option(u8, "mem-bit-tree-max-levels", "Maximum number of the bit tree levels to manage memory, calculated as log2(total_memory_in_bytes/page_size_in_bytes)+ 1; defaults to 32") orelse 32,
         .bios_path = b.option([]const u8, "bios-path", "Aboslute path to BIOS file") orelse "/usr/share/qemu/OVMF.fd",
         .kernel_stack_size = b.option(u32, "kernel-stack-size", "Kernel stack size in bytes; defaults to 64kB(65024)") orelse 4096 * 16,
+        .double_fault_stack_size = b.option(u32, "double-fault-stack-size", "Critical errors stack size in bytes; defaults to 64kB(65024)") orelse 4096 * 16,
     };
 
     const kernel_target = try resolveTarget(b, build_options.arch);
@@ -209,6 +210,7 @@ pub fn build(b: *Build) !void {
     options.addOption(u8, "mem_bit_tree_max_levels", build_options.mem_bit_tree_max_levels);
     options.addOption(std.SemanticVersion, "kernel_version", kernel_version);
     options.addOption(u32, "kernel_stack_size", build_options.kernel_stack_size);
+    options.addOption(u32, "double_fault_stack_size", build_options.kernel_stack_size);
 
     // Modules start
     const kernel_mod = b.createModule(.{

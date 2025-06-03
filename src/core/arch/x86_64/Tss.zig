@@ -4,12 +4,11 @@ const gdt = @import("gdt.zig");
 
 const Tss = @This();
 
-const kernel_stack_size = config.kernel_stack_size;
-
 //Fields
 alloctr: std.mem.Allocator,
 tss: TaskStateSegment = undefined,
-stack: []u8 = undefined,
+kernel_stack: []u8 = undefined,
+double_fault_stack: []u8 = undefined,
 
 pub const TaskStateSegment = packed struct(u832) {
     rsrvd_a: u32 = 0,
@@ -32,10 +31,11 @@ pub fn new(allocator: std.mem.Allocator) !*Tss {
     const self = try allocator.create(Tss);
 
     self.alloctr = allocator;
-    self.stack = try allocator.alloc(u8, kernel_stack_size);
+    self.kernel_stack = try allocator.alloc(u8, config.kernel_stack_size);
+    self.double_fault_stack = try allocator.alloc(u8, config.double_fault_stack_size);
 
-    self.tss.rsp0 = @intFromPtr(&self.stack[self.stack.len - 1]);
-    self.tss.ist1 = @intFromPtr(&self.stack[self.stack.len - 1]);
+    self.tss.rsp0 = @intFromPtr(&self.kernel_stack[self.kernel_stack.len - 1]);
+    self.tss.ist1 = @intFromPtr(&self.double_fault_stack[self.double_fault_stack.len - 1]);
 
     return self;
 }
@@ -45,6 +45,6 @@ pub fn init(self: *const Tss) void {
 }
 
 pub fn destroy(self: *Tss) void {
-    self.alloctr.free(self.stack);
+    self.alloctr.free(self.kernel_stack);
     self.alloctr.destroy(self);
 }
