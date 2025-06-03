@@ -8,5 +8,6 @@ pub usingnamespace switch (builtin.cpu.arch) {
 // addons
 
 pub fn physFromPtr(ptr: anytype) !usize {
-    return try @This().recPhysFromVirt(@intFromPtr(ptr));
+    //return try @This().recPhysFromVirt(@intFromPtr(ptr));
+    return @This().physFromVirt(@intFromPtr(ptr));
 }

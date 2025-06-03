@@ -12,8 +12,8 @@ var apic_default_base_phys: usize = undefined;
 var apic_default_base_virt: usize = undefined;
 const lvt_mask = 0x10000;
 
-fn isLapicSupported(cpuid: u16) bool {
-    const cpuid_res = cpu.cpuid(cpuid);
+fn isLapicSupported(eax_in: u16) bool {
+    const cpuid_res = cpu.Id.read(eax_in);
     return cpuid_res.edx & (1 << 9) != 0;
 }
 
@@ -59,7 +59,7 @@ fn enableLapicWithDefaultBase() void {
 
     apic_default_base_phys = 0x0000_00FF_FFFF_F000 & apic_base_msr;
 
-    apic_default_base_virt = paging.virtFromMME(apic_default_base_phys);
+    apic_default_base_virt = paging.hhdmVirtFromPhys(apic_default_base_phys);
     log.info("APIC default base virtual address: 0x{x}", .{apic_default_base_virt});
 
     paging.adjustPageAreaPAT(apic_default_base_virt, apic_registry_size, .uncacheable) catch |err| {

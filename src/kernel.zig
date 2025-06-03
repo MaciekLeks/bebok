@@ -115,11 +115,20 @@ fn _start() callconv(.C) noreturn {
     //     @panic("ACPI initialization error");
     // };
 
+    // Initialize the memory managment subsystem
     pmm.init() catch |err| {
         log.err("PMM initialization error: {}", .{err});
         @panic("PMM initialization error");
     };
     defer pmm.deinit(); //TODO not here
+
+    // Remap the page tables from Limine memory to the new kernel address space
+    var paging_arena_allocator = std.heap.ArenaAllocator.init(heap.page_allocator);
+    defer paging_arena_allocator.deinit();
+    paging.downmapPageTables(paging.default_page_size, paging_arena_allocator.allocator()) catch |err| {
+        log.err("Downmapping pages error: {}", .{err});
+        @panic("Downmapping pages error");
+    };
 
     const tm = taskmgmt.new(heap.page_allocator) catch |err| {
         log.err("TSS initialization error: {}", .{err});
@@ -127,6 +136,10 @@ fn _start() callconv(.C) noreturn {
     };
     defer tm.destroy();
     tm.init();
+
+    //{pg
+    paging.logVirtInfo(@intFromPtr(tm));
+    //pg}
 
     const allocator = heap.page_allocator;
     const memory = allocator.alloc(u8, 0x3000) catch |err| {
