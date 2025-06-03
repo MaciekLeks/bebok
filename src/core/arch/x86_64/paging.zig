@@ -1,20 +1,3 @@
-//! This is paging solely for 4-Level Paging, but it also supports 4-Kilobyte, 2-Megabyte, and 1-Gigabyte pages.
-//! For now this code supports both recursive page table mapping and CR3-based page table mapping.
-//! For recursive mapping, it uses 510 (not 511) in the PML4 table.
-//! Virtual Address for Address Structure (octal)
-//! Page 0o_SSSSSS_AAA_BBB_CCC_DDD_EEEE
-//! Level 1 Table Entry PML4 0o_SSSSSS_RRR_AAA_BBB_CCC_DDDD
-//! Level 2 Table Entry PDPT 0o_SSSSSS_RRR_RRR_AAA_BBB_CCCC
-//! Level 3 Table Entry PD   0o_SSSSSS_RRR_RRR_RRR_AAA_BBBB
-//! Level 4 Table Entry PT   0o_SSSSSS_RRR_RRR_RRR_RRR_AAAA,
-//! where: SSSSSS is the sign extension of the 48-bit address, which means that they are all copies of bit 47
-//! RRR is the index of the recursive entry
-//! AAA is the index into the PML4 (lvl4) table
-//! BBB is the index into the PDPT (lvl3) table
-//! CCC is the index into the PD (lvl2) table
-//! DDD is the index into the PT (lvl1) table
-//! EEEE is the offset into the page
-
 const std = @import("std");
 const assert = std.debug.assert;
 
@@ -156,7 +139,7 @@ pub const GenEntryInfo = struct {
     ps: ?PageSize = null,
 };
 
-// TODO: usngnamespace does not work in case of the fields
+// TODO: usengnamespace does not work in case of the fields
 pub fn GenPageEntry(comptime ps: PageSize, comptime lvl: PageTableLevel) type {
     //return packed struct(GenericEntry) {
     return switch (lvl) {
@@ -212,16 +195,6 @@ pub fn GenPageEntry(comptime ps: PageSize, comptime lvl: PageTableLevel) type {
                 pub inline fn getPhysBase(self: Self) usize {
                     return @as(usize, self.aligned_address_1gbytes) << 30;
                 }
-
-                //Depreciated
-                pub inline fn retrieveFrameVirt(self: Self) ?usize {
-                    return if (self.present) self.aligned_address_1gbytes else null;
-                }
-
-                //Depreciated
-                pub inline fn retrieveFrame(self: Self) ?[]usize {
-                    return if (self.present) @as(*[.ps1g]RawEntry, @ptrFromInt(self.retrieveFrameVirt().?)) else null;
-                }
             },
             //.ps4k, .ps2m => packed struct(RawEntry) {
             else => packed struct(RawEntry) {
@@ -243,11 +216,6 @@ pub fn GenPageEntry(comptime ps: PageSize, comptime lvl: PageTableLevel) type {
 
                 pub inline fn getPhysBase(self: Self) usize {
                     return @as(usize, self.aligned_address_4kbytes) << 12;
-                }
-
-                //Depreciated
-                pub inline fn retrieveTable(self: Self) ?[]L2Entry {
-                    return if (self.present) @as(*L2Table, @ptrFromInt(hhdmVirtFromPhys(self.aligned_address_4kbytes << @bitSizeOf(u12)))) else null;
                 }
             },
             //            else => @compileError("Unsupported page size:" ++ @tagName(ps)),
@@ -277,16 +245,6 @@ pub fn GenPageEntry(comptime ps: PageSize, comptime lvl: PageTableLevel) type {
                 pub inline fn getPhysBase(self: Self) usize {
                     return @as(usize, self.aligned_address_2mbytes) << 21;
                 }
-
-                //Depreciated
-                pub inline fn retrieveFrameVirt(self: Self) ?usize {
-                    return if (self.present) self.aligned_address_2mbytes else null;
-                }
-
-                //Depreciated
-                pub inline fn retrievFrame(self: Self) ?[]usize {
-                    return if (self.present) @as(*[.ps2m]usize, @ptrFromInt(self.retrieveFrameVirt().?)) else null;
-                }
             },
             //.ps4k => packed struct(RawEntry) {
             else => packed struct(RawEntry) {
@@ -308,11 +266,6 @@ pub fn GenPageEntry(comptime ps: PageSize, comptime lvl: PageTableLevel) type {
 
                 pub inline fn getPhysBase(self: Self) usize {
                     return @as(usize, self.aligned_address_4kbytes) << 12;
-                }
-
-                //Depreciated
-                pub inline fn retrieveTable(self: Self) ?[]L1Entry {
-                    return if (self.present) @as(*L1Table, @ptrFromInt(hhdmVirtFromPhys(self.aligned_address_4kbytes << @bitSizeOf(u12)))) else null;
                 }
             },
             //else => @compileError("Unsupported page size:" ++ ps),
@@ -338,16 +291,6 @@ pub fn GenPageEntry(comptime ps: PageSize, comptime lvl: PageTableLevel) type {
 
             pub inline fn getPhysBase(self: Self) usize {
                 return @as(usize, self.aligned_address_4kbytes) << 12;
-            }
-
-            //Depreciated
-            pub inline fn retrieveFrameVirt(self: Self) ?usize {
-                return if (self.present) self.aligned_address_4kbytes else null;
-            }
-
-            //Depreciated
-            pub inline fn retrieveFrame(self: Self) ?[]usize {
-                return if (self.present) @as(*[@intFromEnum(PageSize.ps4k)]RawEntry, @ptrFromInt(self.retrieveFrameVirt().?)) else null;
             }
         },
     };
@@ -863,7 +806,6 @@ pub fn logVirtInfo(virt: usize) void {
 }
 
 // Variables
-//var/ pml4t: []L4Entry = undefined;
 var pat: PAT = undefined;
 var paging_state: PagingState = undefined;
 
