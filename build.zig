@@ -126,16 +126,22 @@ fn addQemuRun(b: *Build, target: Build.ResolvedTarget, debug: bool, bios_path: [
     _ = bios_path; //TODO: use it
     switch (target.result.cpu.arch) {
         .x86_64 => {
-            qemu.addArgs(&.{
-                //"-M", "q35", //for PCIe and NVMe support
-                "-M", "q35", //see qemu-system-x86_64 -M help
-                "-m", "30M", //Memory size
-                "-smp", "1", //one processor only
-                "-enable-kvm", //enable KVM for better performance
-                "-cpu", "host,-pdpe1gb,+pcid,+invpcid", //turn off 1GB pages due to not having downmapper for them yet
-                //"-bios", bios_path, //we need ACPI >=2.0
-                // "-drive", "if=pflash,format=raw,readonly=on,file=/usr/share/ovmf/OVMF.fd",
-            });
+            if (debug)
+                qemu.addArgs(&.{
+                    "-M",     "q35",
+                    "-m",     "30M",
+                    "-smp",   "1",
+                    "-accel", "tcg",
+                })
+            else
+                qemu.addArgs(&.{
+                    "-M",                           "q35",
+                    "-m",                           "30M",
+                    "-smp",                         "1",
+                    "-enable-kvm",                  "-cpu",
+                    "host,-pdpe1gb,+pcid,+invpcid",
+                });
+
             qemu.addArg("-no-reboot");
             qemu.addArg("-cdrom");
             //qemu_iso_action.addArg(try std.fmt.allocPrint(b.allocator, "{s}/{s}", .{b.install_prefix, bebok_iso_filename})); //TODO: can't take installed artifact LazyPAth
