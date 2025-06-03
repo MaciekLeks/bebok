@@ -614,9 +614,13 @@ const RemapperInfo = struct {
     }
 };
 
+/// Downmaps the page tables to a smaller page size. Currently supports only 4KB.
 pub fn downmapPageTables(comptime tps: PageSize, allocator: std.mem.Allocator) !void {
     comptime {
-        if (tps == .ps1g) @compileError("Downmapping to 1GB page is not supported");
+        switch (tps) {
+            .ps1g, .ps2m => {},
+            else => @compileError("Unsupported page size for downmapping: " ++ @tagName(tps)),
+        }
     }
 
     log.debug("Downmapping page tables to {any}", .{tps});
@@ -670,11 +674,10 @@ fn dupePageTable(comptime T: type, allocator: std.mem.Allocator, src: []T, compt
         switch (T) {
             L4Entry => {
                 switch (i) {
-                    default_recursive_index, 511 => {
+                    default_recursive_index => {
                         // Copy as it is, we are going to change index later
                         dst[i] = src[i];
                     },
-                    //511 => continue, // we do not need limine 511 entry any longer
                     else => {
                         const src_l3 = getSliceFromEntry(L3Entry, src[i]);
                         const new_l3 = try dupePageTable(L3Entry, allocator, src_l3, tps, remapper_info);
@@ -738,7 +741,7 @@ fn downmap2MBPage(allocator: std.mem.Allocator, l2m_entry: L2Entry2M) !L2Entry {
 
     const l2m_entry_phys = l2m_entry.getPhysBase();
 
-    defer log.debug("!Downmapping::downmap2MBPage done: l2m_entry_phys: 0x{x}", .{l2m_entry_phys});
+    //defer log.debug("!Downmapping::downmap2MBPage done: l2m_entry_phys: 0x{x}", .{l2m_entry_phys});
 
     // Create a new page tables (512 tables of the 4KB size) for 4KB pages
     const new_l1 = try allocator.alignedAlloc(L1Entry, std.mem.Alignment.fromByteUnits(@intFromEnum(PageSize.ps4k)), entries_count);
