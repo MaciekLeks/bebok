@@ -20,6 +20,7 @@ In Silesian language, a creature from our (Upper Silesians) demonology.
 - Partition schemes handling with GPT support (no CRC32 validation and no mirroring)
 - VFS (Virtual File System) Basics: Initial implementation of the Virtual File System, providing a unified interface for interacting with different file systems.
 - ext2 File System Support: Read-only support for ext2 file system, allowing access to files and directories in a read-only mode.
+- Enhanced paging: remapping and downmapping (e.g. 2MB->4KB) support
 
 # In progress
 - [ ] Ongoing refactoring and bug fixing
