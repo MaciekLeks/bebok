@@ -616,12 +616,7 @@ const RemapperInfo = struct {
 
 /// Downmaps the page tables to a smaller page size. Currently supports only 4KB.
 pub fn downmapPageTables(comptime tps: PageSize, allocator: std.mem.Allocator) !void {
-    comptime {
-        switch (tps) {
-            .ps1g, .ps2m => {},
-            else => @compileError("Unsupported page size for downmapping: " ++ @tagName(tps)),
-        }
-    }
+    comptime if (tps.gt(.ps4k)) @compileError("Unsupported page size for downmapping: " ++ @tagName(tps));
 
     log.debug("Downmapping page tables to {any}", .{tps});
     defer log.debug("Downmapping page tables to {any} done", .{tps});
