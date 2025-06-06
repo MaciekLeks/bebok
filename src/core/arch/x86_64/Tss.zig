@@ -46,5 +46,6 @@ pub fn init(self: *const Tss) void {
 
 pub fn destroy(self: *Tss) void {
     self.alloctr.free(self.kernel_stack);
+    self.alloctr.free(self.double_fault_stack);
     self.alloctr.destroy(self);
 }

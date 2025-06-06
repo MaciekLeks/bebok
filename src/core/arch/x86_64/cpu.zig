@@ -426,6 +426,32 @@ pub const Fpu = struct {
     }
 };
 
+pub const Context = struct {
+    rax: u64 = 0,
+    rbx: u64 = 0,
+    rcx: u64 = 0,
+    rdx: u64 = 0,
+    rsi: u64 = 0,
+    rdi: u64 = 0,
+    r8: u64 = 0,
+    r9: u64 = 0,
+    r10: u64 = 0,
+    r11: u64 = 0,
+    r12: u64 = 0,
+    r13: u64 = 0,
+    r14: u64 = 0,
+    r15: u64 = 0,
+
+    rbp: u64 = 0,
+    rsp: u64 = 0,
+    rip: u64 = 0,
+    rflags: u64 = 0,
+    cs: u64 = 0,
+    ds: u64 = 0,
+    es: u64 = 0,
+    ss: u64 = 0,
+};
+
 // --- helper functions ---
 
 pub inline fn div0() void {

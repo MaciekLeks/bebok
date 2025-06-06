@@ -1,5 +1,7 @@
-pub const Task = @import("task.zig").Task;
+pub const Task = @import("Task.zig");
+pub const sched = @import("sched.zig");
 
 test {
-    _ = @import("task.zig");
+    _ = @import("Task.zig");
+    _ = @import("sched.zig");
 }

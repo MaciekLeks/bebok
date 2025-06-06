@@ -266,19 +266,24 @@ fn _start() callconv(.C) noreturn {
         log.info("VFS example start", .{});
         defer log.info("VFS example end", .{});
 
-        var task = sched.Task{};
-        const fd = vfs.open(&task, "/file01.txt", .{ .read = true }, .{}) catch |err| {
+        var task: *sched.Task = sched.Task.new(heap.page_allocator, .unassigned) catch |err| {
+            log.err("Task creation error: {s}", .{@errorName(err)});
+            @panic("Task creation error");
+        };
+        defer task.destroy();
+
+        const fd = vfs.open(task, "/file01.txt", .{ .read = true }, .{}) catch |err| {
             log.err("VFS open error: {s}", .{@errorName(err)});
             @panic("VFS open error");
         };
         log.info("VFS open and fd is {d}", .{fd});
 
         var fbuf = [_]u8{0} ** 50;
-        _ = vfs.lseek(&task, fd, 1, .set) catch |err| {
+        _ = vfs.lseek(task, fd, 1, .set) catch |err| {
             log.err("VFS lseek error: {s}", .{@errorName(err)});
             @panic("VFS lseek error");
         };
-        const read_bytes = vfs.read(&task, fd, &fbuf) catch |err| {
+        const read_bytes = vfs.read(task, fd, &fbuf) catch |err| {
             log.err("VFS read error: {s}", .{@errorName(err)});
             @panic("VFS read error");
         };
@@ -288,7 +293,7 @@ fn _start() callconv(.C) noreturn {
             log.info("c={c} hex={0x}", .{fbuf[i]});
         }
         log.info("VFS read:\'{s}\'", .{fbuf});
-        vfs.close(&task, fd) catch |err| {
+        vfs.close(task, fd) catch |err| {
             log.err("VFS close error: {s}", .{@errorName(err)});
             @panic("VFS close error");
         };

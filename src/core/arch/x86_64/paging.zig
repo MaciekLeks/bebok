@@ -104,6 +104,7 @@ const page_table_levels = [_]PageTableLevel{ .l4, .l3, .l2, .l1 };
 pub export var hhdm_request: limine.HhdmRequest = .{};
 pub export var paging_mode_request: limine.PagingModeRequest = .{ .mode = .four_level, .flags = 0 }; //default L4 paging
 var hhdm_offset: usize = undefined;
+var hhdm_va: VirtualAddress = undefined; //TODO: do we really need this, only to get 256 index in l4?
 
 //types
 const RawEntry = u64;
@@ -162,11 +163,6 @@ pub fn GenPageEntry(comptime ps: PageSize, comptime lvl: PageTableLevel) type {
 
             pub inline fn getPhysBase(self: Self) usize {
                 return @as(usize, self.aligned_address_4kbytes) << 12;
-            }
-
-            //Depreciated
-            pub fn retrieveTable(self: Self) ?[]L3Entry {
-                return if (self.present) @as(*L3Table, @ptrFromInt(hhdmVirtFromPhys(self.aligned_address_4kbytes << @bitSizeOf(u12)))) else null;
             }
         },
         // .pdpte1gbytes
@@ -593,7 +589,7 @@ pub fn downmapPageTables(comptime tps: PageSize, allocator: std.mem.Allocator) !
     log.debug("!Downmapping::downmapPageTables: new CR3 set", .{});
 }
 
-fn dupePageTable(comptime T: type, allocator: std.mem.Allocator, src: []T, comptime tps: PageSize, remapper_info: *RemapperInfo) ![]T {
+inline fn newTable(comptime T: type, allocator: std.mem.Allocator) ![]T {
     // no matter what page size we need to allocate 4kbytes aligned page, but if you use for instance Arena Allocator, then
     // we do not control the alignment, so it is better to aligned imperatively
     const dst = allocator.allocWithOptions(T, entries_count, std.mem.Alignment.fromByteUnits(@intFromEnum(PageSize.ps4k)), null) catch |err| {
@@ -601,7 +597,20 @@ fn dupePageTable(comptime T: type, allocator: std.mem.Allocator, src: []T, compt
         return error.PageFault;
     };
     @memset(@as([*]u8, @ptrCast(dst.ptr))[0 .. @sizeOf(T) * entries_count], 0);
+    return dst;
+}
+
+fn dupePageTable(comptime T: type, allocator: std.mem.Allocator, src: []T, comptime tps: PageSize, remapper_info: *RemapperInfo) ![]T {
+    // no matter what page size we need to allocate 4kbytes aligned page, but if you use for instance Arena Allocator, then
+    // we do not control the alignment, so it is better to aligned imperatively
+    // const dst = allocator.allocWithOptions(T, entries_count, std.mem.Alignment.fromByteUnits(@intFromEnum(PageSize.ps4k)), null) catch |err| {
+    //     log.err("Failed to allocate page table: {any}", .{err});
+    //     return error.PageFault;
+    // };
+    // @memset(@as([*]u8, @ptrCast(dst.ptr))[0 .. @sizeOf(T) * entries_count], 0);
     //log.debug("Downmapping::dupePageTable: new dst_ptr: {*}", .{dst});
+
+    const dst = try newTable(T, allocator);
 
     for (0..entries_count) |i| {
         if (!src[i].present) {
@@ -846,8 +855,10 @@ pub fn init() !void {
     const l4: []L4Entry = getSliceFromAlignedPhys(L4Entry, @bitSizeOf(u12), cr3.aligned_address_4kbytes);
     l4[default_recursive_index] = .{ .present = true, .writable = true, .aligned_address_4kbytes = cr3.aligned_address_4kbytes };
 
+    hhdm_va = VirtualAddress.fromUsize(hhdmVirtFromPhys(0));
+
     //const lvl4e = retrieveEntryFromVaddr(Pml4e, .four_level, default_page_size, .lvl4, 0xffff_8000_fe80_0000);
-    log.warn("cr3 -> {any}", .{cr3});
+    log.warn("cr3:{any}, hhdm_va:{any}", .{ cr3, hhdm_va });
 
     //TODO: remove this code, it is only for testing purposes
     const vt = [_]usize{
@@ -871,6 +882,46 @@ pub fn init() !void {
         log.debug("Call function physInfoFromVirt: 0x{x} -> {any}", .{ vaddr, psych_info });
     }
 }
+
+//--- Task: Paging ---
+/// Lazy L4 initialization for task
+// We copy the kernel's hddm L4 entry and the recursive entry
+// Return physical address of the new L4 table
+pub fn createTaskL4(allocator: std.mem.Allocator) !struct { aligned_phys: u39, virt: usize } {
+    const new_l4 = try newTable(L4Entry, allocator);
+
+    const kernel_l4 = pageSliceFromVARecursive(.l4, VirtualAddress.recursiveL4());
+
+    // copy only the hhdm entry and the recursive entry
+    for ([_]u9{ hhdm_va.l4idx, default_recursive_index }) |i| {
+        new_l4[i] = kernel_l4[i];
+    }
+
+    // set recursive L4 address the same as the kernel's CR3
+    const kernel_l4_aligned_phys: u39 = @truncate(try physFromVirt(@intFromPtr(kernel_l4.ptr)) >> 12);
+    const new_l4_aligned_phys: u39 = @truncate(try physFromVirt(@intFromPtr(new_l4.ptr)) >> 12);
+    new_l4[default_recursive_index].aligned_address_4kbytes = kernel_l4_aligned_phys;
+
+    return .{ .aligned_phys = new_l4_aligned_phys, .virt = @intFromPtr(new_l4.ptr) };
+}
+
+// pub fn mapUserPage(l4_aligned_phys: u39, pcid: u12, virt: usize, page_size: PageSize) !void {
+//     const va = VirtualAddress.fromUsize(virt);
+
+//     if (va.l4idx >= hhdm_va.l4idx) return error.KernelSpaceViolation;
+
+//     //switch to the task's L4 table
+//     const kernel_cr3 = cpu.Cr3.read();
+//     cpu.Cr3.set(l4_aligned_phys, .{
+//         .pcid_enabled = paging_state.pcid_enabled,
+//         .invpcid_supported = paging_state.invpcid_supported,
+//     }, .{
+//         .pcid = pcid,
+//         .flush_type = .none,
+//     });
+// }
+
+//--- PAT (Page Attribute Table) ---
 
 // PAT (Page Attribute Table) specific code
 pub const PATType = enum(u8) {

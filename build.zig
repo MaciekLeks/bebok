@@ -195,6 +195,7 @@ pub fn build(b: *Build) !void {
         .bios_path = b.option([]const u8, "bios-path", "Aboslute path to BIOS file") orelse "/usr/share/qemu/OVMF.fd",
         .kernel_stack_size = b.option(u32, "kernel-stack-size", "Kernel stack size in bytes; defaults to 64kB(65024)") orelse 4096 * 16,
         .double_fault_stack_size = b.option(u32, "double-fault-stack-size", "Critical errors stack size in bytes; defaults to 64kB(65024)") orelse 4096 * 16,
+        .max_pid = b.option(u32, "max-pid", "Maximum number of processes in the system; defaults to 1024") orelse 1024,
     };
 
     const kernel_target = try resolveTarget(b, build_options.arch);
@@ -217,6 +218,7 @@ pub fn build(b: *Build) !void {
     options.addOption(std.SemanticVersion, "kernel_version", kernel_version);
     options.addOption(u32, "kernel_stack_size", build_options.kernel_stack_size);
     options.addOption(u32, "double_fault_stack_size", build_options.kernel_stack_size);
+    options.addOption(u32, "max_pid", build_options.max_pid);
 
     // Modules start
     const kernel_mod = b.createModule(.{
@@ -406,6 +408,8 @@ pub fn build(b: *Build) !void {
 
     // Scheduler dependencies
     sched_mod.addImport("fs", fs_mod);
+    sched_mod.addImport("core", core_mod);
+    sched_mod.addImport("commons", commons_mod);
 
     // Root module imports
     kernel_mod.addImport("core", core_mod);
