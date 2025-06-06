@@ -10,7 +10,7 @@ pub const Pid = enum(u32) {
 };
 
 //Fields
-var bitset: std.bit_set.StaticBitSet = std.bit_set.StaticBitSet(config.max_pid);
+var bitset = std.bit_set.StaticBitSet(config.max_pid).initEmpty();
 var cursor: u32 = 0; // used to track the next PID to allocate
 
 pub fn getNextPid() !Pid {
@@ -35,5 +35,5 @@ pub fn releasePid(pid: Pid) void {
     const value = @intFromEnum(pid);
     if (value == 0) return; // Ignoruj .unassigned
     const index = value - 1; // PID 1 → indeks 0
-    bitset.clear(index);
+    bitset.unset(index);
 }

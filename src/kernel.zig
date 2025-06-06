@@ -266,7 +266,7 @@ fn _start() callconv(.C) noreturn {
         log.info("VFS example start", .{});
         defer log.info("VFS example end", .{});
 
-        var task: *sched.Task = sched.Task.new(heap.page_allocator, .unassigned) catch |err| {
+        var task: *sched.Task = sched.Task.new(heap.page_allocator) catch |err| {
             log.err("Task creation error: {s}", .{@errorName(err)});
             @panic("Task creation error");
         };

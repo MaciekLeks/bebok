@@ -22,23 +22,11 @@ pub fn getCurrPid() Pid {
     return curr_task.pid;
 }
 
-/// Add task without assigned PID
 pub fn addTask(task: *Task) !Pid {
-    if (task.pid != .unassigned) {
-        return error.InvalidPid;
-    }
-
-    task.pid = try pidtracker.getNextPid();
     tasks.addAfter(&task.global_node);
 }
 
 pub fn removeTask(task: *Task) void {
-    if (task.pid == .unassigned) {
-        return; // Ignore unassigned tasks
-    }
-
-    // Remove from global task list
-    pidtracker.releasePid(task.pid);
     task.global_node.remove();
 
     //Remove all children and their descendants
