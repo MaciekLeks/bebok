@@ -8,17 +8,25 @@ const Self = @This();
 l4_aligned_phys: u39, // L4 aligned physical address of the page table base, used for fast access
 pcid: pcidmod.Id, // PCID for the current context, used to avoid TLB flushes
 
-rbx: u64, // used for fast access to the page table base
+cs: u64 = 0, // Code segment selector, initialized to user code segment
+ds: u64 = 0, // Data segment selector, initialized to user data segment
+rip: u64 = 0, // Instruction pointer, initialized to user virtual start
+rsp: u64 = 0, // Stack pointer, initialized to user stack top
 
-pub fn new(allocator: std.mem.Allocator) !Self {
+pub fn init(allocator: std.mem.Allocator) !Self {
     return .{
-        .l4_aligned_phys = try paging.createTaskL4(allocator).aligned_phys,
+        .l4_aligned_phys = try paging.createL4(allocator).aligned_phys,
         .pcid = try pcidmod.reserve(),
-        .rbx = 0,
+
+        .cs = gdt.segment_selector.user_code, // Set to user code segment
+        .ds = gdt.segment_selector.user_data, // Set to user data segment
+
+        .rip = config.user_virt_start, // Set to user virtual start
+        .rsp = config.user_stack_start, // Set to user stack top
     };
 }
 
-pub fn destroy(self: *Self) void {
+pub fn deinit(self: *Self) void {
     pcidmod.release(self.pcid);
     //TODO: implement paging cleanup if necessary
 
@@ -33,3 +41,5 @@ pub fn switchctx(oldctx: *const Self, newctx: *const Self) void {
 const std = @import("std");
 const pcidmod = @import("pcid.zig");
 const paging = @import("paging.zig");
+const config = @import("config");
+const gdt = @import("gdt.zig");

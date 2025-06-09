@@ -196,6 +196,9 @@ pub fn build(b: *Build) !void {
         .kernel_stack_size = b.option(u32, "kernel-stack-size", "Kernel stack size in bytes; defaults to 64kB(65024)") orelse 4096 * 16,
         .double_fault_stack_size = b.option(u32, "double-fault-stack-size", "Critical errors stack size in bytes; defaults to 64kB(65024)") orelse 4096 * 16,
         .max_pid = b.option(u32, "max-pid", "Maximum number of processes in the system; defaults to 1024") orelse 1024,
+        .user_start = b.option(u64, "user-start", "User virtual address space start; defaults to 0x400000") orelse 0x400000,
+        .user_stack_size = b.option(u32, "user-stack-size", "User stack size in bytes; defaults to 64kB(65024)") orelse 4096 * 16,
+        .user_stack_start = b.option(u64, "user-stack-start", "User stack start address; defaults to 0x7ff00000") orelse 0x7ff00000,
     };
 
     const kernel_target = try resolveTarget(b, build_options.arch);
@@ -219,6 +222,9 @@ pub fn build(b: *Build) !void {
     options.addOption(u32, "kernel_stack_size", build_options.kernel_stack_size);
     options.addOption(u32, "double_fault_stack_size", build_options.kernel_stack_size);
     options.addOption(u32, "max_pid", build_options.max_pid);
+    options.addOption(u64, "user_start", build_options.user_start);
+    options.addOption(u32, "user_stack_size", build_options.user_stack_size);
+    options.addOption(u64, "user_stack_start", build_options.user_stack_start);
 
     // Modules start
     const kernel_mod = b.createModule(.{

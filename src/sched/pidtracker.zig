@@ -33,7 +33,7 @@ pub fn getNextPid() !Pid {
 
 pub fn releasePid(pid: Pid) void {
     const value = @intFromEnum(pid);
-    if (value == 0) return; // Ignoruj .unassigned
+    if (value == 0) return; // ignore .unassigned
     const index = value - 1; // PID 1 → indeks 0
     bitset.unset(index);
 }

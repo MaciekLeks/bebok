@@ -22,6 +22,10 @@ const PageSize = enum(u32) {
     pub fn lt(self: Self, other: Self) bool {
         return @intFromEnum(self) < @intFromEnum(other);
     }
+
+    pub fn eq(self: Self, other: Self) bool {
+        return self == other;
+    }
 };
 
 const PagingMode = enum(u1) {
@@ -40,7 +44,7 @@ const PagingState = struct {
     pcid_supported: bool = false,
     pcid_enabled: bool = false,
     invpcid_supported: bool = false,
-    curr_pcid: u12 = 0,
+    curr_pcid: u12 = 0, //TODO: tbd
 
     pub fn init() !PagingState {
         log.debug("PagingState::init", .{});
@@ -292,6 +296,16 @@ pub fn GenPageEntry(comptime ps: PageSize, comptime lvl: PageTableLevel) type {
     };
 }
 
+/// Required flags for user entries
+const UserEntryFlags = struct {
+    writable: bool = true,
+    user: bool = true,
+    pat: PATType = PATType.write_back,
+    cache_disabled: bool = false,
+    write_through: bool = false,
+    execute_disable: bool = false,
+};
+
 // Generic function for GenPageEntry
 inline fn isLeaf(entry: anytype, comptime lvl: PageTableLevel) !bool {
     if (!entry.present) return error.PageFault;
@@ -478,6 +492,26 @@ fn nextLevel(comptime lvl: PageTableLevel) PageTableLevel {
         .l3 => .l2,
         .l2 => .l1,
         .l1 => unreachable,
+    };
+}
+
+fn nextTableType(comptime T: type, comptime tps: PageSize) !type {
+    return switch (T) {
+        L4Entry => L3Entry,
+        L3Entry => if (tps.eq(.ps1g)) L3Entry1G else L2Entry,
+        L2Entry => if (tps.eq(.ps2m)) L2Entry2M else L1Entry,
+        L1Entry => unreachable,
+        else => @compileError("Unsupported page table type: " ++ @typeName(T)),
+    };
+}
+
+fn levelFromTableType(comptime T: type) PageTableLevel {
+    return switch (T) {
+        L4Entry => .l4,
+        L3Entry => .l3,
+        L2Entry => .l2,
+        L1Entry => .l1,
+        else => @compileError("Unsupported page table type: " ++ @typeName(T)),
     };
 }
 
@@ -884,10 +918,10 @@ pub fn init() !void {
 }
 
 //--- Task: Paging ---
-/// Lazy L4 initialization for task
-// We copy the kernel's hddm L4 entry and the recursive entry
+// Create a new L4 table from the current L4 table (the one that CR3 points to).
+// We copy the current hddm L4 entry and the recursive entry
 // Return physical address of the new L4 table
-pub fn createTaskL4(allocator: std.mem.Allocator) !struct { aligned_phys: u39, virt: usize } {
+pub fn createL4(allocator: std.mem.Allocator) !struct { aligned_phys: u39, virt: usize } {
     const new_l4 = try newTable(L4Entry, allocator);
 
     const kernel_l4 = pageSliceFromVARecursive(.l4, VirtualAddress.recursiveL4());
@@ -905,21 +939,109 @@ pub fn createTaskL4(allocator: std.mem.Allocator) !struct { aligned_phys: u39, v
     return .{ .aligned_phys = new_l4_aligned_phys, .virt = @intFromPtr(new_l4.ptr) };
 }
 
-// pub fn mapUserPage(l4_aligned_phys: u39, pcid: u12, virt: usize, page_size: PageSize) !void {
-//     const va = VirtualAddress.fromUsize(virt);
+/// Check if the address (virtual or physical) is aligned to the page size.
+inline fn isAlignedToPageSize(addr: usize) bool {
+    return addr % config.mem_page_size == 0;
+}
 
-//     if (va.l4idx >= hhdm_va.l4idx) return error.KernelSpaceViolation;
+// Align address (virtual or physical) to the page size.
+fn alignToPageSize(addr: usize) usize {
+    if (isAlignedToPageSize(addr)) return addr;
 
-//     //switch to the task's L4 table
-//     const kernel_cr3 = cpu.Cr3.read();
-//     cpu.Cr3.set(l4_aligned_phys, .{
-//         .pcid_enabled = paging_state.pcid_enabled,
-//         .invpcid_supported = paging_state.invpcid_supported,
-//     }, .{
-//         .pcid = pcid,
-//         .flush_type = .none,
-//     });
-// }
+    return addr + (config.mem_page_size - (addr % config.mem_page_size));
+}
+
+pub fn map(allocator: std.mem.Allocator, l4: []L4Entry, user_virt: usize, phys_start: usize, phys_end: usize, flags: UserEntryFlags) !void {
+    if (!isAlignedToPageSize(user_virt)) error.InvalidAddressAlignment;
+
+    if (!isAlignedToPageSize(phys_start) or !isAlignedToPageSize(phys_end)) {
+        return error.InvalidAddressAlignment;
+    }
+
+    if (phys_start >= phys_end) {
+        return error.InvalidAddressRange;
+    }
+
+    const total_bytes = phys_end - phys_start;
+    const total_pages = total_bytes / config.mem_page_size;
+
+    try mapRange(allocator, l4, user_virt, phys_start, total_pages, flags);
+}
+
+pub fn mapRange(
+    allocator: std.mem.Allocator,
+    l4: []L4Entry,
+    user_virt: usize,
+    phys: usize,
+    count: usize,
+    flags: UserEntryFlags,
+) !void {
+    for (0..count) |i| {
+        const virt_addr = user_virt + i * config.mem_page_size;
+        const phys_addr = phys + i * config.mem_page_size;
+
+        try mapSingle(L4Entry, allocator, l4, virt_addr, phys_addr, flags);
+    }
+}
+
+fn mapSingle(
+    comptime T: type,
+    comptime tps: PageSize,
+    allocator: std.mem.Allocator,
+    table: []T,
+    user_virt: usize,
+    phys: usize,
+    flags: UserEntryFlags,
+) !void {
+    const user_va = VirtualAddress.fromUsize(user_virt);
+
+    log.debug("UserMapping: virt: 0x{x}, phys: 0x{x}, flags: {any}", .{ user_virt, phys, flags });
+
+    //Generic walking through the page table levels
+    const lvl = levelFromTableType(T);
+    const idx: usize = user_va.idxFromLvl(lvl);
+    const entry: *T = &table[idx];
+
+    const NextTableType = try nextTableType(T, tps);
+
+    log.debug("UserMapping: lvl: {s}, idx: {d}", .{ @tagName(lvl), idx });
+
+    if (lvl == LeafEntryTypeFromPageSize(tps)) {
+        // If we are at the leaf level, we can directly set the entry
+        entry.* = LeafEntryTypeFromPageSize(tps){
+            .present = true,
+            .writable = flags.writable,
+            .user = flags.user,
+            .write_through = flags.write_through,
+            .cache_disabled = flags.cache_disabled,
+            .accessed = false,
+            .dirty = false,
+            .pat = pat.patFromPageFlags(flags.page_pat, flags.page_pcd, flags.page_pwt),
+            .global = flags.global,
+            .restart = false,
+            .aligned_address_4kbytes = @truncate(phys >> 12),
+            .protection_key = 0, //TODO: support protection keys
+            .execute_disable = flags.execute_disable,
+        };
+        return;
+    } else {
+        if (!table[idx].present) {
+            // If the entry is not present, we need to create a new table
+            const next_table = try newTable(NextTableType, allocator);
+            // Set the new table in the current entry
+            table[idx] = NextTableType{
+                .present = true,
+                .writable = flags.writable,
+                .user = flags.user,
+                .aligned_address_4kbytes = @truncate(try physFromVirt(@intFromPtr(next_table.ptr)) >> 12),
+            };
+        }
+
+        try mapSingle(NextTableType, tps, allocator, getSliceFromEntry(NextTableType, table[idx]), user_virt, phys, flags);
+    }
+
+    return;
+}
 
 //--- PAT (Page Attribute Table) ---
 

@@ -31,6 +31,11 @@ pub fn destroy(self: *const Task) void {
     self.alloctr.destroy(self);
 }
 
+pub fn init(self: *Task) !void {
+    // Initialize context and other fields as needed
+    self.ctx = try Context.init(self.alloctr);
+}
+
 // Self reference
 const Task = @This();
 
