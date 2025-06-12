@@ -415,7 +415,7 @@ pub fn build(b: *Build) !void {
     // Scheduler dependencies
     sched_mod.addImport("fs", fs_mod);
     sched_mod.addImport("core", core_mod);
-    sched_mod.addImport("commons", commons_mod);
+    sched_mod.addImport("lang", lang_mod);
     sched_mod.addImport("config", options_mod);
 
     // Root module imports

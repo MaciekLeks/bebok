@@ -1,4 +1,4 @@
-const ListHead = @This();
+pub const ListHead = @This();
 
 next: *ListHead,
 prev: *ListHead,
